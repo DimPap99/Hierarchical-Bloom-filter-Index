@@ -20,7 +20,48 @@ public class Utils {
 //        return (value & mask) >>> level;
         return value >>> domainTotalBits - level;
     }
+    /**
+     * Formats an integer into  "bitinterval<interval_bits><remaining_bits>".
+     *
+     * @param totalBits total number of bits in the domain (e.g. 5 for 0..31)
+     * @param level     number of binary splits (level = 1 ⇒ 2 intervals, etc.)
+     * @param value     value to classify
+     * @return          formatted string, e.g. "bitinterval10001"
+     */
+    /**
+     * Returns a string whose left-hand part is the interval index (width = level)
+     * and whose right-hand part is a run of '#' characters (count = totalBits-level).
+     *
+     * Example (totalBits = 5):
+     *   value = 17 (10001₂), level = 1  -->  "1####"
+     *   value = 22 (10110₂), level = 3  -->  "101##"
+     */
+    /**
+     * Returns  "<interval bits><# placeholders>".
+     * Example (totalBits = 5):
+     *   value = 22 (10110₂), level = 3  ->  "101##"
+     */
+    public static String intervalWithHashes(int totalBits, int level, int value) {
 
+        int lowerBits = totalBits - level;          // how many '#' chars
+        int interval  = (level == 0) ? 0           // avoid >>> with shift = totalBits
+                : value >>> lowerBits;
+
+        /* ---- left part: interval bits ---- */
+        String intervalBits;
+        if (level > 0) {                            // <-- guard fixes %0s problem
+            intervalBits = Integer.toBinaryString(interval);
+            intervalBits = String.format("%" + level + "s", intervalBits)
+                    .replace(' ', '0');
+        } else {
+            intervalBits = "";                      // level == 0 ⇒ no bits
+        }
+
+        /* ---- right part: '#' placeholders ---- */
+        String hashes = "#".repeat(lowerBits);      // repeat(0) returns ""
+
+        return intervalBits + hashes;
+    }
 
 
 }
