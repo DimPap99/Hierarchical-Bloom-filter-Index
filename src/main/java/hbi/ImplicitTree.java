@@ -1,5 +1,6 @@
 package hbi;
 
+import membership.BloomFilter;
 import membership.Membership;
 import utilities.HBILogger;
 import utilities.Utils;
@@ -21,7 +22,7 @@ public class ImplicitTree {
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
 
-    public ImplicitTree(int intervalSize){
+    public ImplicitTree(int intervalSize, Membership membership){
            this.intervalSize=intervalSize;
             this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
             int b =2;
@@ -84,7 +85,7 @@ public class ImplicitTree {
         words.add("f");
 
 
-        ImplicitTree tr = new ImplicitTree(words.size());
+        ImplicitTree tr = new ImplicitTree(words.size(), new BloomFilter(16, 0.01));
         for(String s : words) {
             tr.insert(s);
         }
