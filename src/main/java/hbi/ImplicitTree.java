@@ -25,7 +25,7 @@ public class ImplicitTree {
     public ImplicitTree(int intervalSize, Membership membership){
            this.intervalSize=intervalSize;
             this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
-            int b =2;
+
     }
 
     public String createCompositeKey(int currentDepth, int intervalIdx, String input){
@@ -56,10 +56,8 @@ public class ImplicitTree {
             String intervalStr = Utils.intervalWithHashes(this.maxDepth, i, this.indexedItemsCounter);
             System.out.println(intervalStr);
             HBILogger.debug("Inserting item: "+input+" key: " + key);
-            if(i == 4){
-                int b= 1;
-            }
-            //this.membership.insert(key);
+
+            this.membership.insert(key);
 
         }
         //last level we index without mask
