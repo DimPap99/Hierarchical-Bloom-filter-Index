@@ -1,13 +1,12 @@
-package algorithms;
-
-import org.apache.commons.math3.util.Pair;
+package PMIndex;
 
 import java.util.ArrayList;
 
-public interface SearchAlgorithm {
+public interface IPMIndexing {
+
+    void insert(String key);
 
     boolean exists(String key);
 
     ArrayList<Integer> report(String key);
-
 }
