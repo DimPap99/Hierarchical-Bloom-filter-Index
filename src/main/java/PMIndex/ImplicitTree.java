@@ -1,6 +1,5 @@
-package hbi;
+package PMIndex;
 
-import membership.BloomFilter;
 import membership.Membership;
 import utilities.HBILogger;
 import utilities.Utils;
@@ -22,14 +21,29 @@ public class ImplicitTree {
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
 
-    public ImplicitTree(int intervalSize, Membership membership){
-           this.intervalSize=intervalSize;
-            this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
+    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize){
+        this.intervalSize=intervalSize;
+        this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
+        int distinctItems = this.calculateDistinctItems(alphabetSize);
+        this.membership = membership;
+        this.membership.init(distinctItems, fpRate);
 
     }
 
-    public String createCompositeKey(int currentDepth, int intervalIdx, String input){
+    public int calculateDistinctItems(int alphabetSize){
+        int distinctItems = 0;
+        for(int i=0; i< this.maxDepth+1; i++){
+            if(i == this.maxDepth + 1){
+                distinctItems+= alphabetSize * this.intervalSize; //For the levels we use ceil. Actual elements at last level
+                //are <= Math.pow(2, lastDepth).
+            }else{
+                distinctItems+= alphabetSize * Math.pow(2, i);
+            }
+        }
+        return distinctItems;
+    }
 
+    public String createCompositeKey(int currentDepth, int intervalIdx, String input){
         String compositeKey="";
         compositeKey+=currentDepth +"|"+intervalIdx+"|"+input;
         return compositeKey;
@@ -61,7 +75,6 @@ public class ImplicitTree {
 
         }
         //last level we index without mask
-
     }
 
     public static void main(String[] args) {
@@ -82,11 +95,6 @@ public class ImplicitTree {
         words.add("e");
         words.add("f");
 
-
-        ImplicitTree tr = new ImplicitTree(words.size(), new BloomFilter(16, 0.01));
-        for(String s : words) {
-            tr.insert(s);
-        }
     }
 
 

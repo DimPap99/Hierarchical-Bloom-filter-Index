@@ -20,6 +20,21 @@ public class BloomFilter implements Membership {
                 n, m, k, p);
     }
 
+    public BloomFilter(){};
+
+    public void init(int n, double p){
+        if (n <= 0)                  throw new IllegalArgumentException("n must be > 0");
+        if (p <= 0 || p >= 1)        throw new IllegalArgumentException("p must be in (0,1)");
+
+        double ln2 = Math.log(2);
+        this.n = n;
+        this.m = (int) Math.ceil(-(n * Math.log(p)) / (ln2 * ln2));
+        this.k = (int) Math.max(1, Math.round((m / (double) n) * ln2));
+        this.p    = Math.pow(1 - Math.exp(-k / (double) m * n), k);
+
+        this.filter = new BitSet(m);
+        initSeeds();
+    };
 
     /**
      * https://en.wikipedia.org/wiki/Bloom_filter
