@@ -14,41 +14,48 @@ public class Experiment {
         int read;
         // Read characters
         HBILogger.info("Reading input file...");
+        long startTime = System.currentTimeMillis();
         try{
             FileReader fileReader = new FileReader(inputFilePath);
             int ch;
             while ((ch = fileReader.read()) != -1) {
+
                 index.insert(Character.toString((char) ch));
             }
             fileReader.close();
         HBILogger.info("Done reading input file.");
         }catch (IOException e){
-            HBILogger.error(e.getStackTrace().toString());
+            e.printStackTrace();
         }
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+//        HBILogger.info("Report: " + report.toString());
+        HBILogger.info("Time taken: " + duration + " ms");
+
         HBILogger.info("Reading queries file...");
         ArrayList<String> queries = new ArrayList<>();
         try{
             BufferedReader reader = new BufferedReader(new FileReader(queriesFilePath));
             String line;
-            while((line = reader.readLine()) != null)){
+            while((line = reader.readLine()) != null){
                 queries.add(line);
             }
         }catch (IOException e){
-            HBILogger.error(e.getStackTrace().toString());
+            e.printStackTrace();
         }
 
         HBILogger.info("Will start querying...");
-
+        startTime = System.currentTimeMillis();
         for(String query : queries){
-            HBILogger.info("Query: " + query);
-            long startTime = System.currentTimeMillis();
+//            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(query);
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-            HBILogger.info("Report: " + report.toString());
-            HBILogger.info("Time taken: " + duration + " ms");
-            HBILogger.info("---------------------------------------");
-            HBILogger.info("---------------------------------------");
+
         }
+        endTime = System.currentTimeMillis();
+        duration = endTime - startTime;
+//        HBILogger.info("Report: " + report.toString());
+        HBILogger.info("Time taken: " + duration + " ms");
+        HBILogger.info("---------------------------------------");
+        HBILogger.info("---------------------------------------");
     }
 }

@@ -24,9 +24,14 @@ public class ImplicitTree {
     public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize){
         this.intervalSize=intervalSize;
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
-        int distinctItems = this.calculateDistinctItems(alphabetSize);
+        //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
+        //the number of keys to be inserted are equal to the size of the window multiplied by the depth of the tree.
+        int expectedInsertions = this.intervalSize * (this.maxDepth + 1);
         this.membership = membership;
-        this.membership.init(distinctItems, fpRate);
+        this.membership.init(expectedInsertions, fpRate);
+
+        int s = calculateDistinctItems(alphabetSize);
+        int b = 2;
 
     }
 

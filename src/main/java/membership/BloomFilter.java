@@ -27,9 +27,13 @@ public class BloomFilter implements Membership {
         if (p <= 0 || p >= 1)        throw new IllegalArgumentException("p must be in (0,1)");
 
         double ln2 = Math.log(2);
+        //distinct elements
         this.n = n;
+        //num of required bits
         this.m = (int) Math.ceil(-(n * Math.log(p)) / (ln2 * ln2));
+        //num of hash funcs
         this.k = (int) Math.max(1, Math.round((m / (double) n) * ln2));
+        //fp rate
         this.p    = Math.pow(1 - Math.exp(-k / (double) m * n), k);
 
         this.filter = new BitSet(m);
