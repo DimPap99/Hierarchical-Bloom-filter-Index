@@ -12,11 +12,11 @@ public class ImplicitTree {
     //Items will be indexed as they come. The position will be given based on total items
     //indexed for the allocated interval of the tree. Once the items indexed surpass the
     //items indexed by the tree, we will be creating a new block.
-    int intervalSize;
-    int maxDepth;
-    int indexedItemsCounter=-1;
+    public int intervalSize;
+    public int maxDepth;
+    public int indexedItemsCounter=-1;
 
-    Membership membership;
+    public Membership membership;
 
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
@@ -26,19 +26,19 @@ public class ImplicitTree {
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
         //the number of keys to be inserted are equal to the size of the window multiplied by the depth of the tree.
-        int expectedInsertions = this.intervalSize * (this.maxDepth + 1);
+        //for n grams this is min(alphabetsize^n, window-n+1)
+        int distinctItems = Math.min(alphabetSize, this.intervalSize);
+        int expectedInsertions = distinctItems * (this.maxDepth + 1);
         this.membership = membership;
         this.membership.init(expectedInsertions, fpRate);
-
-        int s = calculateDistinctItems(alphabetSize);
-        int b = 2;
+        
 
     }
 
     public int calculateDistinctItems(int alphabetSize){
         int distinctItems = 0;
         for(int i=0; i< this.maxDepth+1; i++){
-            if(i == this.maxDepth + 1){
+            if(i == this.maxDepth){
                 distinctItems+= alphabetSize * this.intervalSize; //For the levels we use ceil. Actual elements at last level
                 //are <= Math.pow(2, lastDepth).
             }else{
