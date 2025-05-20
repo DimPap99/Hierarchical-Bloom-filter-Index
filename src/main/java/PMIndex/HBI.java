@@ -2,6 +2,7 @@ package PMIndex;
 
 import algorithms.SearchAlgorithm;
 import membership.BloomFilter;
+import membership.MockMembership;
 
 import java.util.ArrayList;
 
@@ -15,12 +16,13 @@ public class HBI implements IPMIndexing {
     public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize){
         this.searchAlgo = algo;
         this.windowLength = windowLength;
-        this.tree = new ImplicitTree(windowLength, new BloomFilter(), fpRate, alphabetSize);
+        this.tree = new ImplicitTree(windowLength, new MockMembership(), fpRate, alphabetSize);
     }
 
 
     public void insert(String key){
         indexedItemsCounter++;
+        tree.insert(key);
     }
 
     //Simple existence query
@@ -29,6 +31,6 @@ public class HBI implements IPMIndexing {
     }
 
     public ArrayList<Integer> report(String key){
-        return null;
+        return this.searchAlgo.report(key, this.tree, false);
     }
 }

@@ -1,7 +1,1 @@
-abc
-abb
-add
-abcd
-baab
-dcad
-daabe
+bdca

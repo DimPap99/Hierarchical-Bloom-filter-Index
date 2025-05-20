@@ -8,8 +8,7 @@ import java.util.ArrayList;
 
 public interface SearchAlgorithm {
 
-    boolean exists(String key, ImplicitTree tree);
 
-    ArrayList<Integer> report(String key, ImplicitTree tree);
+    ArrayList<Integer> report(String key, ImplicitTree tree, boolean existence);
 
 }

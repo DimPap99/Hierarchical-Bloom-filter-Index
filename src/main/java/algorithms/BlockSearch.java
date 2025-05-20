@@ -1,6 +1,5 @@
 package algorithms;
 
-import PMIndex.HBI;
 import PMIndex.ImplicitTree;
 
 import java.util.ArrayList;
@@ -18,7 +17,23 @@ public class BlockSearch implements SearchAlgorithm{
             this.str = str;
         }
 
+
     }
+    static final class Frame {
+        final int level;          // depth
+        final int intervalIdx;       // index within that depth
+        final int offset;         // how many chars of P already aligned to the left edge
+        final int charsToMatch;
+        Frame(int level, int interval, int offset, int charsToMatch) {
+            this.level = level;
+            this.intervalIdx = interval;
+            this.offset  = offset;
+            this.charsToMatch = charsToMatch;
+        }
+    }
+
+    record Probe(int consumed, boolean complete) {} // complete==true if no miss in this node
+
 
     public class MatchResult{
         public ArrayList<String> matches;
@@ -29,83 +44,107 @@ public class BlockSearch implements SearchAlgorithm{
             this.matchedChars = 0;
         }
     }
-    /// Perform bloom probes on blocks (intervals) of the tree. Separate matches based on potential consecutive matches.
-    /// E.g. For support that for the current interval up to 8 chars fit in a block, maxIntervalChars = 8. If our key contains 10 chars and all of them
-    /// match when probing the bloom filter, then we gonna have 8 consecutive characters as one result entry and
-    ///  2 consecutive characters as a second result entry. If 9 characters match and then 10th doesnt. We will
-    /// still have 2 intervals 8chars, 1 char. If 7 chars match and then 3 last dont, we have 1 interval with the 7 chars.
-    /// etc.
-    public MatchResult getPotentialConsecutiveMatches(TraversalInfo info, ImplicitTree tree){
-        int maxIntervalChars = 1 << (tree.maxDepth - info.level);
-        int run = 0;
-        MatchResult res = new MatchResult();
 
-        for (int i = 0; i < info.str.length(); i++) {
-            String ch = info.str.substring(i, i + 1);
-            String key = tree.createCompositeKey(info.level, info.intervalIdx, ch);
+    Probe probe(ImplicitTree tree, int width, int level, int interval, String pattern, int charsToMatch, int offset) {
 
-            if (run < maxIntervalChars && tree.membership.contains(key)) {
-                ++run;
-                ++res.matchedChars;
-                if (run == maxIntervalChars) {                // full block
-                    int start = i - run + 1;
-                    res.matches.add(info.str.substring(start, i + 1));
-                    run = 0;
-                }
-            } else {                                          // first mismatch
-                if (run > 0) {
-                    int start = i - run;
-                    res.matches.add(info.str.substring(start, i));
-                }
-                return res;                                   // stop at first miss
+
+
+        for (int i = offset; i < charsToMatch; i++) {
+            String key = tree.createCompositeKey(level, interval,
+                    pattern.substring(i, i + 1));
+            if (!tree.membership.contains(key)) {
+                return new Probe(i, false);          // first mismatch at i
             }
         }
-        if (run > 0) {                                       // tail fragment
-            int start = info.str.length() - run;
-            res.matches.add(info.str.substring(start));
-        }
-        return res;
+        return new Probe(pattern.length(), true);                 // checked len chars, all good
     }
-    public int findInstance(int level, int intervalIdx, String pattern, ImplicitTree tree){
-        int position = -1;
-        Stack<TraversalInfo> stack = new Stack<>();
-        stack.add(new TraversalInfo(level, intervalIdx, pattern));
-        int nextLevel;
-        int maxElements;
-        while(true){
-            TraversalInfo currentInfo = stack.pop();
-            //if the matches we have for that interval are consecutive and equal to the length of the key
-            //we check the left and right child
-            MatchResult res = getPotentialConsecutiveMatches(currentInfo, tree);
-            if(res.matchedChars == 0 && stack.size() == 0) break;
+
+
+    public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel){
+        if((1 << maxLevel - level) * (intervalIdx + 1) > positionOffset) return true;
+        else return false;
+    }
+
+    @Override
+    public ArrayList<Integer> report(String key, ImplicitTree tree, boolean existence) {
+        ArrayList<Integer> results = new ArrayList<>();
+        int positionOffset = -1;
+        //Shows how many chars we have not matched yet from our total pattern
+        //because search starts from left, the remainder for the left child will be 0.
+        int matched = 0;
+        int rightChild;
+        int leftChild;
+        int childrenIntervalSize;
+        int currentIntervalSize;
+        Probe bfProbe;
+        Stack<Frame> stack = new Stack<>();
+        stack.add(new Frame(0, 0, 0, key.length()));
+        Frame leftFrame = null;
+        Frame rightFrame = null;
+        int leftSideChars = 0;
+        while(!stack.isEmpty()){
+            Frame currentFrame = stack.pop();
+
+            currentIntervalSize = tree.getIntervalSize(currentFrame.level);
+            //if for any reason we got in the stack frames that are before the position offset drop them
+            if(tree.getIntervalSize(currentFrame.level) * (currentFrame.intervalIdx + 1) > positionOffset && positionOffset != -1) continue;
+            //probe the filter.
+            bfProbe = probe(tree, currentIntervalSize,  currentFrame.level, currentFrame.intervalIdx, key, currentFrame.charsToMatch, currentFrame.offset);
+            //No matches at all
+            if(bfProbe.consumed == 0){
+                positionOffset += tree.getIntervalSize(currentFrame.level);
+                matched = 0;
+                continue;
+            }
             else{
-                int leftChild = tree.getLeftChild(currentInfo.intervalIdx);
-                int rightChild = tree.getRightChild(currentInfo.intervalIdx);
-                nextLevel = currentInfo.level + 1;
-                maxElements = 1 << (tree.maxDepth - nextLevel);
-                //check if the intervals we have are
-                if(res.matches.size() == 1 || res.matches.size() == 2){
+                childrenIntervalSize = tree.getIntervalSize(currentFrame.level + 1);
+                rightChild = tree.getRightChild(currentFrame.intervalIdx);
+                leftChild = tree.getLeftChild(currentFrame.intervalIdx);
+                //2 cases
+                //Full match -> No remainder
+                if(bfProbe.complete){
+                    matched = 0;
+                    leftFrame = new Frame(currentFrame.level + 1, leftChild, matched, bfProbe.consumed);
+                    rightFrame = new Frame(currentFrame.level + 1, rightChild, matched, bfProbe.consumed);
 
+                    //add right child
+                    if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth)) {
+                        stack.add(rightFrame);
+                    }
+                    //add left child
+                    if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth)) {
+                        stack.add(leftFrame);
+                    }
+                }else {
+                    //We try to fit the consumed characters to the right most sides of the children intervals
+                    leftSideChars = Math.max(0, currentIntervalSize - bfProbe.consumed);
+
+                    if (leftSideChars > 0) {
+                        matched += leftSideChars;
+                        //create leftFrame
+                        leftFrame = new Frame(currentFrame.level + 1, leftChild, matched, leftSideChars);
+                    }
+
+                    //create rightFrame
+                    rightFrame = new Frame(currentFrame.level + 1, rightChild, matched, bfProbe.consumed - leftSideChars);
+                    matched += bfProbe.consumed - leftSideChars;
+
+                    //add right child
+                    if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth)) {
+                        stack.add(rightFrame);
+                    }
+                    //add left child
+                    if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth) && leftSideChars > 0) {
+                        stack.add(leftFrame);
+                    }
                 }
-
-
+                }
             }
-            //left
 
 
-            //right
 
-            break;
-        }
-        return position;
-    }
-    @Override
-    public boolean exists(String key, ImplicitTree tree) {
-        return findInstance(0, 0,key) == -1 ? false : true;
-    }
 
-    @Override
-    public ArrayList<Integer> report(String key, ImplicitTree tree) {
-        return null;
+
+        return results;
     }
 }

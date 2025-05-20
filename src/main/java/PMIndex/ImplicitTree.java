@@ -35,6 +35,9 @@ public class ImplicitTree {
 
     }
 
+    public int getIntervalSize(int level){
+        return 1 << (this.maxDepth - level);
+    }
     public int calculateDistinctItems(int alphabetSize){
         int distinctItems = 0;
         for(int i=0; i< this.maxDepth+1; i++){
@@ -80,26 +83,6 @@ public class ImplicitTree {
 
         }
         //last level we index without mask
-    }
-
-    public static void main(String[] args) {
-        List<String> words = new ArrayList<String>();
-        words.add("a");
-        words.add("b");
-        words.add("c");
-        words.add("d");
-        words.add("e");
-        words.add("f");
-        words.add("g");
-        words.add("h");
-        words.add("i");
-        words.add("a");
-        words.add("b");
-        words.add("c");
-        words.add("d");
-        words.add("e");
-        words.add("f");
-
     }
 
 
