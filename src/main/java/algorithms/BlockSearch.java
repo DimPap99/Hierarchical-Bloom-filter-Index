@@ -38,6 +38,7 @@ public class BlockSearch implements SearchAlgorithm{
         public boolean matched;
         public int charsMatched;
         public int pos;
+        public boolean reset = false;
         MatchResult(boolean matched, int pos, int charsMatched){
             this.matched = matched;
             this.pos = pos;
@@ -78,10 +79,12 @@ public class BlockSearch implements SearchAlgorithm{
 //        int pos = intSz * frame.intervalIdx;
         int charsConsumed = 0;
         int passes = 0;
+        //boolean canReset = false;
 
 
         while (passes < possibleMatches) {
             passes++;
+            posAligned++;
             String key = tree.createCompositeKey(tree.maxDepth, posAligned, pattern.substring(charsConsumed+offset, charsConsumed+1 + offset));
             if(!tree.membership.contains(key)){
                 charsConsumed = 0;
@@ -94,7 +97,7 @@ public class BlockSearch implements SearchAlgorithm{
 
             if(charsConsumed == pattern.length()) return new MatchResult(true, posAligned, charsConsumed);
             if(charsConsumed == possibleMatches) return new MatchResult(false, posAligned, charsConsumed);
-            posAligned++;
+
         }
         posAligned--;
 //        for(int i=offset; i< intSz; i++){
@@ -141,7 +144,7 @@ public class BlockSearch implements SearchAlgorithm{
     @Override
     public ArrayList<Integer> report(String key, ImplicitTree tree, boolean existence) {
         ArrayList<Integer> results = new ArrayList<>();
-        int positionOffset = 0;
+        int positionOffset = -1;
         //Shows how many chars we have not matched yet from our total pattern
         //because search starts from left, the remainder for the left child will be 0.
         int matched = 0;
@@ -167,7 +170,7 @@ public class BlockSearch implements SearchAlgorithm{
 
             currentIntervalSize = tree.getIntervalSize(currentFrame.level);
             //if for any reason we got in the stack frames that are before the position offset drop them
-            if(tree.getIntervalSize(currentFrame.level) * (currentFrame.intervalIdx + 1) > positionOffset && positionOffset != -1) continue;
+           // if(tree.getIntervalSize(currentFrame.level) * (currentFrame.intervalIdx + 1) > positionOffset && positionOffset != -1) continue;
             //probe the filter.
             bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, matched, remainder);
             System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize) + "\nRemainder: " + remainder
@@ -201,11 +204,32 @@ public class BlockSearch implements SearchAlgorithm{
                             //At this point check immediately if there can be the start of another pattern from this interval
                             if(positionOffset < (currentIntervalSize * currentFrame.level) - 1){
                                 int possibleMatches = (currentIntervalSize * currentFrame.level) - 1 - positionOffset;
-                                result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset + 1);
+                                result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset );
+                                positionOffset = result.pos;
+                                remainder -= result.charsMatched;
+                                matched = result.charsMatched;
                             }
                         }else{
-                            remainder -= result.charsMatched;
-                            matched = result.charsMatched;
+                            positionOffset = result.pos;
+
+                            if(result.charsMatched == 0) {
+
+                                //reset
+                                remainder = key.length();
+                                matched = 0;
+                                if(positionOffset < (currentIntervalSize * currentFrame.level) - 1){
+                                    int possibleMatches = (currentIntervalSize * currentFrame.level) - 1 - positionOffset;
+                                    result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset );
+                                    positionOffset = result.pos;
+                                    remainder -= result.charsMatched;
+                                    matched = result.charsMatched;
+                                }
+
+                            }
+                            else {
+                                remainder -= result.charsMatched;
+                                matched = result.charsMatched;
+                            }
                             continue;
                         }
                     }
