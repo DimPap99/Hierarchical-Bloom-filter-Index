@@ -182,9 +182,7 @@ public class BlockSearch implements SearchAlgorithm{
             Frame currentFrame = stack.pop();
 
             currentIntervalSize = tree.getIntervalSize(currentFrame.level);
-            //if for any reason we got in the stack frames that are before the position offset drop them
-           // if(tree.getIntervalSize(currentFrame.level) * (currentFrame.intervalIdx + 1) > positionOffset && positionOffset != -1) continue;
-            //probe the filter.
+            //Find up to how many (potentially) consecutive characters of the patterns exist.
             bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, matched, remainder);
             System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize) + "\nRemainder: " + remainder
                     + " Matched: " + matched + " Probe: " + bfProbe.consumed);
@@ -207,6 +205,7 @@ public class BlockSearch implements SearchAlgorithm{
                     else{
                         //look immediately for the pattern. Find how the characters are distributed along the children
                         //and if we have any remaining chars update the remainder
+                        //Problem: position offset not updated
                         System.out.println("Immediate Check on: " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize));
                         MatchResult result = checkImmediately(currentFrame, tree, key, remainder, matched, positionOffset);
                         if(result.matched || remainder - result.charsMatched == 0){
@@ -253,8 +252,31 @@ public class BlockSearch implements SearchAlgorithm{
                     }
                 }
                 else {
+                    //move posPtr to possible location
+                    positionOffset += (key.length() - bfProbe.consumed);
                     //MatchResult result = checkImmediately(currentFrame, tree, key, remainder, matched);
-                    int b = 2;
+                    MatchResult result = checkImmediately(currentFrame, tree, key, remainder, matched, positionOffset);
+                    if(result.charsMatched == 0) {
+
+                        //reset
+                        remainder = key.length();
+                        matched = 0;
+                        int intervalFinalIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) - 1;
+
+                        int possibleMatches = intervalFinalIdx - positionOffset;
+                        //At this point check immediately if there can be the start of another pattern from this interval
+                        if(possibleMatches  > 0){
+                            result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset );
+                            positionOffset = result.pos;
+                            remainder -= result.charsMatched;
+                            matched = result.charsMatched;
+                        }
+
+                    }
+                    else {
+                        remainder -= result.charsMatched;
+                        matched = result.charsMatched;
+                    }
                     }
                 }
             }
