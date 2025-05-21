@@ -80,17 +80,30 @@ public class BlockSearch implements SearchAlgorithm{
         int charsConsumed = 0;
         int passes = 0;
         //boolean canReset = false;
-
+        int initPos;
 
         while (passes < possibleMatches) {
             passes++;
             posAligned++;
             String key = tree.createCompositeKey(tree.maxDepth, posAligned, pattern.substring(charsConsumed+offset, charsConsumed+1 + offset));
             if(!tree.membership.contains(key)){
+                //if we only have 1 match from the prev interval and it fails its possible that the first char of the new interval
+                //is correct but it is used at the second position in the pattern. E.g. ***b|bdca , Match started at last b
+                //of 1st interval.
+                if(offset == 1 && intSz - possibleMatches == offset){
+                    possibleMatches = key.length();
+                    //bring back 1 pos
+                    posAligned--;
+
+                }else{
+                    possibleMatches = Math.max(0, possibleMatches-passes);
+                }
+                offset = 0;
                 charsConsumed = 0;
                 //reset the possible matches
-                possibleMatches = Math.max(0, possibleMatches-passes);
                 passes = 0;
+
+
             }else{
                 charsConsumed++;
             }
@@ -197,13 +210,15 @@ public class BlockSearch implements SearchAlgorithm{
                         System.out.println("Immediate Check on: " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize));
                         MatchResult result = checkImmediately(currentFrame, tree, key, remainder, matched, positionOffset);
                         if(result.matched || remainder - result.charsMatched == 0){
-                            results.add(result.pos-key.length());
+                            results.add(result.pos + 1-key.length());
                             positionOffset = result.pos;
                             matched = 0;
                             remainder = key.length();
+                            int intervalFinalIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) - 1;
+                            int possibleMatches = intervalFinalIdx - positionOffset;
                             //At this point check immediately if there can be the start of another pattern from this interval
-                            if(positionOffset < (currentIntervalSize * currentFrame.level) - 1){
-                                int possibleMatches = (currentIntervalSize * currentFrame.level) - 1 - positionOffset;
+                            if(possibleMatches  > 0){
+
                                 result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset );
                                 positionOffset = result.pos;
                                 remainder -= result.charsMatched;
@@ -217,8 +232,11 @@ public class BlockSearch implements SearchAlgorithm{
                                 //reset
                                 remainder = key.length();
                                 matched = 0;
-                                if(positionOffset < (currentIntervalSize * currentFrame.level) - 1){
-                                    int possibleMatches = (currentIntervalSize * currentFrame.level) - 1 - positionOffset;
+                                int intervalFinalIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) - 1;
+
+                                int possibleMatches = intervalFinalIdx - positionOffset;
+                                //At this point check immediately if there can be the start of another pattern from this interval
+                                if(possibleMatches  > 0){
                                     result = checkImmediately(currentFrame, tree, key, possibleMatches, matched, positionOffset );
                                     positionOffset = result.pos;
                                     remainder -= result.charsMatched;
