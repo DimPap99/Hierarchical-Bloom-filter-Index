@@ -15,12 +15,14 @@ public class Experiment {
         // Read characters
         HBILogger.info("Reading input file...");
         long startTime = System.currentTimeMillis();
+        int c = 0;
         try{
             FileReader fileReader = new FileReader(inputFilePath);
             int ch;
             while ((ch = fileReader.read()) != -1) {
-
+                System.out.println(c);
                 index.insert(Character.toString((char) ch));
+                c++;
             }
             fileReader.close();
         HBILogger.info("Done reading input file.");
@@ -49,6 +51,11 @@ public class Experiment {
         for(String query : queries){
 //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(query);
+            if(report.size() < 20){
+                System.out.println(report);
+            }else{
+                System.out.println(query + ":" + report.size());
+            }
 
         }
         endTime = System.currentTimeMillis();
