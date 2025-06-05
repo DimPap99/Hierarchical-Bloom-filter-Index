@@ -9,4 +9,6 @@ public interface IPMIndexing {
     boolean exists(String key);
 
     ArrayList<Integer> report(String key);
+
+    public void expire();
 }

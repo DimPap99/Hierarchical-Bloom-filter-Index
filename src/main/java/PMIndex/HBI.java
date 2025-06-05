@@ -55,6 +55,8 @@ public class HBI implements IPMIndexing {
     }
 
     public ArrayList<Integer> report(String key){
-        return this.searchAlgo.report(key, this.tree, false);
+        return this.searchAlgo.report(key, this.trees, false);
     }
+
+
 }

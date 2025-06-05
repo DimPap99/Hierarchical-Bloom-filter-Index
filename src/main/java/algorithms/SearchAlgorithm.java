@@ -9,6 +9,6 @@ import java.util.ArrayList;
 public interface SearchAlgorithm {
 
 
-    ArrayList<Integer> report(String key, ImplicitTree tree, boolean existence);
+    ArrayList<Integer> report(String key, ArrayList<ImplicitTree> trees, boolean existence);
 
 }
