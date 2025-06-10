@@ -263,7 +263,7 @@ public class BlockSearch implements SearchAlgorithm{
                         + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
                 //skip entiner interval - the pattern is not inside it
                 if(bfProbe.consumed == 0){
-                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1) - 1;
+                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1) + (currentTreeIdx)*8;
                     info.matched = 0;
                 }else{
                     //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
