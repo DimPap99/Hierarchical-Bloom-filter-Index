@@ -27,7 +27,7 @@ public class HBI implements IPMIndexing {
         this.trees = new ArrayList<ImplicitTree>();
         this.alphabetSize = alphabetSize;
         this.fpRate = fpRate;
-        this.trees.add(new ImplicitTree(windowLength, new MockMembership(), fpRate, alphabetSize));
+        this.trees.add(new ImplicitTree(treeLength, new MockMembership(), fpRate, alphabetSize, 0));
 
     }
 
@@ -39,8 +39,8 @@ public class HBI implements IPMIndexing {
         indexedItemsCounter++;
 
         ImplicitTree lastTree = trees.getLast();
-        if(lastTree.indexedItemsCounter == this.trees.size()){
-            ImplicitTree newLastTree = new ImplicitTree(windowLength, new MockMembership(), fpRate, alphabetSize)
+        if(lastTree.indexedItemsCounter == this.treeLength - 1){
+            ImplicitTree newLastTree = new ImplicitTree(treeLength, new MockMembership(), fpRate, alphabetSize, trees.size());
             newLastTree.insert(key);
             trees.add(newLastTree);
         }

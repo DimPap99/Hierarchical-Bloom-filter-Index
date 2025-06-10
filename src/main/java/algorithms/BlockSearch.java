@@ -71,8 +71,9 @@ public class BlockSearch implements SearchAlgorithm{
     }
 
 
-    public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel){
-        if((1 << maxLevel - level) * (intervalIdx + 1) >= positionOffset) return true;
+    public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
+        int maxPos = (1 << maxLevel - level) * (intervalIdx + 1) + (workingTreeIdx)*8 - 1;
+        if(maxPos >= positionOffset) return true;
         else return false;
     }
 
@@ -87,16 +88,33 @@ public class BlockSearch implements SearchAlgorithm{
         return pi;
     }
 
-    public Pair<ArrayList<Integer>, Integer> exhaustChild(int currentTreeIdx, ArrayList<ImplicitTree> trees, int intervalSize, int intervalIdx, int leafStartIdx, char[] pat, int[] pi) {
-        int intervalEnd = (intervalIdx + 1) * intervalSize - 1;
-        ImplicitTree t = trees.get(currentTreeIdx);
+    public Pair<ArrayList<Integer>, Integer> exhaustChild(int currentTreeIdx, ArrayList<ImplicitTree> trees, int intervalSize, int intervalIdx, int leafStartIdx, char[] pat, int[] pi, int positionChecks) {
+        int workingTreeIdx = currentTreeIdx;
+        ImplicitTree workingTree = trees.get(currentTreeIdx);
+        int stopPos = leafStartIdx + positionChecks;
         ArrayList<Integer> matches = new ArrayList<>();
         MatchResult result; //= verifyAtLeaves(t, leafStartIdx, pat, pi);
         if(leafStartIdx == -1){ leafStartIdx = 0; }
-        while(leafStartIdx <= intervalEnd){
+
+        while(leafStartIdx <= stopPos){
+            int idxx = (int)(leafStartIdx / (workingTree.maxIdx + 1));
+            if((int)(leafStartIdx / (workingTree.maxIdx + 1)) != workingTreeIdx) {
+                workingTreeIdx++;
+                if (workingTreeIdx < trees.size()) {
+                    workingTree = trees.get(workingTreeIdx);
+                } else {
+                    //No more stream characters to check || We are the end of the stream
+                    return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
+
+                }
+            }
             result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat);
-            if(result.matched) matches.add(result.pos + 1 - pat.length);
+            if(result.matched){
+            matches.add(result.pos + 1 - pat.length);
             leafStartIdx = result.pos + 1;
+            }else{
+                leafStartIdx++;
+            }
         }
         return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
     }
@@ -104,14 +122,29 @@ public class BlockSearch implements SearchAlgorithm{
     public MatchResult verifyAtLeavesNaive(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
                                            char[] pat) {
         int m = pat.length;
-        ImplicitTree t = trees.get(currentTreeIdx);
+        int workingTreeIdx = currentTreeIdx;
+        int leafIdx;
+        ImplicitTree workingTree = trees.get(currentTreeIdx);;
         for (int i = 0; i < m; i++) {
             // build the composite key for leaf index = leafStartIdx + i,
             // and the single pattern character pat[i]
-            String key = t.createCompositeKey(t.maxDepth,
-                    leafStartIdx + i,
+            leafIdx = leafStartIdx + i;
+            if((int)(leafIdx / (workingTree.maxIdx + 1)) != workingTreeIdx){
+                workingTreeIdx++;
+                if(workingTreeIdx < trees.size()){
+                    workingTree = trees.get(workingTreeIdx);
+                }else{
+                    //No more stream characters to check || We are the end of the stream
+                    return new MatchResult(false,
+                            leafStartIdx + i - 1,
+                            i);
+                }
+
+            }
+            String key = workingTree.createCompositeKey(workingTree.maxDepth,
+                    leafIdx,
                     String.valueOf(pat[i]));
-            if (!t.membership.contains(key)) {
+            if (!workingTree.membership.contains(key)) {
                 // mismatch at the i‐th character of pat:
                 //   - pos = absolute leaf where it failed = leafStartIdx + i
                 //   - charsMatched = i (how many matched before failing)
@@ -136,33 +169,35 @@ public class BlockSearch implements SearchAlgorithm{
     }
 
 
-    public MatchResult verifyAtLeaves(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
-                                              char[] pat,
-                                              int[] pi) {
-        int i = 0;               // index in text (leaf offset)
-        int j = 0;               // index in pattern
-        int m = pat.length;
-        ImplicitTree t = trees.get(currentTreeIdx);
-        while (i < m) {
-            String key = t.createCompositeKey(t.maxDepth, leafStartIdx + i, String.valueOf(pat[j]));
-            if (t.membership.contains(key)) {
-                ++i; ++j;
-                if (j == m) {   // full match
-                    int lastPos = leafStartIdx + m - 1;
-                    return new MatchResult(true, lastPos, m);
-                }
-            } else {
-                if (j == 0) {   // miss on first char
-                    return new MatchResult(false, leafStartIdx + i, 0);
-                }
-                j = pi[j - 1];  // fallback;
-            }
-        }
-        // should not reach, but return mismatch safeguard
-        return new MatchResult(false, leafStartIdx + i - 1, j);
-    }
 
-    void generateChildren(Frame currentFrame, Stack<Frame> framesStack, int positionOffset, ImplicitTree tree){
+//    public MatchResult verifyAtLeaves(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
+//                                              char[] pat,
+//                                              int[] pi) {
+//        int i = 0;               // index in text (leaf offset)
+//        int j = 0;               // index in pattern
+//        int m = pat.length*2 - 1;
+//
+//        ImplicitTree t = trees.get(currentTreeIdx);
+//        while (i < m) {
+//            String key = t.createCompositeKey(t.maxDepth, leafStartIdx + i, String.valueOf(pat[j]));
+//            if (t.membership.contains(key)) {
+//                ++i; ++j;
+//                if (j == m) {   // full match
+//                    int lastPos = leafStartIdx + m - 1;
+//                    return new MatchResult(true, lastPos, m);
+//                }
+//            } else {
+//                if (j == 0) {   // miss on first char
+//                    return new MatchResult(false, leafStartIdx + i, 0);
+//                }
+//                j = pi[j - 1];  // fallback;
+//            }
+//        }
+//        // should not reach, but return mismatch safeguard
+//        return new MatchResult(false, leafStartIdx + i - 1, j);
+//    }
+
+    void generateChildren(Frame currentFrame, Stack<Frame> framesStack, int positionOffset, ImplicitTree tree, int workingTreeIdx){
         int rightChild = tree.getRightChild(currentFrame.intervalIdx);
         int leftChild = tree.getLeftChild(currentFrame.intervalIdx);
 
@@ -170,17 +205,17 @@ public class BlockSearch implements SearchAlgorithm{
         Frame rightFrame = new Frame(currentFrame.level + 1, rightChild);
 
         //add right child
-        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth)) {
+        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
             framesStack.add(rightFrame);
         }
         //add left child
-        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth)) {
+        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
             framesStack.add(leftFrame);
         }
 
     }
 
-    ArrayList<Frame> getChildren(Frame currentFrame, int positionOffset, ImplicitTree tree){
+    ArrayList<Frame> getChildren(Frame currentFrame, int positionOffset, ImplicitTree tree, int workingTreeIdx){
         ArrayList<Frame> frames = new ArrayList<>();
         int rightChild = tree.getRightChild(currentFrame.intervalIdx);
         int leftChild = tree.getLeftChild(currentFrame.intervalIdx);
@@ -189,11 +224,11 @@ public class BlockSearch implements SearchAlgorithm{
         Frame rightFrame = new Frame(currentFrame.level + 1, rightChild);
 
         //add right child
-        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth)) {
+        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
             frames.add(rightFrame);
         }else frames.add(null);
         //add left child
-        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth)) {
+        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
             frames.add(leftFrame);
         }else frames.add(null);
         return frames;
@@ -205,18 +240,20 @@ public class BlockSearch implements SearchAlgorithm{
         int[] pi   = prefixFunction(pat);
         Probe bfProbe;
         int currentTreeIdx = 0;
+        GlobalInfo info = new GlobalInfo(key.length());
         for(ImplicitTree tree : trees){
-            GlobalInfo info = new GlobalInfo(key.length());
+
             int childrenIntervalSize;
             int currentIntervalSize;
+            int belongingTree = (int)(info.positionOffset  / tree.intervalSize);
             Stack<Frame> stack = new Stack<>();
             //check root
             Frame rootFrame = new Frame(0, 0);
             bfProbe = probe(tree,  rootFrame.level, rootFrame.intervalIdx, key, 0, key.length() - info.matched);
             if(bfProbe.complete){
-                generateChildren(rootFrame, stack, info.positionOffset, tree);
+                generateChildren(rootFrame, stack, info.positionOffset, tree, currentTreeIdx);
             }
-            while(!stack.isEmpty()) {
+            while(!stack.isEmpty() && belongingTree == currentTreeIdx) {
                 Frame currentFrame = stack.pop();
 
                 currentIntervalSize = tree.getIntervalSize(currentFrame.level);
@@ -232,31 +269,38 @@ public class BlockSearch implements SearchAlgorithm{
                     //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
                     if(bfProbe.complete & childrenIntervalSize >= key.length()) {
                         //we just generate children as theres a chance that the pattern is in both of them
-                        generateChildren(currentFrame, stack, info.positionOffset, tree);
+                        generateChildren(currentFrame, stack, info.positionOffset, tree, currentTreeIdx);
                     }
                     else if(bfProbe.complete & childrenIntervalSize < key.length() ){
                         //In this case we know that the probe matched all characters in the current interval.
                         //But also that the children intervals do not completely fit the pattern. If the pattern exists
                         //It will overlap between Left Interval and Right.
-                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi);
+
+                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi, currentIntervalSize);
 
                         for(int r : res.getFirst()){
                             results.add(r);
                         }
                         info.positionOffset = res.getSecond();
+                        belongingTree = (int)(info.positionOffset  / tree.intervalSize);
                     }
                     else{ //the probes were inclomplete. Meaning:
                         //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
                         //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
                         //neighboring child (we have an overlap).
-                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) - 1;
+                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) + (currentTreeIdx)*8 - 1;
+                        int checkpos = intervalEndIdx - info.positionOffset;
+                        if(info.positionOffset == -1){
+                            checkpos = intervalEndIdx;
+                        }
                         info.positionOffset = intervalEndIdx - bfProbe.consumed + 1;
-                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi);
+                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi, checkpos);
 
                         for(int r : res.getFirst()){
                             results.add(r);
                         }
                         info.positionOffset = res.getSecond();
+                        belongingTree = (int)(info.positionOffset  / tree.intervalSize);
                     }
                 }
             }
