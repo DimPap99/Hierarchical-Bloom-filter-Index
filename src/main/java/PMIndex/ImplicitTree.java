@@ -15,13 +15,13 @@ public class ImplicitTree {
     public int intervalSize;
     public int maxDepth;
     public int indexedItemsCounter=-1;
-
+    public int maxIdx;
     public Membership membership;
-
+    int treeId;
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
 
-    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize){
+    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id){
         this.intervalSize=intervalSize;
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
@@ -31,7 +31,8 @@ public class ImplicitTree {
         int expectedInsertions = distinctItems * (this.maxDepth + 1);
         this.membership = membership;
         this.membership.init(expectedInsertions, fpRate);
-        
+        this.maxIdx = (int)Math.pow(2, this.maxDepth) - 1;
+        this.treeId = id;
 
     }
 
@@ -53,7 +54,12 @@ public class ImplicitTree {
 
     public String createCompositeKey(int currentDepth, int intervalIdx, String input){
         String compositeKey="";
-        compositeKey+=currentDepth +"|"+intervalIdx+"|"+input;
+        if(currentDepth == this.maxDepth){
+            compositeKey+=currentDepth +"|"+intervalIdx%(this.maxIdx+1) +"|"+input;
+        }else{
+            compositeKey+=currentDepth +"|"+intervalIdx +"|"+input;
+        }
+
         return compositeKey;
     }
     public int getLeftChild(int currentIntervalIdx){
