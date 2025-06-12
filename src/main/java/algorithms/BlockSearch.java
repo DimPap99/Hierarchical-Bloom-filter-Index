@@ -259,8 +259,8 @@ public class BlockSearch implements SearchAlgorithm{
                 currentIntervalSize = tree.getIntervalSize(currentFrame.level);
                 childrenIntervalSize = tree.getIntervalSize(currentFrame.level + 1);
                 bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, info.matched, key.length() - info.matched);
-                System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize)
-                        + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
+//                System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize)
+//                        + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
                 //skip entiner interval - the pattern is not inside it
                 if(bfProbe.consumed == 0){
                     info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1) + (currentTreeIdx)*8;

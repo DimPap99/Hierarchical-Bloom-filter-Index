@@ -1,11 +1,23 @@
 import PMIndex.HBI;
+import PMIndex.IPMIndexing;
+import PMIndex.RegexIndex;
 import algorithms.BlockSearch;
 
-public class Main {
+import java.io.IOException;
 
-    public static void main(String[] args) {
-        Experiment.run("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/src/main/java/small.txt",
-                "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/src/main/java/queries.txt",
-                new HBI(new BlockSearch(), 16, 0.001, 26, 8));
+public class Main {
+    //16384
+    public static void main(String[] args) throws IOException {
+        HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 26, 131072);
+        String dataFile = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/src/main/java/small.txt";
+        String queries = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/src/main/java/queries.txt";
+
+        Experiment.run(dataFile, queries, hbi);
+        IPMIndexing index = new RegexIndex();   // switch index implementation
+        Experiment.run(dataFile, queries, index);
+
+//        System.out.println("Holding: " + hbi);
+//        System.in.read(); // Wait so you can take heap dump
+
     }
 }

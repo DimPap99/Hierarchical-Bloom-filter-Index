@@ -20,12 +20,14 @@ public class Experiment {
             FileReader fileReader = new FileReader(inputFilePath);
             int ch;
             while ((ch = fileReader.read()) != -1) {
-                System.out.println(c);
+                //System.out.println(c);
                 index.insert(Character.toString((char) ch));
                 c++;
             }
             fileReader.close();
         HBILogger.info("Done reading input file.");
+        // keep JVM alive long enough to attach
+
         }catch (IOException e){
             e.printStackTrace();
         }
@@ -64,5 +66,6 @@ public class Experiment {
         HBILogger.info("Time taken: " + duration + " ms");
         HBILogger.info("---------------------------------------");
         HBILogger.info("---------------------------------------");
+        System.out.println("Querying duration: " +  duration + " ms");
     }
 }
