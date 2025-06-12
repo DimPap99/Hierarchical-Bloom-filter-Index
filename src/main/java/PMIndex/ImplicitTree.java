@@ -76,14 +76,14 @@ public class ImplicitTree {
         //Increase the counter that keeps track of indexed items. This is also the position of the item we add
         this.indexedItemsCounter++;
         int intervalIdx;
-        System.out.println("Inserting item: "+input);
+        //System.out.println("Inserting item: "+input);
         for(int i=0;i<this.maxDepth+1;i++){
             //0 is root
             intervalIdx = Utils.getIntervalIndex(this.maxDepth, i, this.indexedItemsCounter);
             key = this.createCompositeKey(i, intervalIdx, input);
             //String intervalStr = Utils.intervalWithHashes(this.maxDepth, i, this.indexedItemsCounter);
             //System.out.println(intervalStr);
-            HBILogger.debug("Inserting item: "+input+" key: " + key);
+            //HBILogger.debug("Inserting item: "+input+" key: " + key);
 
             this.membership.insert(key);
 
