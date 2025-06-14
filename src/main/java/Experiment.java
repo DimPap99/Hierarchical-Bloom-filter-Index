@@ -1,19 +1,21 @@
 import PMIndex.IPMIndexing;
+import datagenerators.Generator;
 import utilities.HBILogger;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 
 public class Experiment {
 
-    public static void run(String inputFilePath, String queriesFilePath, IPMIndexing index) {
+    public static void run(String inputFilePath, String queriesFilePath, IPMIndexing index) throws IOException {
         HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
         int read;
         // Read characters
         HBILogger.info("Reading input file...");
+        String data = Generator.generateZipf(131072, 48, 122, 1.5);
         long startTime = System.currentTimeMillis();
         int c = 0;
         try{
@@ -21,7 +23,7 @@ public class Experiment {
             int ch;
             while ((ch = fileReader.read()) != -1) {
                 //System.out.println(c);
-                index.insert(Character.toString((char) ch));
+                index.insert((char)ch);
                 c++;
             }
             fileReader.close();
@@ -30,6 +32,12 @@ public class Experiment {
 
         }catch (IOException e){
             e.printStackTrace();
+        }
+//        Files.write(Paths.get("zipf_text.txt"),
+//                data.getBytes(StandardCharsets.UTF_8));   // no newline
+
+        for(char cc : data.toCharArray()){
+            index.insert(cc);
         }
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
@@ -54,7 +62,7 @@ public class Experiment {
 //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(query);
             if(report.size() < 20){
-                System.out.println(report);
+                System.out.println(query + ":" + report);
             }else{
                 System.out.println(query + ":" + report.size());
             }

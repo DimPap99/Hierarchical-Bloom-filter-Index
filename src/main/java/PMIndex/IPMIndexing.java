@@ -4,7 +4,7 @@ import java.util.ArrayList;
 
 public interface IPMIndexing {
 
-    void insert(String key);
+    void insert(char key);
 
     boolean exists(String key);
 

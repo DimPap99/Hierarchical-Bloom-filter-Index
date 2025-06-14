@@ -51,15 +51,15 @@ public class BlockSearch implements SearchAlgorithm{
 
 
 
-    Probe probe(ImplicitTree tree, int level, int interval, String pattern, int offset, int remainder) {
+    Probe probe(ImplicitTree tree, int level, int interval, char[] pattern, int offset, int remainder) {
 
 
         int matches = 0;
-        for (int i = offset; i < pattern.length(); i++) {
+        for (int i = offset; i < pattern.length; i++) {
             String key = tree.createCompositeKey(level, interval,
-                    pattern.substring(i, i + 1));
+                    pattern[i]);
             if (!tree.membership.contains(key)) {
-                return new Probe(i, false);          // first mismatch at i
+                return new Probe(matches, false);          // first mismatch at i
             }
             matches++;
             if(matches == remainder){
@@ -67,7 +67,7 @@ public class BlockSearch implements SearchAlgorithm{
 
             }
         }
-        return new Probe(pattern.length(), true);                 // checked len chars, all good
+        return new Probe(pattern.length, true);                 // checked len chars, all good
     }
 
 
@@ -143,7 +143,7 @@ public class BlockSearch implements SearchAlgorithm{
             }
             String key = workingTree.createCompositeKey(workingTree.maxDepth,
                     leafIdx,
-                    String.valueOf(pat[i]));
+                    pat[i]);
             if (!workingTree.membership.contains(key)) {
                 // mismatch at the i‐th character of pat:
                 //   - pos = absolute leaf where it failed = leafStartIdx + i
@@ -196,7 +196,7 @@ public class BlockSearch implements SearchAlgorithm{
 //        // should not reach, but return mismatch safeguard
 //        return new MatchResult(false, leafStartIdx + i - 1, j);
 //    }
-
+    //generate children for the current frame. Essentially get the right/left split of the current interval
     void generateChildren(Frame currentFrame, Stack<Frame> framesStack, int positionOffset, ImplicitTree tree, int workingTreeIdx){
         int rightChild = tree.getRightChild(currentFrame.intervalIdx);
         int leftChild = tree.getLeftChild(currentFrame.intervalIdx);
@@ -215,32 +215,14 @@ public class BlockSearch implements SearchAlgorithm{
 
     }
 
-    ArrayList<Frame> getChildren(Frame currentFrame, int positionOffset, ImplicitTree tree, int workingTreeIdx){
-        ArrayList<Frame> frames = new ArrayList<>();
-        int rightChild = tree.getRightChild(currentFrame.intervalIdx);
-        int leftChild = tree.getLeftChild(currentFrame.intervalIdx);
 
-        Frame leftFrame = new Frame(currentFrame.level + 1, leftChild );
-        Frame rightFrame = new Frame(currentFrame.level + 1, rightChild);
-
-        //add right child
-        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
-            frames.add(rightFrame);
-        }else frames.add(null);
-        //add left child
-        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
-            frames.add(leftFrame);
-        }else frames.add(null);
-        return frames;
-    }
-
-    public ArrayList<Integer> report(String key, ArrayList<ImplicitTree> trees, boolean existence) {
+    public ArrayList<Integer> report(char[] key, ArrayList<ImplicitTree> trees, boolean existence) {
         ArrayList<Integer> results = new ArrayList<>();
-        char[] pat = key.toCharArray();
+        char[] pat = key;
         int[] pi   = prefixFunction(pat);
         Probe bfProbe;
         int currentTreeIdx = 0;
-        GlobalInfo info = new GlobalInfo(key.length());
+        GlobalInfo info = new GlobalInfo(key.length);
         for(ImplicitTree tree : trees){
 
             int childrenIntervalSize;
@@ -249,7 +231,7 @@ public class BlockSearch implements SearchAlgorithm{
             Stack<Frame> stack = new Stack<>();
             //check root
             Frame rootFrame = new Frame(0, 0);
-            bfProbe = probe(tree,  rootFrame.level, rootFrame.intervalIdx, key, 0, key.length() - info.matched);
+            bfProbe = probe(tree,  rootFrame.level, rootFrame.intervalIdx, key, 0, key.length - info.matched);
             if(bfProbe.complete){
                 generateChildren(rootFrame, stack, info.positionOffset, tree, currentTreeIdx);
             }
@@ -258,7 +240,7 @@ public class BlockSearch implements SearchAlgorithm{
 
                 currentIntervalSize = tree.getIntervalSize(currentFrame.level);
                 childrenIntervalSize = tree.getIntervalSize(currentFrame.level + 1);
-                bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, info.matched, key.length() - info.matched);
+                bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, info.matched, key.length - info.matched);
 //                System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize)
 //                        + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
                 //skip entiner interval - the pattern is not inside it
@@ -267,11 +249,11 @@ public class BlockSearch implements SearchAlgorithm{
                     info.matched = 0;
                 }else{
                     //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-                    if(bfProbe.complete & childrenIntervalSize >= key.length()) {
+                    if(bfProbe.complete & childrenIntervalSize >= key.length) {
                         //we just generate children as theres a chance that the pattern is in both of them
                         generateChildren(currentFrame, stack, info.positionOffset, tree, currentTreeIdx);
                     }
-                    else if(bfProbe.complete & childrenIntervalSize < key.length() ){
+                    else if(bfProbe.complete & childrenIntervalSize < key.length ){
                         //In this case we know that the probe matched all characters in the current interval.
                         //But also that the children intervals do not completely fit the pattern. If the pattern exists
                         //It will overlap between Left Interval and Right.

@@ -31,7 +31,7 @@ public class BloomFilter implements Membership {
         this.n = n;
         //num of required bits
         this.m = (int) Math.ceil(-(n * Math.log(p)) / (ln2 * ln2));
-        //num of hash funcs
+        //num of haxsh funcs
         this.k = (int) Math.max(1, Math.round((m / (double) n) * ln2));
         //fp rate
         this.p    = Math.pow(1 - Math.exp(-k / (double) m * n), k);

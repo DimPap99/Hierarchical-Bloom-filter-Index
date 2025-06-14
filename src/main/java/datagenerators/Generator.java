@@ -18,12 +18,13 @@ public class Generator {
         return new String(chars);
     }
 
-    public static String generateZipf(int length, int min_domain, int max_domain) {
-        ZipfDistribution dist = new ZipfDistribution(max_domain - min_domain, 1);
+    public static String generateZipf(int length, int min_domain, int max_domain, double exponent) {
+        ZipfDistribution dist = new ZipfDistribution(max_domain - min_domain + 1, exponent);
         char[] chars = new char[length];
         for (int i = 0; i < length; i++) {
             chars[i] = (char) (dist.sample() - 1 + min_domain);
         }
+
         return new String(chars);
     }
 }
