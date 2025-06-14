@@ -18,6 +18,8 @@ public class ImplicitTree {
     public int maxIdx;
     public Membership membership;
     int treeId;
+    private static final ThreadLocal<StringBuilder> TMP =
+            ThreadLocal.withInitial(StringBuilder::new);
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
 
@@ -27,8 +29,8 @@ public class ImplicitTree {
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
         //the number of keys to be inserted are equal to the size of the window multiplied by the depth of the tree.
         //for n grams this is min(alphabetsize^n, window-n+1)
-        int distinctItems = Math.min(alphabetSize, this.intervalSize);
-        int expectedInsertions = distinctItems * (this.maxDepth + 1);
+
+        int expectedInsertions = this.calculateDistinctItems(alphabetSize);
         this.membership = membership;
         this.membership.init(expectedInsertions, fpRate);
         this.maxIdx = (int)Math.pow(2, this.maxDepth) - 1;
@@ -39,20 +41,19 @@ public class ImplicitTree {
     public int getIntervalSize(int level){
         return 1 << (this.maxDepth - level);
     }
-    public int calculateDistinctItems(int alphabetSize){
-        int distinctItems = 0;
-        for(int i=0; i< this.maxDepth+1; i++){
-            if(i == this.maxDepth){
-                distinctItems+= alphabetSize * this.intervalSize; //For the levels we use ceil. Actual elements at last level
-                //are <= Math.pow(2, lastDepth).
-            }else{
-                distinctItems+= alphabetSize * Math.pow(2, i);
-            }
+
+    public int calculateDistinctItems(int alphabetSize) {
+        int total = 0;
+        for (int level = 0; level <= this.maxDepth; level++) {
+            int nodes     = 1 << level;                 // 2^level nodes
+            int interval  = this.intervalSize >> level;  // N / 2^level positions per node
+            int perNode   = Math.min(alphabetSize, interval);
+            total += nodes * perNode;
         }
-        return distinctItems;
+        return total;
     }
 
-    public String createCompositeKey(int currentDepth, int intervalIdx, String input){
+    public String createCompositeKey(int currentDepth, int intervalIdx, char input){
         String compositeKey="";
         if(currentDepth == this.maxDepth){
             compositeKey+=currentDepth +"|"+intervalIdx%(this.maxIdx+1) +"|"+input;
@@ -71,7 +72,7 @@ public class ImplicitTree {
     }
 
 
-    public void insert(String input){
+    public void insert(char input){
         String key;
         //Increase the counter that keeps track of indexed items. This is also the position of the item we add
         this.indexedItemsCounter++;
