@@ -16,9 +16,9 @@ public class Main {
         int runs = 15;
         for(int i = 0; i < runs; i++){
             HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 26, 131072);
-            durationHBI+= Experiment.run(dataFile, queries, hbi, true );
+            durationHBI+= Experiment.run(dataFile, queries, hbi, false );
             IPMIndexing index = new RegexIndex();   // switch index implementation
-            durationIPM+= Experiment.run(dataFile, queries, index, true);
+            durationIPM+= Experiment.run(dataFile, queries, index, false);
         }
         if(runs > 0){
             System.out.println("HBI avg (ms):" + (durationHBI/runs));
