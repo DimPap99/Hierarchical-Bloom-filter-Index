@@ -78,27 +78,37 @@ public class BloomFilter implements Membership {
 
     public void insert(String key) {
         byte[] bytes = key.getBytes();
-        //Apply Kirsch and Mitzenmacher Optimization
+        //Apply Kirsch and Mitzenmacher Optimization and do it as a running sum
         int h1 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), this.m);
         int h2 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), this.m);
-        long idx;                       // use long to avoid 32-bit overflow
+        long idx = h1;           // start at h1(x) mod m
         for (int i = 0; i < k; i++) {
-            idx = (h1 + (long)i * h2) % m;
             filter.set((int) idx);
+            idx += h2;           // move forward by h2(x)
+            if (idx >= m) idx -= m;   // wrap once if we crossed the end
         }
 
     }
 
     public boolean contains(String key) {
         byte[] bytes = key.getBytes();
-        int h1 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), this.m);
-        int h2 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), this.m);
-        long idx;
+
+        int h1 = Math.floorMod(
+                MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), m);
+
+        int h2 = Math.floorMod(
+                MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), m);
+
+        long idx = h1;
         for (int i = 0; i < k; i++) {
-            idx = (h1 + (long)i * h2) % m;
+            // **** use get, not set ****
             if (!filter.get((int) idx))
                 return false;
+
+            idx += h2;
+            if (idx >= m) idx -= m;   // wrap once if needed
         }
         return true;
     }
+
 }
