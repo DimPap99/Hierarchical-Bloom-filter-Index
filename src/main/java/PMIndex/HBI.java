@@ -40,7 +40,7 @@ public class HBI implements IPMIndexing {
 
         ImplicitTree lastTree = trees.getLast();
         if(lastTree.indexedItemsCounter == this.treeLength - 1){
-            ImplicitTree newLastTree = new ImplicitTree(treeLength, new MockMembership(), fpRate, alphabetSize, trees.size());
+            ImplicitTree newLastTree = new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, trees.size());
             newLastTree.insert(key);
             trees.add(newLastTree);
         }

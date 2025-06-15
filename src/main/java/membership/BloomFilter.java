@@ -61,7 +61,8 @@ public class BloomFilter implements Membership {
     }
 
     private void initSeeds() {
-        this.seeds = new int[k];
+        //Use only 2hf for Kirsch and Mitzenmacher Optimization
+        this.seeds = new int[2];
         HashSet<Integer> seedHashset = new HashSet<Integer>();
         int seedsFound = 0;
         Random rand = new Random();
@@ -77,15 +78,27 @@ public class BloomFilter implements Membership {
 
     public void insert(String key) {
         byte[] bytes = key.getBytes();
-        for (int seed : seeds)
-            filter.set(Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seed), this.m));
+        //Apply Kirsch and Mitzenmacher Optimization
+        int h1 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), this.m);
+        int h2 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), this.m);
+        long idx;                       // use long to avoid 32-bit overflow
+        for (int i = 0; i < k; i++) {
+            idx = (h1 + (long)i * h2) % m;
+            filter.set((int) idx);
+        }
+
     }
 
     public boolean contains(String key) {
         byte[] bytes = key.getBytes();
-        for (int seed : seeds)
-            if (!filter.get(Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seed), this.m)))
+        int h1 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), this.m);
+        int h2 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), this.m);
+        long idx;
+        for (int i = 0; i < k; i++) {
+            idx = (h1 + (long)i * h2) % m;
+            if (!filter.get((int) idx))
                 return false;
+        }
         return true;
     }
 }

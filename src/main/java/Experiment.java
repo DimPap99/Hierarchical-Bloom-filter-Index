@@ -10,12 +10,12 @@ import java.util.ArrayList;
 
 public class Experiment {
 
-    public static void run(String inputFilePath, String queriesFilePath, IPMIndexing index) throws IOException {
-        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
+    public static double run(String inputFilePath, String queriesFilePath, IPMIndexing index, boolean verbose) throws IOException {
+//        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
         int read;
         // Read characters
-        HBILogger.info("Reading input file...");
-        String data = Generator.generateZipf(131072, 48, 122, 1.5);
+//        HBILogger.info("Reading input file...");
+        String data = Generator.generateZipf(131072, 41, 122, 1.5);
         long startTime = System.currentTimeMillis();
         int c = 0;
         try{
@@ -27,7 +27,7 @@ public class Experiment {
                 c++;
             }
             fileReader.close();
-        HBILogger.info("Done reading input file.");
+//        HBILogger.info("Done reading input file.");
         // keep JVM alive long enough to attach
 
         }catch (IOException e){
@@ -42,9 +42,9 @@ public class Experiment {
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());
-        HBILogger.info("Time taken: " + duration + " ms");
-
-        HBILogger.info("Reading queries file...");
+//        HBILogger.info("Time taken: " + duration + " ms");
+//
+//        HBILogger.info("Reading queries file...");
         ArrayList<String> queries = new ArrayList<>();
         try{
             BufferedReader reader = new BufferedReader(new FileReader(queriesFilePath));
@@ -56,24 +56,28 @@ public class Experiment {
             e.printStackTrace();
         }
 
-        HBILogger.info("Will start querying...");
+//        HBILogger.info("Will start querying...");
         startTime = System.currentTimeMillis();
         for(String query : queries){
 //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(query);
-            if(report.size() < 20){
-                System.out.println(query + ":" + report);
-            }else{
-                System.out.println(query + ":" + report.size());
+            if(verbose){
+                if(report.size() < 20){
+                    System.out.println(query + ":" + report);
+                }else{
+                    System.out.println(query + ":" + report.size());
+                }
             }
+
 
         }
         endTime = System.currentTimeMillis();
         duration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());
-        HBILogger.info("Time taken: " + duration + " ms");
-        HBILogger.info("---------------------------------------");
-        HBILogger.info("---------------------------------------");
-        System.out.println("Querying duration: " +  duration + " ms");
+        if(verbose){
+            System.out.println("Querying duration: " +  duration + " ms");
+
+        }
+        return duration;
     }
 }
