@@ -6,15 +6,25 @@ import algorithms.BlockSearch;
 import java.io.IOException;
 
 public class Main {
-    //16384
+    //z00D
+    //zs1000
     public static void main(String[] args) throws IOException {
-        HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 26, 131072);
         String dataFile = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text.txt";
         String queries = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/substrings.txt";
+        double durationHBI = 0;
+        double durationIPM = 0;
+        int runs = 15;
+        for(int i = 0; i < runs; i++){
+            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 26, 131072);
+            durationHBI+= Experiment.run(dataFile, queries, hbi, true );
+            IPMIndexing index = new RegexIndex();   // switch index implementation
+            durationIPM+= Experiment.run(dataFile, queries, index, true);
+        }
+        if(runs > 0){
+            System.out.println("HBI avg (ms):" + (durationHBI/runs));
+            System.out.println("IPM avg (ms):" + (durationIPM/runs));
 
-        Experiment.run(dataFile, queries, hbi);
-        IPMIndexing index = new RegexIndex();   // switch index implementation
-        Experiment.run(dataFile, queries, index);
+        }
 
 //        System.out.println("Holding: " + hbi);
 //        System.in.read(); // Wait so you can take heap dump
