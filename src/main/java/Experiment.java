@@ -36,9 +36,9 @@ public class Experiment {
 //        Files.write(Paths.get("zipf_text.txt"),
 //                data.getBytes(StandardCharsets.UTF_8));   // no newline
 
-        for(char cc : data.toCharArray()){
-            index.insert(cc);
-        }
+//        for(char cc : data.toCharArray()){
+//            index.insert(cc);
+//        }
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());

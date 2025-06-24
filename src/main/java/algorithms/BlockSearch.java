@@ -72,9 +72,14 @@ public class BlockSearch implements SearchAlgorithm{
 
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
-        int maxPos = (1 << (maxLevel - level)) * (intervalIdx + 1) + workingTreeIdx * 8 - 1;
-        if(maxPos >= positionOffset) return true;
-        else return false;
+        int spanAll = 1 << maxLevel;              // == tree.intervalSize
+
+        /* end position of current interval inside the *global* stream */
+        int maxPos = (1 << (maxLevel - level)) * (intervalIdx + 1)
+                + workingTreeIdx * spanAll
+                - 1;
+
+        return maxPos >= positionOffset;
     }
 
     private static int[] prefixFunction(char[] pat) {
@@ -364,7 +369,8 @@ public class BlockSearch implements SearchAlgorithm{
 //                        + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
                 //skip entiner interval - the pattern is not inside it
                 if(bfProbe.consumed == 0){
-                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1) + (currentTreeIdx)*8;
+                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1)  + currentTreeIdx * tree.intervalSize;   // good
+
                     info.matched = 0;
                     iterationsUntilPossible++;
                 }else{
@@ -392,8 +398,8 @@ public class BlockSearch implements SearchAlgorithm{
                         //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
                         //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
                         //neighboring child (we have an overlap).
-                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) + (currentTreeIdx)*8 - 1;
-                        int checkpos = bfProbe.consumed;
+                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) + currentTreeIdx * tree.intervalSize        // ← replace 8
+                                - 1;                        int checkpos = bfProbe.consumed;
                         if(info.positionOffset == -1){
                             checkpos = intervalEndIdx;
                         }
