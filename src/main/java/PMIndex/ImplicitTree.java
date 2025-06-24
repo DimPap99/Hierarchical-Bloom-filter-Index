@@ -1,5 +1,6 @@
 package PMIndex;
 
+import estimators.Estimator;
 import membership.Key;
 import membership.Key32;
 import membership.Key64;
@@ -28,8 +29,8 @@ public class ImplicitTree {
             ThreadLocal.withInitial(StringBuilder::new);
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
-
-    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id) {
+    public Estimator estimator;
+    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id, Estimator estimator) {
         this.intervalSize=intervalSize;
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
@@ -43,6 +44,7 @@ public class ImplicitTree {
         this.treeId = id;
         this.keyService = new Key64(maxDepth, 8);
         this.stream = new StringBuilder();
+        this.estimator = estimator;
     }
 
     public int getIntervalSize(int level){

@@ -1,12 +1,14 @@
 package PMIndex;
 
 import algorithms.SearchAlgorithm;
+import estimators.Estimator;
 import membership.BloomFilter;
 import membership.MockMembership;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Queue;
+import java.util.function.Supplier;
 
 public class HBI implements IPMIndexing {
 
@@ -20,14 +22,16 @@ public class HBI implements IPMIndexing {
 
     private ArrayList<ImplicitTree> trees;
     public SearchAlgorithm searchAlgo;
-    public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize, int tree_length){
+    private Supplier<Estimator> estimator;   // NEW
+    public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize, int tree_length, Supplier<Estimator> estimator){
         this.searchAlgo = algo;
         this.windowLength = windowLength;
         this.treeLength = tree_length;
         this.trees = new ArrayList<ImplicitTree>();
         this.alphabetSize = alphabetSize;
         this.fpRate = fpRate;
-        this.trees.add(new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, 0));
+        this.estimator = estimator;
+        this.trees.add(new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, 0, this.estimator.get()));
 
     }
 
@@ -40,7 +44,7 @@ public class HBI implements IPMIndexing {
 
         ImplicitTree lastTree = trees.getLast();
         if(lastTree.indexedItemsCounter == this.treeLength - 1){
-            ImplicitTree newLastTree = new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, trees.size());
+            ImplicitTree newLastTree = new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, trees.size(), this.estimator.get());
             newLastTree.insert(key);
             trees.add(newLastTree);
         }

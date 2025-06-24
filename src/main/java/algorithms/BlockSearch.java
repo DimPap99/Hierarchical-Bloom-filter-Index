@@ -1,6 +1,7 @@
 package algorithms;
 
 import PMIndex.ImplicitTree;
+import estimators.Estimator;
 import org.apache.commons.math3.util.Pair;
 import utilities.Utils;
 
@@ -8,7 +9,8 @@ import java.lang.reflect.Array;
 import java.util.*;
 
 public class BlockSearch implements SearchAlgorithm{
-
+    public Estimator estimator;
+   
     public class GlobalInfo{
         public boolean isSplit = false;
         public int matched = 0;
