@@ -3,6 +3,7 @@ import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 import algorithms.BlockSearch;
 
+import javax.swing.*;
 import javax.swing.text.TableView;
 import java.io.IOException;
 
@@ -16,7 +17,7 @@ public class Main {
         double durationIPM = 0;
         int runs = 100;
         for(int i = 0; i < runs; i++){
-            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 26, 131072);
+            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 131072);
             durationHBI+= Experiment.run(dataFile, queries, hbi, false);
             IPMIndexing index = new RegexIndex();   // switch index implementation
             durationIPM+= Experiment.run(dataFile, queries, index, false);

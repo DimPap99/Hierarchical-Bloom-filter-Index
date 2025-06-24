@@ -4,7 +4,7 @@ import java.util.HashSet;
 
 public class MockMembership implements Membership{
 
-    HashSet<Integer> hashSet;
+    HashSet<Long> hashSet;
 
     public MockMembership() {
         this.hashSet = new HashSet<>();
@@ -17,12 +17,12 @@ public class MockMembership implements Membership{
     }
 
     @Override
-    public void insert(int key) {
+    public void insert(long key) {
         this.hashSet.add(key);
     }
 
     @Override
-    public boolean contains(int key) {
+    public boolean contains(long key) {
         return this.hashSet.contains(key);
     }
 }

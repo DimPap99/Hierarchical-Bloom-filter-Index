@@ -2,6 +2,7 @@ package PMIndex;
 
 import membership.Key;
 import membership.Key32;
+import membership.Key64;
 import membership.Membership;
 import utilities.HBILogger;
 import utilities.Utils;
@@ -19,14 +20,16 @@ public class ImplicitTree {
     public int indexedItemsCounter=-1;
     public int maxIdx;
     public Membership membership;
-    public Key32 keyService;
+    public Key64 keyService;
     int treeId;
+
+    public StringBuilder stream;
     private static final ThreadLocal<StringBuilder> TMP =
             ThreadLocal.withInitial(StringBuilder::new);
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
 
-    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id){
+    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id) {
         this.intervalSize=intervalSize;
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
@@ -38,8 +41,8 @@ public class ImplicitTree {
         this.membership.init(expectedInsertions, fpRate);
         this.maxIdx = (int)Math.pow(2, this.maxDepth) - 1;
         this.treeId = id;
-        this.keyService = new Key32(maxDepth, 8);
-
+        this.keyService = new Key64(maxDepth, 8);
+        this.stream = new StringBuilder();
     }
 
     public int getIntervalSize(int level){
@@ -48,7 +51,7 @@ public class ImplicitTree {
 
     public int calculateDistinctItems(int alphabetSize) {
         int total = 0;
-        for (int level = 0; level <= this.maxDepth; level++) {
+        for (int level = 0; level < this.maxDepth; level++) {
             int nodes     = 1 << level;                 // 2^level nodes
             int interval  = this.intervalSize >> level;  // N / 2^level positions per node
             int perNode   = Math.min(alphabetSize, interval);
@@ -77,12 +80,13 @@ public class ImplicitTree {
 
 
     public void insert(char input){
-        int key;
+        long key;
         //Increase the counter that keeps track of indexed items. This is also the position of the item we add
         this.indexedItemsCounter++;
         int intervalIdx;
-        //System.out.println("Inserting item: "+input);
-        for(int i=0;i<this.maxDepth+1;i++){
+        //we insert keys up to maxdepth and not at the last level (interval with all positions) as for that level
+        //we store the whole stream
+        for(int i=0;i<this.maxDepth;i++){
             //0 is root
             intervalIdx = Utils.getIntervalIndex(this.maxDepth, i, this.indexedItemsCounter);
 
@@ -94,6 +98,7 @@ public class ImplicitTree {
             this.membership.insert(key);
 
         }
+        this.stream.append(input);
         //last level we index without mask
     }
 

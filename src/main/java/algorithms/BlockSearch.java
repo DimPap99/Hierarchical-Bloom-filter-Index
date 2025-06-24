@@ -55,7 +55,7 @@ public class BlockSearch implements SearchAlgorithm{
 
         int matches = 0;
 
-        int key;
+        long key;
         for (int i = offset; i < pattern.length; i++) {
             key =  tree.keyService.pack(level, interval, pattern[i]);
 
@@ -72,7 +72,7 @@ public class BlockSearch implements SearchAlgorithm{
 
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
-        int maxPos = (1 << maxLevel - level) * (intervalIdx + 1) + (workingTreeIdx)*8 - 1;
+        int maxPos = (1 << (maxLevel - level)) * (intervalIdx + 1) + workingTreeIdx * 8 - 1;
         if(maxPos >= positionOffset) return true;
         else return false;
     }
@@ -214,7 +214,7 @@ public class BlockSearch implements SearchAlgorithm{
             result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat);
 
             if (result.matched) {                           // full hit
-                matches.add(result.pos + 1 - pat.length);
+                matches.add(result.pos);
                 leafStartIdx = result.pos + 1;              // jump past hit
             } else {
                 leafStartIdx++;                             // slide window
@@ -226,48 +226,70 @@ public class BlockSearch implements SearchAlgorithm{
     /* ================================================================== */
     /*  2.  verifyAtLeavesNaive – division-free                            */
     /* ================================================================== */
+    /**
+     * Character-by-character verifier, but reading directly from
+     * workingTree.stream at the deepest level instead of using the Bloom filter.
+     *
+     * @return MatchResult  – identical contract as before
+     */
     public MatchResult verifyAtLeavesNaive(
             int currentTreeIdx,
             ArrayList<ImplicitTree> trees,
             int leafStartIdx,
-            char[] pat) {
-        int span       = trees.get(0).maxIdx + 1;              // same for every tree
-        int spanShift  = Integer.numberOfTrailingZeros(span);  // log₂(span)
-        final int m = pat.length;
-        int workingTreeIdx = currentTreeIdx;
-        ImplicitTree workingTree = trees.get(workingTreeIdx);
+            char[] pat)
+    {
+        /* ---------- constants (same for every tree) ------------------- */
+        final int span      = trees.get(0).maxIdx + 1;               // 2^maxDepth
+        final int spanShift = Integer.numberOfTrailingZeros(span);   // log₂(span)
+        final int m         = pat.length;
 
+        /* ---------- quick global bound check -------------------------- */
+        /* Highest usable absolute position in the *whole* stream */
+        int globalLastPos = (trees.size() - 1) * span
+                + trees.get(trees.size() - 1).stream.length() - 1;
+
+        if (leafStartIdx + m - 1 > globalLastPos)
+            return new MatchResult(false, globalLastPos, 0);
+
+        /* ---------- initialise current tree --------------------------- */
+        int workingTreeIdx  = currentTreeIdx;
+        ImplicitTree tree   = trees.get(workingTreeIdx);
+        StringBuilder sb    = tree.stream;                 // convenience ref
+
+        /* ---------- main loop ----------------------------------------- */
         for (int i = 0; i < m; i++) {
+            int leafIdx  = leafStartIdx + i;
+            int treeIdx  = leafIdx >>> spanShift;          // == leafIdx / span
 
-            int leafIdx = leafStartIdx + i;
-
-            /* ---------- fast-forward tree if necessary ------------------- */
-            int treeIdx = leafIdx >>> spanShift;           // == leafIdx / SPAN
+            /* --- did we cross into a new implicit-tree block? --------- */
             if (treeIdx != workingTreeIdx) {
-                if (treeIdx >= trees.size()) {
-                    return new MatchResult(false, leafIdx - 1, i); // end of stream
-                }
+                if (treeIdx >= trees.size())               // safety net
+                    return new MatchResult(false, leafIdx - 1, i);
+
                 workingTreeIdx = treeIdx;
-                workingTree    = trees.get(workingTreeIdx);
+                tree           = trees.get(treeIdx);
+                sb             = tree.stream;              // update ref
             }
 
-            /* ---------- membership test for current character ------------ */
-            if (!workingTree.membership.contains(
-                    workingTree.keyService.pack(
-                            workingTree.maxDepth, leafIdx, pat[i]))) {
+            /* --- local offset inside this tree’s stream --------------- */
+            int localPos = leafIdx & (span - 1);           // faster than % span
 
+            /* --- bounds-check (last tree may be shorter than span) ---- */
+            if (localPos >= sb.length())
+                return new MatchResult(false, leafIdx - 1, i);
+
+            /* --- actual character comparison -------------------------- */
+            if (sb.charAt(localPos) != pat[i]) {
                 int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
                 return new MatchResult(false, failPos, i);
             }
         }
 
-        /* ---------- all m characters matched ---------------------------- */
-        int lastPos = leafStartIdx + m - 1;
-        return new MatchResult(true, lastPos, m);
+        return new MatchResult(true, leafStartIdx, m);
     }
 
 
-//    public MatchResult verifyAtLeaves(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
+    //    public MatchResult verifyAtLeaves(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
 //                                              char[] pat,
 //                                              int[] pi) {
 //        int i = 0;               // index in text (leaf offset)

@@ -8,13 +8,15 @@ import org.apache.commons.codec.digest.MurmurHash3;
 public class BloomFilter implements Membership {
     BitSet filter;
     int[] seeds;
-    private final byte[] le4 = new byte[4];
-
+    private final byte[] leByteArr = new byte[8];
+    private final int btLength = leByteArr.length;
     int n;
     double p;
     int m;
     int k;
 
+    private static final long SALT1 = 0xC6BC279692B5CC83L;
+    private static final long SALT2 = 0xD2B74407B1CE6E93L;
 
     @Override public String toString() {
         return String.format("n=%d, m=%d, k=%d, p(actual)=%.4g",
@@ -58,6 +60,7 @@ public class BloomFilter implements Membership {
         this.p    = Math.pow(1 - Math.exp(-k / (double) m * n), k);
 
         this.filter = new BitSet(m);
+        this.
         initSeeds();
     }
 
@@ -84,44 +87,89 @@ public class BloomFilter implements Membership {
         buf[3] = (byte) (v >>> 24);
     }
 
-    public void insert(int key) {
+    private void longToLE(long v, byte[] buf) {
+        buf[0] = (byte)  v;
+        buf[1] = (byte) (v >>> 8);
+        buf[2] = (byte) (v >>> 16);
+        buf[3] = (byte) (v >>> 24);
+        buf[4] = (byte) (v >>> 32);
+        buf[5] = (byte) (v >>> 40);
+        buf[6] = (byte) (v >>> 48);
+        buf[7] = (byte) (v >>> 56);
+    }
+    private static long mix64(long z) {
+        z += 0x9E3779B97F4A7C15L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
+    }
 
-        intToLE(key, le4);   // fill the 4-byte buffer
+//    public void insert(long key) {
+//
+//        longToLE(key, leByteArr);   // fill the 4-byte buffer
+//
+//        int h1 = Math.floorMod(
+//                MurmurHash3.hash32x86(leByteArr, 0, btLength, seeds[0]), m);
+//        int h2 = Math.floorMod(
+//                MurmurHash3.hash32x86(leByteArr, 0, btLength, seeds[1]), m);
+//
+//        int idx = h1;
+//        for (int i = 0; i < k; i++) {
+//            filter.set(idx);
+//            idx += h2;
+//            if (idx >= m) idx -= m;
+//        }
+//    }
+//
+//    /* ================================================================== */
+//    /*  CONTAINS (int key)                                                */
+//    /* ================================================================== */
+//    public boolean contains(long key) {
+//
+//        longToLE(key, leByteArr);   // reuse same buffer
+//
+//        int h1 = Math.floorMod(
+//                MurmurHash3.hash32x86(leByteArr, 0, btLength, seeds[0]), m);
+//        int h2 = Math.floorMod(
+//                MurmurHash3.hash32x86(leByteArr, 0, btLength, seeds[1]), m);
+//
+//        int idx = h1;
+//        for (int i = 0; i < k; i++) {
+//            if (!filter.get(idx))
+//                return false;
+//            idx += h2;
+//            if (idx >= m) idx -= m;
+//        }
+//        return true;                // could still be FP
+//    }
+    public void insert(long key) {
+        long h1 = mix64(key ^ SALT1);           // first hash
+        long h2 = mix64(key ^ SALT2);           // second, independent hash
 
-        int h1 = Math.floorMod(
-                MurmurHash3.hash32x86(le4, 0, 4, seeds[0]), m);
-        int h2 = Math.floorMod(
-                MurmurHash3.hash32x86(le4, 0, 4, seeds[1]), m);
+        int idx = (int) Math.floorMod(h1, m);   // h1 mod m  (m is int)
+        int inc = (int) Math.floorMod(h2, m);   // h2 mod m  (step size)
 
-        int idx = h1;
         for (int i = 0; i < k; i++) {
             filter.set(idx);
-            idx += h2;
-            if (idx >= m) idx -= m;
+            idx += inc;
+            if (idx >= m) idx -= m;             // 1× wrap
         }
     }
 
-    /* ================================================================== */
-    /*  CONTAINS (int key)                                                */
-    /* ================================================================== */
-    public boolean contains(int key) {
+        public boolean contains(long key) {
+            long h1 = mix64(key ^ SALT1);
+            long h2 = mix64(key ^ SALT2);
 
-        intToLE(key, le4);   // reuse same buffer
+            int idx = (int) Math.floorMod(h1, m);
+            int inc = (int) Math.floorMod(h2, m);
 
-        int h1 = Math.floorMod(
-                MurmurHash3.hash32x86(le4, 0, 4, seeds[0]), m);
-        int h2 = Math.floorMod(
-                MurmurHash3.hash32x86(le4, 0, 4, seeds[1]), m);
-
-        int idx = h1;
-        for (int i = 0; i < k; i++) {
-            if (!filter.get(idx))
-                return false;
-            idx += h2;
-            if (idx >= m) idx -= m;
+            for (int i = 0; i < k; i++) {
+                if (!filter.get(idx)) return false;
+                idx += inc;
+                if (idx >= m) idx -= m;
+            }
+            return true;                            // maybe FP
         }
-        return true;                // could still be FP
-    }
 
 
 }
