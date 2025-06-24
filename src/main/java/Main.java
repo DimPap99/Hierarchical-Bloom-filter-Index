@@ -15,9 +15,9 @@ public class Main {
         String queries = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/substrings.txt";
         double durationHBI = 0;
         double durationIPM = 0;
-        int runs = 100;
+        int runs = 10;
         for(int i = 0; i < runs; i++){
-            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 131072);
+            HBI hbi = new HBI(new BlockSearch(), 262144, 0.001, 81, 65536);
             durationHBI+= Experiment.run(dataFile, queries, hbi, false);
             IPMIndexing index = new RegexIndex();   // switch index implementation
             durationIPM+= Experiment.run(dataFile, queries, index, false);
