@@ -54,9 +54,11 @@ public class BlockSearch implements SearchAlgorithm{
 
 
         int matches = 0;
+
+        int key;
         for (int i = offset; i < pattern.length; i++) {
-            String key = tree.createCompositeKey(level, interval,
-                    pattern[i]);
+            key =  tree.keyService.pack(level, interval, pattern[i]);
+
             if (!tree.membership.contains(key)) {
                 return new Probe(matches, false);          // first mismatch at i
             }
@@ -86,86 +88,183 @@ public class BlockSearch implements SearchAlgorithm{
         return pi;
     }
 
-    public Pair<ArrayList<Integer>, Integer> exhaustChild(int currentTreeIdx, ArrayList<ImplicitTree> trees, int intervalSize, int intervalIdx, int leafStartIdx, char[] pat, int[] pi, int positionChecks) {
-        int workingTreeIdx = currentTreeIdx;
-        ImplicitTree workingTree = trees.get(currentTreeIdx);
+//    public Pair<ArrayList<Integer>, Integer> exhaustChild(int currentTreeIdx, ArrayList<ImplicitTree> trees, int intervalSize, int intervalIdx, int leafStartIdx, char[] pat, int[] pi, int positionChecks) {
+//        int workingTreeIdx = currentTreeIdx;
+//        ImplicitTree workingTree = trees.get(currentTreeIdx);
+//        int stopPos = leafStartIdx + positionChecks;
+//        ArrayList<Integer> matches = new ArrayList<>();
+//        MatchResult result; //= verifyAtLeaves(t, leafStartIdx, pat, pi);
+//        if(leafStartIdx == -1){ leafStartIdx = 0; }
+//
+//        while(leafStartIdx <= stopPos){
+//            int idxx = (int)(leafStartIdx / (workingTree.maxIdx + 1));
+//            if((int)(leafStartIdx / (workingTree.maxIdx + 1)) != workingTreeIdx) {
+//                workingTreeIdx++;
+//                if (workingTreeIdx < trees.size()) {
+//                    workingTree = trees.get(workingTreeIdx);
+//                } else {
+//                    //No more stream characters to check || We are the end of the stream
+//                    return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
+//
+//                }
+//            }
+//            result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat);
+//            if(result.matched){
+//                matches.add(result.pos + 1 - pat.length);
+//                leafStartIdx = result.pos + 1;
+//            }else{
+//                leafStartIdx++;
+//            }
+//        }
+//        return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
+//    }
+//
+//    public MatchResult verifyAtLeavesNaive(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
+//                                           char[] pat) {
+//        int m = pat.length;
+//        int workingTreeIdx = currentTreeIdx;
+//        int leafIdx;
+//        ImplicitTree workingTree = trees.get(currentTreeIdx);;
+//        for (int i = 0; i < m; i++) {
+//            // build the composite key for leaf index = leafStartIdx + i,
+//            // and the single pattern character pat[i]
+//            leafIdx = leafStartIdx + i;
+//            if((int)(leafIdx / (workingTree.maxIdx + 1)) != workingTreeIdx){
+//                workingTreeIdx++;
+//                if(workingTreeIdx < trees.size()){
+//                    workingTree = trees.get(workingTreeIdx);
+//                }else{
+//                    //No more stream characters to check || We are the end of the stream
+//                    return new MatchResult(false,
+//                            leafStartIdx + i - 1,
+//                            i);
+//                }
+//
+//            }
+//            String key = workingTree.createCompositeKey(workingTree.maxDepth,
+//                    leafIdx,
+//                    pat[i]);
+//            if (!workingTree.membership.contains(key)) {
+//                // mismatch at the i‐th character of pat:
+//                //   - pos = absolute leaf where it failed = leafStartIdx + i
+//                //   - charsMatched = i (how many matched before failing)
+//                if(i == 0){
+//                    return new MatchResult(false,
+//                            leafStartIdx,
+//                            i);
+//                }
+//                else{
+//                    return new MatchResult(false,
+//                            leafStartIdx + i - 1,
+//                            i);
+//                }
+//
+//            }
+//        }
+//        // if we reach here, all m characters matched in a row
+//        int lastPos = leafStartIdx + (m - 1);
+//        return new MatchResult(true,
+//                lastPos,
+//                m);
+//    }
+
+    /* If you don’t have a global constant, compute them once in the ctor:
+     *   SPAN       = trees.get(0).maxIdx + 1;
+     *   SPAN_SHIFT = Integer.numberOfTrailingZeros(SPAN);
+     */
+
+    /* ================================================================== */
+    /*  1.  exhaustChild – division-free                                   */
+    /* ================================================================== */
+    public Pair<ArrayList<Integer>, Integer> exhaustChild(
+            int currentTreeIdx,
+            ArrayList<ImplicitTree> trees,
+            int intervalSize,           //  not touched
+            int intervalIdx,            //  not touched
+            int leafStartIdx,
+            char[] pat,
+            int[] pi,
+            int positionChecks) {
+        int span       = trees.get(0).maxIdx + 1;              // same for every tree
+        int spanShift  = Integer.numberOfTrailingZeros(span);  // log₂(span)
+
+        if (leafStartIdx < 0) leafStartIdx = 0;
         int stopPos = leafStartIdx + positionChecks;
+
         ArrayList<Integer> matches = new ArrayList<>();
-        MatchResult result; //= verifyAtLeaves(t, leafStartIdx, pat, pi);
-        if(leafStartIdx == -1){ leafStartIdx = 0; }
+        MatchResult result;
 
-        while(leafStartIdx <= stopPos){
-            int idxx = (int)(leafStartIdx / (workingTree.maxIdx + 1));
-            if((int)(leafStartIdx / (workingTree.maxIdx + 1)) != workingTreeIdx) {
-                workingTreeIdx++;
-                if (workingTreeIdx < trees.size()) {
-                    workingTree = trees.get(workingTreeIdx);
-                } else {
-                    //No more stream characters to check || We are the end of the stream
-                    return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
+        /* current working tree – will be reloaded whenever we cross a boundary */
+        ImplicitTree workingTree = trees.get(currentTreeIdx);
 
+        while (leafStartIdx <= stopPos) {
+
+            /* ---------- 1. determine which tree the leaf belongs to -------- */
+            int treeIdx = leafStartIdx >>> spanShift;      // == leafStartIdx / SPAN
+
+            if (treeIdx != currentTreeIdx) {                // crossed ≥ 1 tree(s)
+                if (treeIdx >= trees.size()) {              // hit stream end
+                    return new Pair<>(matches, leafStartIdx);
                 }
+                currentTreeIdx = treeIdx;
+                workingTree    = trees.get(currentTreeIdx);
             }
+
+            /* ---------- 2. run the naive verifier ------------------------- */
             result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat);
-            if(result.matched){
-            matches.add(result.pos + 1 - pat.length);
-            leafStartIdx = result.pos + 1;
-            }else{
-                leafStartIdx++;
+
+            if (result.matched) {                           // full hit
+                matches.add(result.pos + 1 - pat.length);
+                leafStartIdx = result.pos + 1;              // jump past hit
+            } else {
+                leafStartIdx++;                             // slide window
             }
         }
-        return new Pair<ArrayList<Integer>, Integer>(matches, leafStartIdx);
+        return new Pair<>(matches, leafStartIdx);
     }
 
-    public MatchResult verifyAtLeavesNaive(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
-                                           char[] pat) {
-        int m = pat.length;
+    /* ================================================================== */
+    /*  2.  verifyAtLeavesNaive – division-free                            */
+    /* ================================================================== */
+    public MatchResult verifyAtLeavesNaive(
+            int currentTreeIdx,
+            ArrayList<ImplicitTree> trees,
+            int leafStartIdx,
+            char[] pat) {
+        int span       = trees.get(0).maxIdx + 1;              // same for every tree
+        int spanShift  = Integer.numberOfTrailingZeros(span);  // log₂(span)
+        final int m = pat.length;
         int workingTreeIdx = currentTreeIdx;
-        int leafIdx;
-        ImplicitTree workingTree = trees.get(currentTreeIdx);;
+        ImplicitTree workingTree = trees.get(workingTreeIdx);
+
         for (int i = 0; i < m; i++) {
-            // build the composite key for leaf index = leafStartIdx + i,
-            // and the single pattern character pat[i]
-            leafIdx = leafStartIdx + i;
-            if((int)(leafIdx / (workingTree.maxIdx + 1)) != workingTreeIdx){
-                workingTreeIdx++;
-                if(workingTreeIdx < trees.size()){
-                    workingTree = trees.get(workingTreeIdx);
-                }else{
-                    //No more stream characters to check || We are the end of the stream
-                    return new MatchResult(false,
-                            leafStartIdx + i - 1,
-                            i);
-                }
 
+            int leafIdx = leafStartIdx + i;
+
+            /* ---------- fast-forward tree if necessary ------------------- */
+            int treeIdx = leafIdx >>> spanShift;           // == leafIdx / SPAN
+            if (treeIdx != workingTreeIdx) {
+                if (treeIdx >= trees.size()) {
+                    return new MatchResult(false, leafIdx - 1, i); // end of stream
+                }
+                workingTreeIdx = treeIdx;
+                workingTree    = trees.get(workingTreeIdx);
             }
-            String key = workingTree.createCompositeKey(workingTree.maxDepth,
-                    leafIdx,
-                    pat[i]);
-            if (!workingTree.membership.contains(key)) {
-                // mismatch at the i‐th character of pat:
-                //   - pos = absolute leaf where it failed = leafStartIdx + i
-                //   - charsMatched = i (how many matched before failing)
-                if(i == 0){
-                    return new MatchResult(false,
-                            leafStartIdx,
-                            i);
-                }
-                else{
-                    return new MatchResult(false,
-                            leafStartIdx + i - 1,
-                            i);
-                }
 
+            /* ---------- membership test for current character ------------ */
+            if (!workingTree.membership.contains(
+                    workingTree.keyService.pack(
+                            workingTree.maxDepth, leafIdx, pat[i]))) {
+
+                int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
+                return new MatchResult(false, failPos, i);
             }
         }
-        // if we reach here, all m characters matched in a row
-        int lastPos = leafStartIdx + (m - 1);
-        return new MatchResult(true,
-                lastPos,
-                m);
-    }
 
+        /* ---------- all m characters matched ---------------------------- */
+        int lastPos = leafStartIdx + m - 1;
+        return new MatchResult(true, lastPos, m);
+    }
 
 
 //    public MatchResult verifyAtLeaves(int currentTreeIdx, ArrayList<ImplicitTree> trees, int leafStartIdx,
@@ -248,12 +347,12 @@ public class BlockSearch implements SearchAlgorithm{
                     iterationsUntilPossible++;
                 }else{
                     //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-                    if(bfProbe.complete & childrenIntervalSize >= key.length) {
+                    if(bfProbe.complete && childrenIntervalSize >= key.length) {
                         //we just generate children as theres a chance that the pattern is in both of them
                         generateChildren(currentFrame, stack, info.positionOffset, tree, currentTreeIdx);
                         iterationsUntilPossible++;
                     }
-                    else if(bfProbe.complete & childrenIntervalSize < key.length ){
+                    else if(bfProbe.complete && childrenIntervalSize < key.length ){
                         //In this case we know that the probe matched all characters in the current interval.
                         //But also that the children intervals do not completely fit the pattern. If the pattern exists
                         //It will overlap between Left Interval and Right.

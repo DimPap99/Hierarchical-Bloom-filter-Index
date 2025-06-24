@@ -8,6 +8,7 @@ import org.apache.commons.codec.digest.MurmurHash3;
 public class BloomFilter implements Membership {
     BitSet filter;
     int[] seeds;
+    private final byte[] le4 = new byte[4];
 
     int n;
     double p;
@@ -75,40 +76,52 @@ public class BloomFilter implements Membership {
             }
         }
     }
-
-    public void insert(String key) {
-        byte[] bytes = key.getBytes();
-        //Apply Kirsch and Mitzenmacher Optimization and do it as a running sum
-        int h1 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), this.m);
-        int h2 =  Math.floorMod(MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), this.m);
-        long idx = h1;           // start at h1(x) mod m
-        for (int i = 0; i < k; i++) {
-            filter.set((int) idx);
-            idx += h2;           // move forward by h2(x)
-            if (idx >= m) idx -= m;   // wrap once if we crossed the end
-        }
-
+    /* small helper: int → little-endian bytes */
+    private void intToLE(int v, byte[] buf) {
+        buf[0] = (byte)  v;
+        buf[1] = (byte) (v >>> 8);
+        buf[2] = (byte) (v >>> 16);
+        buf[3] = (byte) (v >>> 24);
     }
 
-    public boolean contains(String key) {
-        byte[] bytes = key.getBytes();
+    public void insert(int key) {
+
+        intToLE(key, le4);   // fill the 4-byte buffer
 
         int h1 = Math.floorMod(
-                MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[0]), m);
-
+                MurmurHash3.hash32x86(le4, 0, 4, seeds[0]), m);
         int h2 = Math.floorMod(
-                MurmurHash3.hash32x86(bytes, 0, bytes.length, seeds[1]), m);
+                MurmurHash3.hash32x86(le4, 0, 4, seeds[1]), m);
 
-        long idx = h1;
+        int idx = h1;
         for (int i = 0; i < k; i++) {
-            // **** use get, not set ****
-            if (!filter.get((int) idx))
-                return false;
-
+            filter.set(idx);
             idx += h2;
-            if (idx >= m) idx -= m;   // wrap once if needed
+            if (idx >= m) idx -= m;
         }
-        return true;
     }
+
+    /* ================================================================== */
+    /*  CONTAINS (int key)                                                */
+    /* ================================================================== */
+    public boolean contains(int key) {
+
+        intToLE(key, le4);   // reuse same buffer
+
+        int h1 = Math.floorMod(
+                MurmurHash3.hash32x86(le4, 0, 4, seeds[0]), m);
+        int h2 = Math.floorMod(
+                MurmurHash3.hash32x86(le4, 0, 4, seeds[1]), m);
+
+        int idx = h1;
+        for (int i = 0; i < k; i++) {
+            if (!filter.get(idx))
+                return false;
+            idx += h2;
+            if (idx >= m) idx -= m;
+        }
+        return true;                // could still be FP
+    }
+
 
 }
