@@ -19,6 +19,7 @@ public class Main {
         double durationHBI = 0;
         double durationIPM = 0;
         int runs = 40;
+        //TODO: Adds factory for initialization of membership DS. Potentially decouple Algo code
         //do 3 warmup runs for jit
         for(int i = 0; i < 2; i++){
             HashMapEstimator hmEstimator = new HashMapEstimator(161072);
