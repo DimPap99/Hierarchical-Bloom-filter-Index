@@ -33,8 +33,9 @@ public final class Key64 implements LongKey {
         if (minCharBits <= 0 || minCharBits >= 64)
             throw new IllegalArgumentException("minCharBits out of range");
 
-        LV_BITS = bitsNeeded(maxLevel);         // store the depth number
-        IV_BITS = maxLevel;                     // need up to 2^d intervals
+        LV_BITS = bitsNeeded(maxLevel - 1);         // store the depth number
+        //NEW instead of max level : maxLevel-1 because we discarded the last level to keep the actual stream
+        IV_BITS = maxLevel-1;                     // need up to 2^d intervals
         CH_BITS = 64 - LV_BITS - IV_BITS;       // remaining bits
 
         if (CH_BITS < minCharBits) {
@@ -50,7 +51,6 @@ public final class Key64 implements LongKey {
         LV_SHIFT = CH_BITS + IV_BITS;
     }
 
-    /* ==================== LongKey implementation ==================== */
 
     @Override
     public long pack(int level, int intervalIdx, char ch) {
