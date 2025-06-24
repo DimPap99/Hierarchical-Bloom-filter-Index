@@ -1,5 +1,7 @@
 package PMIndex;
 
+import membership.Key;
+import membership.Key32;
 import membership.Membership;
 import utilities.HBILogger;
 import utilities.Utils;
@@ -17,6 +19,7 @@ public class ImplicitTree {
     public int indexedItemsCounter=-1;
     public int maxIdx;
     public Membership membership;
+    public Key32 keyService;
     int treeId;
     private static final ThreadLocal<StringBuilder> TMP =
             ThreadLocal.withInitial(StringBuilder::new);
@@ -35,6 +38,7 @@ public class ImplicitTree {
         this.membership.init(expectedInsertions, fpRate);
         this.maxIdx = (int)Math.pow(2, this.maxDepth) - 1;
         this.treeId = id;
+        this.keyService = new Key32(maxDepth, 8);
 
     }
 
@@ -73,7 +77,7 @@ public class ImplicitTree {
 
 
     public void insert(char input){
-        String key;
+        int key;
         //Increase the counter that keeps track of indexed items. This is also the position of the item we add
         this.indexedItemsCounter++;
         int intervalIdx;
@@ -81,7 +85,8 @@ public class ImplicitTree {
         for(int i=0;i<this.maxDepth+1;i++){
             //0 is root
             intervalIdx = Utils.getIntervalIndex(this.maxDepth, i, this.indexedItemsCounter);
-            key = this.createCompositeKey(i, intervalIdx, input);
+
+            key = this.keyService.pack(i, intervalIdx, input);//this.createCompositeKey(i, intervalIdx, input);
             //String intervalStr = Utils.intervalWithHashes(this.maxDepth, i, this.indexedItemsCounter);
             //System.out.println(intervalStr);
             //HBILogger.debug("Inserting item: "+input+" key: " + key);
