@@ -4,6 +4,8 @@ import PMIndex.RegexIndex;
 import algorithms.BlockSearch;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
+import membership.BloomFilter;
+import membership.Membership;
 
 import javax.swing.*;
 import javax.swing.text.TableView;
@@ -23,7 +25,8 @@ public class Main {
         //do 3 warmup runs for jit
         for(int i = 0; i < 2; i++){
             Supplier<Estimator> factory = () -> new HashMapEstimator(65536);   // same instance
-            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 65536, factory);
+            Supplier<Membership> memFactory = () -> new BloomFilter();
+            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 65536, factory, memFactory);
             Experiment.run(dataFile, queries, hbi, false);
             IPMIndexing index = new RegexIndex();   // switch index implementation
             Experiment.run(dataFile, queries, index, false);
@@ -33,7 +36,9 @@ public class Main {
 
             /* build a supplier – could be a lambda or method reference */
             Supplier<Estimator> factory = () -> new HashMapEstimator(65536);   // same instance
-            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 65536, factory);
+            Supplier<Membership> memFactory = () -> new BloomFilter();
+
+            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 65536, factory, memFactory);
             durationHBI+= Experiment.run(dataFile, queries, hbi, false);
             IPMIndexing index = new RegexIndex();   // switch index implementation
             durationIPM+= Experiment.run(dataFile, queries, index, false);
