@@ -61,7 +61,7 @@ public class BlockSearch implements SearchAlgorithm{
         for (int i = offset; i < pattern.length; i++) {
             key =  tree.keyService.pack(level, interval, pattern[i]);
 
-            if (!tree.membership.contains(key)) {
+            if (!tree.membership[level].contains(key)) {
                 return new Probe(matches, false);          // first mismatch at i
             }
             matches++;

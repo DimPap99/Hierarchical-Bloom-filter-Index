@@ -3,6 +3,7 @@ package PMIndex;
 import algorithms.SearchAlgorithm;
 import estimators.Estimator;
 import membership.BloomFilter;
+import membership.Membership;
 import membership.MockMembership;
 
 import java.util.ArrayDeque;
@@ -22,16 +23,19 @@ public class HBI implements IPMIndexing {
 
     private ArrayList<ImplicitTree> trees;
     public SearchAlgorithm searchAlgo;
-    private Supplier<Estimator> estimator;   // NEW
-    public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize, int tree_length, Supplier<Estimator> estimator){
+    private Supplier<Estimator> estimatorFac;
+    private Supplier<Membership> membershipFac;   // NEW
+
+    public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize, int tree_length, Supplier<Estimator> estimator, Supplier<Membership> membership){
         this.searchAlgo = algo;
         this.windowLength = windowLength;
         this.treeLength = tree_length;
         this.trees = new ArrayList<ImplicitTree>();
         this.alphabetSize = alphabetSize;
         this.fpRate = fpRate;
-        this.estimator = estimator;
-        this.trees.add(new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, 0, this.estimator.get()));
+        this.estimatorFac = estimator;
+        this.membershipFac = membership;
+        this.trees.add(new ImplicitTree(treeLength, this.membershipFac, fpRate, alphabetSize, 0, this.estimatorFac.get()));
 
     }
 
@@ -44,7 +48,7 @@ public class HBI implements IPMIndexing {
 
         ImplicitTree lastTree = trees.getLast();
         if(lastTree.indexedItemsCounter == this.treeLength - 1){
-            ImplicitTree newLastTree = new ImplicitTree(treeLength, new BloomFilter(), fpRate, alphabetSize, trees.size(), this.estimator.get());
+            ImplicitTree newLastTree = new ImplicitTree(treeLength, this.membershipFac, fpRate, alphabetSize, trees.size(), this.estimatorFac.get());
             newLastTree.estimator.insert(key);
             newLastTree.insert(key);
             trees.add(newLastTree);

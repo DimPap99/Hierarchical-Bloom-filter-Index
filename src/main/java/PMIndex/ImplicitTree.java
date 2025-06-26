@@ -10,6 +10,7 @@ import utilities.Utils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class ImplicitTree {
 
@@ -20,46 +21,49 @@ public class ImplicitTree {
     public int maxDepth;
     public int indexedItemsCounter=-1;
     public int maxIdx;
-    public Membership membership;
+    public Supplier<Membership> membershipFac;
     public Key64 keyService;
     int treeId;
-
+    public Membership[] membership;
     public StringBuilder stream;
     private static final ThreadLocal<StringBuilder> TMP =
             ThreadLocal.withInitial(StringBuilder::new);
     public static int ROOT_INTERVAL_IDX = -1; //The root pretty much covers everything, so we use an
     //arbitrary value to encode that. Make sure that value cannot end up at another interval
     public Estimator estimator;
-    public ImplicitTree(int intervalSize, Membership membership, double fpRate, int alphabetSize, int id, Estimator estimator) {
+    public ImplicitTree(int intervalSize, Supplier<Membership> membership, double fpRate, int alphabetSize, int id, Estimator estimator) {
         this.intervalSize=intervalSize;
         this.maxDepth = (int) Math.ceil(Math.log(intervalSize) / Math.log(2));   // log₂(n)
         //In my window (or block), for every position we perform d + 1 insertions (we count from 0). Therefor,
         //the number of keys to be inserted are equal to the size of the window multiplied by the depth of the tree.
         //for n grams this is min(alphabetsize^n, window-n+1)
 
-        int expectedInsertions = this.calculateDistinctItems(alphabetSize);
-        this.membership = membership;
-        this.membership.init(expectedInsertions, fpRate);
+
+        this.membershipFac = membership;
         this.maxIdx = (int)Math.pow(2, this.maxDepth) - 1;
         this.treeId = id;
         this.keyService = new Key64(maxDepth, 8);
         this.stream = new StringBuilder();
         this.estimator = estimator;
+        this.iniMembershipPerLevel(alphabetSize, fpRate);
     }
 
     public int getIntervalSize(int level){
         return 1 << (this.maxDepth - level);
     }
 
-    public int calculateDistinctItems(int alphabetSize) {
-        int total = 0;
+    public void iniMembershipPerLevel(int alphabetSize, double fpRate) {
+        this.membership = new Membership[this.maxDepth];
+        int currentLevelItems;
         for (int level = 0; level < this.maxDepth; level++) {
             int nodes     = 1 << level;                 // 2^level nodes
             int interval  = this.intervalSize >> level;  // N / 2^level positions per node
             int perNode   = Math.min(alphabetSize, interval);
-            total += nodes * perNode;
+            currentLevelItems = nodes * perNode;
+            this.membership[level] = this.membershipFac.get();
+            //init bloom filter for current level
+            this.membership[level].init(currentLevelItems, fpRate);
         }
-        return total;
     }
 
     public String createCompositeKey(int currentDepth, int intervalIdx, char input){
@@ -97,7 +101,7 @@ public class ImplicitTree {
             //System.out.println(intervalStr);
             //HBILogger.debug("Inserting item: "+input+" key: " + key);
 
-            this.membership.insert(key);
+            this.membership[i].insert(key);
 
         }
         this.stream.append(input);
