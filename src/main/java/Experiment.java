@@ -15,7 +15,7 @@ public class Experiment {
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
-        String data = Generator.generateZipf(131072, 41, 122, 1.5);
+//        String data = Generator.generateZipf(262144, 0, Generator.EXTRA_CHARS.length, 1.8);
         long startTime = System.currentTimeMillis();
         int c = 0;
         try{
@@ -33,7 +33,7 @@ public class Experiment {
         }catch (IOException e){
             e.printStackTrace();
         }
-//        Files.write(Paths.get("zipf_text.txt"),
+//        Files.write(Paths.get("zipf_text2.txt"),
 //                data.getBytes(StandardCharsets.UTF_8));   // no newline
 
 //        for(char cc : data.toCharArray()){
