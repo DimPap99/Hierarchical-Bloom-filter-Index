@@ -11,17 +11,14 @@ public class MockMembership implements Membership{
     }
 
 
-    @Override
     public void init(int n, double p) {
         this.hashSet = new HashSet<>();
     }
 
-    @Override
     public void insert(long key) {
         this.hashSet.add(key);
     }
 
-    @Override
     public boolean contains(long key) {
         return this.hashSet.contains(key);
     }

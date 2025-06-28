@@ -28,20 +28,19 @@ public final class Key64 implements LongKey {
      * @param maxLevel     deepest level d you must support (≥0)
      * @param minCharBits  minimum bits you need for the character (typically 8 or 16)
      */
-    public Key64(int maxLevel, int minCharBits) {
+    public Key64(int maxLevel, int alphabet) {
         if (maxLevel < 0)                       throw new IllegalArgumentException("maxLevel < 0");
-        if (minCharBits <= 0 || minCharBits >= 64)
-            throw new IllegalArgumentException("minCharBits out of range");
+
 
         LV_BITS = bitsNeeded(maxLevel - 1);         // store the depth number
         //NEW instead of max level : maxLevel-1 because we discarded the last level to keep the actual stream
         IV_BITS = maxLevel-1;                     // need up to 2^d intervals
         CH_BITS = 64 - LV_BITS - IV_BITS;       // remaining bits
 
-        if (CH_BITS < minCharBits) {
+        if (Math.pow(CH_BITS, 2) < alphabet) {
             throw new IllegalArgumentException(
                     "64-bit key cannot host: level=" + maxLevel +
-                            " with ≥" + minCharBits + " char bits (only " + CH_BITS + " left)");
+                            " with ≥" + alphabet + " alphabet (only " + CH_BITS + " left)");
         }
 
         CH_MASK  = (1L << CH_BITS) - 1L;
@@ -49,6 +48,7 @@ public final class Key64 implements LongKey {
 
         IV_SHIFT = CH_BITS;
         LV_SHIFT = CH_BITS + IV_BITS;
+
     }
 
 

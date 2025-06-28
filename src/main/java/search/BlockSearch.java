@@ -1,11 +1,9 @@
-package algorithms;
+package search;
 
-import PMIndex.ImplicitTree;
+import tree.ImplicitTree;
 import estimators.Estimator;
 import org.apache.commons.math3.util.Pair;
-import utilities.Utils;
 
-import java.lang.reflect.Array;
 import java.util.*;
 
 public class BlockSearch implements SearchAlgorithm{
@@ -22,16 +20,6 @@ public class BlockSearch implements SearchAlgorithm{
         }
 
 
-    }
-    static final class Frame {
-        final int level;          // depth
-        final int intervalIdx;       // index within that depth
-//        final int charsToMatch;
-//        final boolean isRemainder;
-        Frame(int level, int interval){//, int charsToMatch, boolean isRemainder ) {
-            this.level = level;
-            this.intervalIdx = interval;
-        }
     }
 
     record Probe(int consumed, boolean complete) {} // complete==true if no miss in this node
@@ -59,9 +47,9 @@ public class BlockSearch implements SearchAlgorithm{
 
         long key;
         for (int i = offset; i < pattern.length; i++) {
-            key =  tree.keyService.pack(level, interval, pattern[i]);
+            key =  tree.codec.pack(level, interval, pattern[i]);
 
-            if (!tree.membership[level].contains(key)) {
+            if (!tree.contains(level, key)) {
                 return new Probe(matches, false);          // first mismatch at i
             }
             matches++;
@@ -192,7 +180,7 @@ public class BlockSearch implements SearchAlgorithm{
             char[] pat,
             int[] pi,
             int positionChecks) {
-        int span       = trees.get(0).maxIdx + 1;              // same for every tree
+        int span       = trees.get(0).baseIntervalSize();              // same for every tree
         int spanShift  = Integer.numberOfTrailingZeros(span);  // log₂(span)
 
         if (leafStartIdx < 0) leafStartIdx = 0;
@@ -246,14 +234,14 @@ public class BlockSearch implements SearchAlgorithm{
             char[] pat)
     {
         /* ---------- constants (same for every tree) ------------------- */
-        final int span      = trees.get(0).maxIdx + 1;               // 2^maxDepth
+        final int span      = trees.get(0).baseIntervalSize();               // 2^maxDepth
         final int spanShift = Integer.numberOfTrailingZeros(span);   // log₂(span)
         final int m         = pat.length;
 
         /* ---------- quick global bound check -------------------------- */
         /* Highest usable absolute position in the *whole* stream */
         int globalLastPos = (trees.size() - 1) * span
-                + trees.get(trees.size() - 1).stream.length() - 1;
+                + trees.get(trees.size() - 1).buffer.length() - 1;
 
         if (leafStartIdx + m - 1 > globalLastPos)
             return new MatchResult(false, globalLastPos, 0);
@@ -261,7 +249,7 @@ public class BlockSearch implements SearchAlgorithm{
         /* ---------- initialise current tree --------------------------- */
         int workingTreeIdx  = currentTreeIdx;
         ImplicitTree tree   = trees.get(workingTreeIdx);
-        StringBuilder sb    = tree.stream;                 // convenience ref
+        StringBuilder sb    = tree.buffer.data;                 // convenience ref
 
         /* ---------- main loop ----------------------------------------- */
         for (int i = 0; i < m; i++) {
@@ -275,7 +263,7 @@ public class BlockSearch implements SearchAlgorithm{
 
                 workingTreeIdx = treeIdx;
                 tree           = trees.get(treeIdx);
-                sb             = tree.stream;              // update ref
+                sb             = tree.buffer.data;              // update ref
             }
 
             /* --- local offset inside this tree’s stream --------------- */
@@ -323,23 +311,7 @@ public class BlockSearch implements SearchAlgorithm{
 //        return new MatchResult(false, leafStartIdx + i - 1, j);
 //    }
     //generate children for the current frame. Essentially get the right/left split of the current interval
-    void generateChildren(Frame currentFrame, Deque<Frame> framesStack, int positionOffset, ImplicitTree tree, int workingTreeIdx){
-        int rightChild = tree.getRightChild(currentFrame.intervalIdx);
-        int leftChild = tree.getLeftChild(currentFrame.intervalIdx);
 
-        Frame leftFrame = new Frame(currentFrame.level + 1, leftChild);
-        Frame rightFrame = new Frame(currentFrame.level + 1, rightChild);
-
-        //add right child
-        if (isValidChild(positionOffset, rightChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
-            framesStack.push(rightFrame);
-        }
-        //add left child
-        if (isValidChild(positionOffset, leftChild, currentFrame.level + 1, tree.maxDepth, workingTreeIdx)) {
-            framesStack.push(leftFrame);
-        }
-
-    }
 
     public void  fillStackLp(int lp, Deque<Frame> fStack){
         for(int i=0; i< Math.pow(2, lp); i++){
@@ -355,71 +327,74 @@ public class BlockSearch implements SearchAlgorithm{
         GlobalInfo info = new GlobalInfo(key.length);
 
         for(ImplicitTree tree : trees){
-
-            int lp = tree.estimator.minPruneLevel(String.copyValueOf(key), tree.intervalSize, 81, 0.9999);
+            int treeBaseInterval = tree.baseIntervalSize();
+            int lp = tree.estimator.minPruneLevel(String.copyValueOf(key), treeBaseInterval, 81, 0.9999);
 
             int childrenIntervalSize;
             int currentIntervalSize;
-            int belongingTree = (int)(info.positionOffset  / tree.intervalSize);
+            int belongingTree = (int)(info.positionOffset  / treeBaseInterval);
             Deque<Frame> stack = new ArrayDeque<>();
 
             //check root
             Frame rootFrame = new Frame(0, 0);
-            bfProbe = probe(tree,  rootFrame.level, rootFrame.intervalIdx, key, 0, key.length - info.matched);
+            bfProbe = probe(tree,  rootFrame.level(), rootFrame.intervalIdx(), key, 0, key.length - info.matched);
             if(bfProbe.complete){
-                fillStackLp(lp, stack);
-                //generateChildren(rootFrame, stack, info.positionOffset, tree, currentTreeIdx);
+                tree.generateChildren(rootFrame, stack, info.positionOffset, currentTreeIdx);
 
             }
             while(!stack.isEmpty() && belongingTree == currentTreeIdx) {
+                belongingTree = (info.positionOffset < 0)
+                        ? currentTreeIdx
+                        : (int)(info.positionOffset / treeBaseInterval);
+                if (belongingTree != currentTreeIdx) break;
                 Frame currentFrame = stack.pop();
 
-                currentIntervalSize = tree.getIntervalSize(currentFrame.level);
+                currentIntervalSize = tree.intervalSize(currentFrame.level());
                 childrenIntervalSize = currentIntervalSize/2;
-                bfProbe = probe(tree,  currentFrame.level, currentFrame.intervalIdx, key, info.matched, key.length - info.matched);
+                bfProbe = probe(tree,  currentFrame.level(), currentFrame.intervalIdx(), key, info.matched, key.length - info.matched);
 //                System.out.println("Checking " + Utils.intervalWithHashes(4, currentFrame.level, currentFrame.intervalIdx*currentIntervalSize)
 //                        + " Matched: " + info.matched + " Probe: " + bfProbe.consumed);
                 //skip entiner interval - the pattern is not inside it
                 if(bfProbe.consumed == 0){
-                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx + 1)  + currentTreeIdx * tree.intervalSize;   // good
+                    info.positionOffset = currentIntervalSize * (currentFrame.intervalIdx() + 1)  + currentTreeIdx * treeBaseInterval;   // good
 
                     info.matched = 0;
                 }else{
                     //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
                     if(bfProbe.complete && childrenIntervalSize >= key.length) {
                         //we just generate children as theres a chance that the pattern is in both of them
-                        generateChildren(currentFrame, stack, info.positionOffset, tree, currentTreeIdx);
+                        tree.generateChildren(currentFrame, stack, info.positionOffset, currentTreeIdx);
                     }
                     else if(bfProbe.complete && childrenIntervalSize < key.length ){
                         //In this case we know that the probe matched all characters in the current interval.
                         //But also that the children intervals do not completely fit the pattern. If the pattern exists
                         //It will overlap between Left Interval and Right.
 
-                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi, currentIntervalSize);
+                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx(), info.positionOffset, pat, pi, currentIntervalSize);
 
                         for(int r : res.getFirst()){
                             results.add(r);
                         }
                         info.positionOffset = res.getSecond();
-                        belongingTree = (int)(info.positionOffset  / tree.intervalSize);
+                        belongingTree = (int)(info.positionOffset  / treeBaseInterval);
                     }
                     else{ //the probes were inclomplete. Meaning:
                         //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
                         //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
                         //neighboring child (we have an overlap).
-                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx + 1) + currentTreeIdx * tree.intervalSize        // ← replace 8
+                        int intervalEndIdx = currentIntervalSize * (currentFrame.intervalIdx() + 1) + currentTreeIdx * treeBaseInterval        // ← replace 8
                                 - 1;                        int checkpos = bfProbe.consumed;
                         if(info.positionOffset == -1){
                             checkpos = intervalEndIdx;
                         }
                         info.positionOffset = intervalEndIdx - bfProbe.consumed + 1;
-                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx, info.positionOffset, pat, pi, checkpos);
+                        Pair<ArrayList<Integer>, Integer> res =  exhaustChild(currentTreeIdx, trees, currentIntervalSize, currentFrame.intervalIdx(), info.positionOffset, pat, pi, checkpos);
 
                         for(int r : res.getFirst()){
                             results.add(r);
                         }
                         info.positionOffset = res.getSecond();
-                        belongingTree = (int)(info.positionOffset  / tree.intervalSize);
+                        belongingTree = (int)(info.positionOffset  / treeBaseInterval);
 
                     }
                 }

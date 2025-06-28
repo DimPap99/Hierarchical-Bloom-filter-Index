@@ -1,8 +1,6 @@
-package algorithms;
+package search;
 
-import PMIndex.HBI;
-import PMIndex.ImplicitTree;
-import org.apache.commons.math3.util.Pair;
+import tree.ImplicitTree;
 
 import java.util.ArrayList;
 

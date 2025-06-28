@@ -1,72 +1,132 @@
 package PMIndex;
 
-import algorithms.SearchAlgorithm;
+import membership.*;
+import search.SearchAlgorithm;
 import estimators.Estimator;
-import membership.BloomFilter;
-import membership.Membership;
-import membership.MockMembership;
+import tree.ImplicitTree;
+import tree.TreeLayout;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Queue;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
-public class HBI implements IPMIndexing {
+/**
+ * Sliding-window index façade (legacy name “HBI”) adapted to the new
+ * tree-layer split.  We kept the public constructor and methods unchanged
+ * so the rest of the codebase keeps compiling.
+ */
+public final class HBI implements IPMIndexing {
 
+    /* ---------------------------------------------------------- config */
+    private final int     windowLength;
+    private final int     treeLength;
+    private final int     alphabetSize;
+    private final double  fpRate;
 
-    public int windowLength;
-    public int treeLength;
-    public int indexedItemsCounter=-1;
+    /* ----------------------------------------------------------- state */
+    private       long    indexedItemsCounter = -1;
+    private final Deque<ImplicitTree<Membership>> trees
+            = new ArrayDeque<>();
 
-    double fpRate;
-    int alphabetSize;
+    /* ---------------------------------------------------------- wiring */
+    private final SearchAlgorithm               searchAlgo;
+    private final Supplier<Estimator> estimatorFac;
+    private final Supplier<Membership>    membershipFac;
+    private LongKey codec;
 
-    private ArrayList<ImplicitTree> trees;
-    public SearchAlgorithm searchAlgo;
-    private Supplier<Estimator> estimatorFac;
-    private Supplier<Membership> membershipFac;   // NEW
+    public HBI(SearchAlgorithm algo,
+               int windowLength,
+               double fpRate,
+               int alphabetSize,
+               int treeLength,
+               Supplier<Estimator> estimator,
+               Supplier<Membership> membership) {
 
-    public HBI(SearchAlgorithm algo, int windowLength, double fpRate, int alphabetSize, int tree_length, Supplier<Estimator> estimator, Supplier<Membership> membership){
-        this.searchAlgo = algo;
-        this.windowLength = windowLength;
-        this.treeLength = tree_length;
-        this.trees = new ArrayList<ImplicitTree>();
-        this.alphabetSize = alphabetSize;
-        this.fpRate = fpRate;
-        this.estimatorFac = estimator;
+        this.searchAlgo    = algo;
+        this.windowLength  = windowLength;
+        this.treeLength    = treeLength;
+        this.fpRate        = fpRate;
+        this.alphabetSize  = alphabetSize;
+        this.estimatorFac  = estimator;
         this.membershipFac = membership;
-        this.trees.add(new ImplicitTree(treeLength, this.membershipFac, fpRate, alphabetSize, 0, this.estimatorFac.get()));
 
+        /* first tree */
+        trees.addLast(createTree());
     }
 
+    /* ----------------------------------------------------------- api */
 
-    public void expire(){
-        this.trees.removeFirst();
-    }
-    public void insert(char key){
+    /** Evict the oldest tree unconditionally (same semantics as before). */
+    public void expire() { trees.removeFirst(); }
+
+    /** Stream a single character into the index. */
+    public void insert(char c) {
         indexedItemsCounter++;
 
-        ImplicitTree lastTree = trees.getLast();
-        if(lastTree.indexedItemsCounter == this.treeLength - 1){
-            ImplicitTree newLastTree = new ImplicitTree(treeLength, this.membershipFac, fpRate, alphabetSize, trees.size(), this.estimatorFac.get());
-            newLastTree.estimator.insert(key);
-            newLastTree.insert(key);
-            trees.add(newLastTree);
+        ImplicitTree<Membership> last = trees.peekLast();
+        if (last.isFull()) {
+            ImplicitTree<Membership> fresh = createTree();
+            fresh.id = trees.size();
+            fresh.estimator.insert(c);
+            fresh.append(c, indexedItemsCounter);
+            trees.addLast(fresh);
+        } else {
+            last.estimator.insert(c);
+            last.append(c, indexedItemsCounter);
         }
-        else{
-            lastTree.estimator.insert(key);
-            lastTree.insert(key);
-        }
     }
 
-    //Simple existence query
-    public boolean exists(String key){
-        return false;
+    /** Simple existence query — still a TODO. */
+    public boolean exists(String key) { return false; }
+
+    /** Multi-match report delegates to the search algorithm unchanged. */
+    public ArrayList<Integer> report(String key) {
+        return searchAlgo.report(key.toCharArray(),
+                new ArrayList<>(trees),
+                false);
     }
 
-    public ArrayList<Integer> report(String key){
-        return this.searchAlgo.report(key.toCharArray(), this.trees, false);
+    /* -------------------------------------------------------- helpers */
+
+    /** Builds a TreeLayout whose root spans {@code treeLength} chars. */
+    private TreeLayout makeLayout() {
+        // choose depth so that each deeper level halves the span until 1 char
+        int levels = Integer.SIZE - Integer.numberOfLeadingZeros(treeLength);
+        int leafSpan = treeLength >>> (levels - 1);   // normally 1
+        return new TreeLayout(levels, leafSpan);
     }
 
+    /** Factory for a brand-new ImplicitTree wired to our factories. */
+    private ImplicitTree<Membership> createTree() {
+
+        TreeLayout layout = makeLayout();          // same helper as before
+        int maxDepth = layout.levels();
+    /* --------------------------------------------------------------
+       For level L:
+         nodes      = 2^L                      (intervals on that level)
+         interval   = treeLength / 2^L         (chars per node)
+         perNode    = min(alphabetSize, interval)
+         distinct   = nodes * perNode          (what you called currentLevelItems)
+       That is *identical* to the iniMembershipPerLevel() body you posted.
+       -------------------------------------------------------------- */
+        IntFunction<Membership> filterFactory = level -> {
+            int nodes     = 1 << level;                 // 2^level
+            int interval  = treeLength >> level;        // treeLength / 2^level
+            int perNode   = Math.min(alphabetSize, interval);
+            int distinct  = nodes * perNode;            // ← exact same n
+
+            BloomFilter bf = new BloomFilter();
+            bf.init(distinct, fpRate);                  // SAME CALL as before
+            return bf;
+        };
+
+        return new ImplicitTree<>(
+                layout,
+                filterFactory,          // one ready-to-use BloomFilter per level
+                new Key64(maxDepth, alphabetSize),          // your 64-bit key codec
+                estimatorFac.get());
+    }
 
 }
