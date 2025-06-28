@@ -36,27 +36,27 @@ public final class Main {
         double ipmTotalMs = 0;
 
         /* ---------- 3× JIT warm-up so HotSpot reaches steady state ----- */
-        for (int i = 0; i < 1; i++) {
+        for (int i = 0; i < 3; i++) {
             HBI hbi = newHbi();
-            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, /*verbose=*/true);
+            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, /*verbose=*/false);
 
-//            IPMIndexing ipm = new RegexIndex();
-//            Experiment.run(DATA_FILE, QUERIES_FILE, ipm, false);
+            IPMIndexing ipm = new RegexIndex();
+            Experiment.run(DATA_FILE, QUERIES_FILE, ipm, false);
         }
 
-//        /* ---------- actual benchmark ----------------------------------- */
-//        for (int i = 0; i < RUNS; i++) {
-//            HBI hbi = newHbi();
-//            hbiTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, hbi, false);
-//
-//            IPMIndexing ipm = new RegexIndex();
-//            ipmTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, ipm, false);
-//        }
-//
-//        if (RUNS > 0) {
-//            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-//            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-//        }
+        /* ---------- actual benchmark ----------------------------------- */
+        for (int i = 0; i < RUNS; i++) {
+            HBI hbi = newHbi();
+            hbiTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, hbi, false);
+
+            IPMIndexing ipm = new RegexIndex();
+            ipmTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, ipm, false);
+        }
+
+        if (RUNS > 0) {
+            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
+            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
+        }
     }
 
     /* ------------------------------------------------------------------ */

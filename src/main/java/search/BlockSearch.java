@@ -339,8 +339,7 @@ public class BlockSearch implements SearchAlgorithm{
             Frame rootFrame = new Frame(0, 0);
             bfProbe = probe(tree,  rootFrame.level(), rootFrame.intervalIdx(), key, 0, key.length - info.matched);
             if(bfProbe.complete){
-                tree.generateChildren(rootFrame, stack, info.positionOffset, currentTreeIdx);
-
+                fillStackLp(lp, stack);
             }
             while(!stack.isEmpty() && belongingTree == currentTreeIdx) {
                 belongingTree = (info.positionOffset < 0)
