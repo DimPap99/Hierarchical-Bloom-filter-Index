@@ -7,6 +7,7 @@ import membership.LongKey;
 import membership.Membership;
 import search.BlockSearch;
 import search.Frame;
+import search.PruningPlan;
 
 import java.util.Deque;
 import java.util.function.IntFunction;
@@ -30,6 +31,7 @@ public final class ImplicitTree< M extends Membership> {
     public Estimator estimator;
     /** Maximum number of characters the root interval spans. */
     private final int capacity;
+    public PruningPlan pruningPlan;
 //    public int treeIdx;
     /** Global position of the last appended character.  Starts at –1. */
     private long endPos = -1;

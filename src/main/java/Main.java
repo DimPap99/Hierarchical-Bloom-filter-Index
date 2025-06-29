@@ -3,7 +3,7 @@ import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 
-import search.BlockSearch;
+import search.*;
 
 import estimators.Estimator;
 import estimators.HashMapEstimator;
@@ -28,7 +28,7 @@ public final class Main {
     private static final int TREE_LEN     = 1 << 16;   // 65 536
     private static final int ALPHABET     = 81;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 50;        // set to 0 for a dry run
+    private static final int RUNS         = 100;        // set to 0 for a dry run
 
     public static void main(String[] args) throws IOException {
 
@@ -38,7 +38,7 @@ public final class Main {
         /* ---------- 3× JIT warm-up so HotSpot reaches steady state ----- */
         for (int i = 0; i < 3; i++) {
             HBI hbi = newHbi();
-            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, /*verbose=*/false);
+            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, false);
 
             IPMIndexing ipm = new RegexIndex();
             Experiment.run(DATA_FILE, QUERIES_FILE, ipm, false);
@@ -70,13 +70,17 @@ public final class Main {
         /* Membership supplier – one instance *per tree level* */
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
-
+        Supplier<PruningPlan> prFactory =
+                () -> new MostFreqPruning();
+        Verifier v = new VerifierLinearLeafProbe();
         return new HBI(new BlockSearch(),
                 WINDOW_LEN,
                 FP_RATE,
                 ALPHABET,
                 TREE_LEN,
                 estFactory,
-                memFactory);
+                memFactory,
+                prFactory,
+                v);
     }
 }
