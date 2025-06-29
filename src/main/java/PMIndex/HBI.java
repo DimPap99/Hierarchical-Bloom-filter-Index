@@ -1,7 +1,8 @@
 package PMIndex;
 
 import membership.*;
-import search.SearchAlgorithm;
+import org.apache.commons.math3.util.Pair;
+import search.*;
 import estimators.Estimator;
 import tree.ImplicitTree;
 import tree.TreeLayout;
@@ -27,22 +28,25 @@ public final class HBI implements IPMIndexing {
 
     /* ----------------------------------------------------------- state */
     private       long    indexedItemsCounter = -1;
-    private final Deque<ImplicitTree<Membership>> trees
-            = new ArrayDeque<>();
+    private final ArrayList<ImplicitTree<Membership>> trees
+            = new ArrayList<>();
 
     /* ---------------------------------------------------------- wiring */
     private final SearchAlgorithm               searchAlgo;
     private final Supplier<Estimator> estimatorFac;
     private final Supplier<Membership>    membershipFac;
+    private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
-
+    private Verifier verifier;
     public HBI(SearchAlgorithm algo,
                int windowLength,
                double fpRate,
                int alphabetSize,
                int treeLength,
                Supplier<Estimator> estimator,
-               Supplier<Membership> membership) {
+               Supplier<Membership> membership,
+               Supplier<PruningPlan> pruningPlan,
+               Verifier verifier) {
 
         this.searchAlgo    = algo;
         this.windowLength  = windowLength;
@@ -51,7 +55,8 @@ public final class HBI implements IPMIndexing {
         this.alphabetSize  = alphabetSize;
         this.estimatorFac  = estimator;
         this.membershipFac = membership;
-
+        this.pruningPlanFac = pruningPlan;
+        this.verifier      = verifier;
         /* first tree */
         trees.addLast(createTree());
     }
@@ -64,28 +69,51 @@ public final class HBI implements IPMIndexing {
     /** Stream a single character into the index. */
     public void insert(char c) {
         indexedItemsCounter++;
-
-        ImplicitTree<Membership> last = trees.peekLast();
-        if (last.isFull()) {
+        ImplicitTree lastTree = trees.getLast();
+        if (lastTree.isFull()) {
             ImplicitTree<Membership> fresh = createTree();
             fresh.id = trees.size();
             fresh.estimator.insert(c);
             fresh.append(c, indexedItemsCounter);
-            trees.addLast(fresh);
+            trees.add(fresh);
         } else {
-            last.estimator.insert(c);
-            last.append(c, indexedItemsCounter);
+            lastTree.estimator.insert(c);
+            lastTree.append(c, indexedItemsCounter);
         }
     }
-
+    public void  fillStackLp(int lp, Deque<Frame> fStack){
+        for(int i=0; i< Math.pow(2, lp); i++){
+            fStack.addLast(new Frame(lp, i));
+        }
+    }
     /** Simple existence query — still a TODO. */
     public boolean exists(String key) { return false; }
 
     /** Multi-match report delegates to the search algorithm unchanged. */
     public ArrayList<Integer> report(String key) {
-        return searchAlgo.report(key.toCharArray(),
-                new ArrayList<>(trees),
-                false);
+    ArrayList<Integer> results = new ArrayList<>();
+    Pattern pat = new Pattern(key, false);
+
+     int positionOffset = -1;
+     for (int i = 0; i < this.trees.size(); i++) {
+         ImplicitTree<Membership> tree = this.trees.get(i);
+         tree.pruningPlan    = this.pruningPlanFac.get();
+         IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
+         Deque<Frame> stack = new ArrayDeque<>();
+         int lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99).getFirst();
+         fillStackLp(lp, stack);
+         scn.seedStack(stack);
+       while (scn.hasNext()) {
+           CandidateRange cr = scn.next();
+           if(cr == null) break;
+           Pair<ArrayList<Integer>, Integer> res = this.verifier.verify(i, this.trees, cr, pat);
+           for(int r : res.getFirst()){
+               results.add(r);
+           }
+      }
+     }
+     return results;
+
     }
 
     /* -------------------------------------------------------- helpers */
