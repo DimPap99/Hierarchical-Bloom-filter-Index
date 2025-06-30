@@ -10,6 +10,7 @@ import tree.TreeLayout;
 import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
@@ -26,8 +27,12 @@ public final class HBI implements IPMIndexing {
     private final int     alphabetSize;
     private final double  fpRate;
 
+    //maps characters/strings (for n-grams) to an integer
+    public HashMap<String, Integer> alphabetMap;
+
     /* ----------------------------------------------------------- state */
     private       long    indexedItemsCounter = -1;
+
     private final ArrayList<ImplicitTree<Membership>> trees
             = new ArrayList<>();
 
@@ -37,6 +42,7 @@ public final class HBI implements IPMIndexing {
     private final Supplier<Membership>    membershipFac;
     private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
+
     private Verifier verifier;
     public HBI(SearchAlgorithm algo,
                int windowLength,
@@ -67,18 +73,20 @@ public final class HBI implements IPMIndexing {
     public void expire() { trees.removeFirst(); }
 
     /** Stream a single character into the index. */
-    public void insert(char c) {
+    public void insert(String c) {
+
+        int intC = this.alphabetMap.get(c);
         indexedItemsCounter++;
         ImplicitTree lastTree = trees.getLast();
         if (lastTree.isFull()) {
             ImplicitTree<Membership> fresh = createTree();
             fresh.id = trees.size();
-            fresh.estimator.insert(c);
-            fresh.append(c, indexedItemsCounter);
+            fresh.estimator.insert(intC);
+            fresh.append(intC, indexedItemsCounter);
             trees.add(fresh);
         } else {
-            lastTree.estimator.insert(c);
-            lastTree.append(c, indexedItemsCounter);
+            lastTree.estimator.insert(intC);
+            lastTree.append(intC, indexedItemsCounter);
         }
     }
     public void  fillStackLp(int lp, Deque<Frame> fStack){
@@ -90,9 +98,10 @@ public final class HBI implements IPMIndexing {
     public boolean exists(String key) { return false; }
 
     /** Multi-match report delegates to the search algorithm unchanged. */
-    public ArrayList<Integer> report(String key) {
+    public ArrayList<Integer> report(Pattern pat) {
     ArrayList<Integer> results = new ArrayList<>();
-    Pattern pat = new Pattern(key, false);
+    //convert ngram to int representation
+    for(int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) pat.nGramToInt[nIdx] = this.alphabetMap.get(pat.nGramArr[nIdx]);
 
      int positionOffset = -1;
      for (int i = 0; i < this.trees.size(); i++) {

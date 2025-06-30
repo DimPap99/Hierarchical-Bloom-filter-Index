@@ -44,7 +44,7 @@ public class VerifierLinearLeafProbe implements Verifier {
             }
 
             /* ---------- 2. run the naive verifier ------------------------- */
-            result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat.text);
+            result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat.nGramToInt);
 
             if (result.matched) {                           // full hit
                 matches.add(result.pos);
@@ -60,7 +60,7 @@ public class VerifierLinearLeafProbe implements Verifier {
             int currentTreeIdx,
             ArrayList<ImplicitTree<Membership>> trees,
             int leafStartIdx,
-            char[] pat)
+            int[] pat)
     {
         /* ---------- constants (same for every tree) ------------------- */
         final int span      = trees.get(0).baseIntervalSize();               // 2^maxDepth
@@ -70,7 +70,7 @@ public class VerifierLinearLeafProbe implements Verifier {
         /* ---------- quick global bound check -------------------------- */
         /* Highest usable absolute position in the *whole* stream */
         int globalLastPos = (trees.size() - 1) * span
-                + trees.get(trees.size() - 1).buffer.data.length() - 1;
+                + trees.get(trees.size() - 1).buffer.data.size() - 1;
 
         if (leafStartIdx + m - 1 > globalLastPos)
             return new MatchResult(false, globalLastPos);
@@ -78,7 +78,7 @@ public class VerifierLinearLeafProbe implements Verifier {
         /* ---------- initialise current tree --------------------------- */
         int workingTreeIdx  = currentTreeIdx;
         ImplicitTree tree   = trees.get(workingTreeIdx);
-        StringBuilder sb    = tree.buffer.data;                 // convenience ref
+        ArrayList<Integer> sb    = tree.buffer.data;                 // convenience ref
 
         /* ---------- main loop ----------------------------------------- */
         for (int i = 0; i < m; i++) {
@@ -99,11 +99,11 @@ public class VerifierLinearLeafProbe implements Verifier {
             int localPos = leafIdx & (span - 1);           // faster than % span
 
             /* --- bounds-check (last tree may be shorter than span) ---- */
-            if (localPos >= sb.length())
+            if (localPos >= sb.size())
                 return new MatchResult(false, leafIdx - 1);
 
             /* --- actual character comparison -------------------------- */
-            if (sb.charAt(localPos) != pat[i]) {
+            if (sb.get(localPos) != pat[i]) {
                 int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
                 return new MatchResult(false, failPos);
             }

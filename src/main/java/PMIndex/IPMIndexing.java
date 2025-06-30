@@ -1,14 +1,16 @@
 package PMIndex;
 
+import search.Pattern;
+
 import java.util.ArrayList;
 
 public interface IPMIndexing {
 
-    void insert(char key);
+    void insert(String key);
 
     boolean exists(String key);
 
-    ArrayList<Integer> report(String key);
+    ArrayList<Integer> report(Pattern key);
 
     public void expire();
 }

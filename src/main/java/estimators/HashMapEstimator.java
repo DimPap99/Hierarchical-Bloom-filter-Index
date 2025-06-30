@@ -4,7 +4,7 @@ import java.util.HashMap;
 
 public class HashMapEstimator implements Estimator {
 
-    public HashMap<Character, Integer> frequencies;
+    public HashMap<Integer, Integer> frequencies;
 
     public double totalRecords;
 
@@ -19,12 +19,12 @@ public class HashMapEstimator implements Estimator {
     }
 
     @Override
-    public void insert(char key) {
+    public void insert(int key) {
         frequencies.merge(key, 1, Integer::sum);
     }
 
     @Override
-    public double estimate(char key) {
+    public double estimate(int key) {
         if(frequencies.containsKey(key)){
             return frequencies.get(key)/totalRecords;
         }

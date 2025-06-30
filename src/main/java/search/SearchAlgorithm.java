@@ -11,4 +11,6 @@ public interface SearchAlgorithm {
 //    ArrayList<Integer> report(char[] key, ArrayList<ImplicitTree> trees, boolean existence);
     CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset);
 
+    int getCurrentOffset();
+
 }
