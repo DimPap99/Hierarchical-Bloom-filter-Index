@@ -16,12 +16,16 @@ public class Pattern{
         this.text = s.toCharArray();
         this.patternTxt = s;
         this.prefixFunction();
-        int sz = (int)Math.ceil(s.length()/nGram);
-        this.nGramArr = new String[sz];
-        this.nGramToInt = new int[sz];
-        for(int i = nGram; i <= s.length(); i++){
-            this.nGramArr[i - 1] = s.substring(i-nGram, i);
+        int len = s.length() - nGram + 1;
+
+        this.nGramArr   = new String[len];
+        this.nGramToInt = new int[len];        // or whatever you store there
+
+        for (int i = 0; i < len; i++) {
+            nGramArr[i] = s.substring(i, i + nGram);   // sliding window
+            // nGramToInt[i] = … convert nGramArr[i] to int if needed
         }
+
     }
 
     /* ------- private copy of your helper so callers don't see it ------- */
