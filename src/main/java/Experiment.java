@@ -33,7 +33,7 @@ public class Experiment {
                 window.append(cChar);
 
                 /* Only once we have k chars -> emit the N-gram */
-                if (window.buf.length == Ngram) {
+                if (window.isFilled()) {
                     index.insert(window.view());   // the whole k-gram
                 }
             }

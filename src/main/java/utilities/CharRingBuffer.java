@@ -14,6 +14,9 @@ public final class CharRingBuffer {
         this.buf = new char[k];
     }
 
+    public boolean isFilled(){
+        return (filled >= buf.length);
+    }
     /** Push one character from the stream. */
     public void append(char c) {
         buf[pos] = c; // a b c d      [a, b], [a, c]

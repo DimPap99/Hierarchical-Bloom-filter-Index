@@ -37,7 +37,7 @@ public final class Key64 implements LongKey {
         IV_BITS = maxLevel-1;                     // need up to 2^d intervals
         CH_BITS = 64 - LV_BITS - IV_BITS;       // remaining bits
 
-        if (Math.pow(CH_BITS, 2) < alphabet) {
+        if (Math.pow(2, CH_BITS) < alphabet) {
             throw new IllegalArgumentException(
                     "64-bit key cannot host: level=" + maxLevel +
                             " with ≥" + alphabet + " alphabet (only " + CH_BITS + " left)");

@@ -24,15 +24,15 @@ import java.util.stream.IntStream;
 public final class Main {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries1.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text2.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries2.txt";
 
     private static final int WINDOW_LEN   = 1 << 17;   // 131 072
     private static final int TREE_LEN     = 1 << 16;   // 65 536
     private static int ALPHABET     = 81;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 100;        // set to 0 for a dry run
-    private static final int NGRAMS = 1;
+    private static final int NGRAMS = 3;
     public static void main(String[] args) throws IOException {
 
         double hbiTotalMs = 0;
@@ -44,7 +44,7 @@ public final class Main {
         AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
         ALPHABET = gen.alphabetMap.size();
         /* ---------- 3× JIT warm-up so HotSpot reaches steady state ----- */
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 1; i++) {
             HBI hbi = newHbi();
             hbi.alphabetMap = gen.alphabetMap;
             Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
@@ -53,7 +53,7 @@ public final class Main {
             Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
         }
 
-        /* ---------- actual benchmark ----------------------------------- */
+//        /* ---------- actual benchmark ----------------------------------- */
 //        for (int i = 0; i < RUNS; i++) {
 //            HBI hbi = newHbi();
 //            hbi.alphabetMap = gen.alphabetMap;
@@ -61,7 +61,7 @@ public final class Main {
 //            hbiTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
 //
 //            IPMIndexing ipm = new RegexIndex();
-//            ipmTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, ipm, NGRAMS, false);
+//            ipmTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
 //        }
 //
 //        if (RUNS > 0) {

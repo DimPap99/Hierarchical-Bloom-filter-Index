@@ -112,6 +112,7 @@ public final class HBI implements IPMIndexing {
          int lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99).getFirst();
          fillStackLp(lp, stack);
          scn.seedStack(stack);
+
        while (scn.hasNext()) {
            CandidateRange cr = scn.next();
            if(cr == null) break;
