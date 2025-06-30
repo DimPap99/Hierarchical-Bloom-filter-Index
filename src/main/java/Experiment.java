@@ -1,5 +1,7 @@
 import PMIndex.IPMIndexing;
 import datagenerators.Generator;
+import search.Pattern;
+import utilities.CharRingBuffer;
 import utilities.HBILogger;
 
 import java.io.*;
@@ -7,34 +9,39 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Deque;
 
 public class Experiment {
 
-    public static double run(String inputFilePath, String queriesFilePath, IPMIndexing index, boolean verbose) throws IOException {
+    public static double run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
 //        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
-//        String data = Generator.generateZipf(262144, 0, Generator.EXTRA_CHARS.length, 1.8);
+//        String data = Generator.generateZipf(131072, 48, 122, 1.35);
+//                Files.write(Paths.get("zipf_text2.txt"),
+//                data.getBytes(StandardCharsets.UTF_8));   // no newline
         long startTime = System.currentTimeMillis();
         int c = 0;
-        try{
-            FileReader fileReader = new FileReader(inputFilePath);
-            int ch;
-            while ((ch = fileReader.read()) != -1) {
-                //System.out.println(c);
-                index.insert((char)ch);
-                c++;
-            }
-            fileReader.close();
-//        HBILogger.info("Done reading input file.");
-        // keep JVM alive long enough to attach
+        CharRingBuffer window = new CharRingBuffer(Ngram);
+// ------------------------------------------------------------------
 
-        }catch (IOException e){
+        try (FileReader fr = new FileReader(inputFilePath)) {
+            int ch;
+            while ((ch = fr.read()) != -1) {
+                char cChar = (char) ch;
+                window.append(cChar);
+
+                /* Only once we have k chars -> emit the N-gram */
+                if (window.buf.length == Ngram) {
+                    index.insert(window.view());   // the whole k-gram
+                }
+            }
+        }
+        catch (IOException e){
             e.printStackTrace();
         }
-//        Files.write(Paths.get("zipf_text2.txt"),
-//                data.getBytes(StandardCharsets.UTF_8));   // no newline
+
 
 //        for(char cc : data.toCharArray()){
 //            index.insert(cc);
@@ -60,7 +67,7 @@ public class Experiment {
         startTime = System.currentTimeMillis();
         for(String query : queries){
 //            HBILogger.info("Query: " + query);
-            ArrayList<Integer> report = index.report(query);
+            ArrayList<Integer> report = index.report(new Pattern(query, Ngram));
             if(verbose){
                 if(report.size() < 20){
                     System.out.println(query + ":" + report);

@@ -23,7 +23,7 @@ public class RegexIndex implements IPMIndexing {
 
     /** Append one or more characters to the indexed text. */
     @Override
-    public void insert(char s) {
+    public void insert(String  s) {
         text.append(s);
     }
 
@@ -38,13 +38,13 @@ public class RegexIndex implements IPMIndexing {
      * by the existing Experiment code.
      */
     @Override
-    public ArrayList<Integer> report(String regex) {
+    public ArrayList<Integer> report(search.Pattern regex) {
         ArrayList<Integer> positions = new ArrayList<>();
 
         // Compile the pattern on every call – you could cache if you repeatedly
         // query the same patterns, but for the typical “many distinct queries”
         // workload the overhead is negligible compared to the scan itself.
-        Pattern pattern = Pattern.compile(regex, Pattern.LITERAL);
+        Pattern pattern = Pattern.compile(regex.patternTxt, Pattern.LITERAL);
         Matcher matcher = pattern.matcher(text);
 
         // Standard forward search – if you need overlapping matches, replace

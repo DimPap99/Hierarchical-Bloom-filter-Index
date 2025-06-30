@@ -53,7 +53,7 @@ public final class ImplicitTree< M extends Membership> {
      * The character is packed into a key for each level and inserted into
      * the corresponding membership structure.
      */
-    public void append(char c, long globalPos) {
+    public void append(int c, long globalPos) {
         buffer.append(c);
         endPos = globalPos;
         indexedItemsCounter++;

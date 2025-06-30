@@ -8,7 +8,7 @@ import java.util.*;
 
 public class BlockSearch implements SearchAlgorithm{
     public Estimator estimator;
-
+    public int currentOffset;
     public class GlobalInfo{
         public boolean isSplit = false;
         public int matched = 0;
@@ -29,15 +29,16 @@ public class BlockSearch implements SearchAlgorithm{
         Probe probe = probe(tree,
                 f.level(),             // unchanged helper signature
                 f.intervalIdx(),
-                p.text,
+                p.nGramToInt,
                 0,
                 p.text.length);
+        this.currentOffset = positionOffset;
         int currentIntervalSize = tree.intervalSize(f.level());
         int childrenIntervalSize = currentIntervalSize / 2;
         int treeBaseInterval = tree.baseIntervalSize();
 
         if (probe.consumed == 0) {
-            positionOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
+            this.currentOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
             return null;
         } else {
             //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
@@ -45,19 +46,25 @@ public class BlockSearch implements SearchAlgorithm{
                 //we just generate children as theres a chance that the pattern is in both of them
                 tree.generateChildren(f, stack, positionOffset, tree.id);
                 return null;
-            } else { //the probes were inclomplete. Meaning:
-                //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
-                //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
-                //neighboring child (we have an overlap).
+            } else {
                 int intervalEndIdx = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval - 1;
-                positionOffset = intervalEndIdx - probe.consumed + 1;
-                return new CandidateRange(positionOffset, intervalEndIdx);
 
+                if(probe.complete) return new CandidateRange(this.currentOffset, intervalEndIdx);
+                else {
+                    //the probes were inclomplete. Meaning:
+                    //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
+                    //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
+                    //neighboring child (we have an overlap).
+                    this.currentOffset = intervalEndIdx - probe.consumed + 1;
+                    return new CandidateRange(this.currentOffset, intervalEndIdx);
+                }
             }
         }
     }
 
-    Probe probe(ImplicitTree tree, int level, int interval, char[] pattern, int offset, int remainder) {
+
+    public int getCurrentOffset(){return this.currentOffset;}
+    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern, int offset, int remainder) {
 
 
         int matches = 0;
@@ -89,15 +96,5 @@ public class BlockSearch implements SearchAlgorithm{
         return maxPos >= positionOffset;
     }
 
-    private static int[] prefixFunction(char[] pat) {
-        int[] pi = new int[pat.length];
-        int k = 0;
-        for (int i = 1; i < pat.length; ++i) {
-            while (k > 0 && pat[k] != pat[i]) k = pi[k - 1];
-            if (pat[k] == pat[i]) ++k;
-            pi[i] = k;
-        }
-        return pi;
-    }
 
 }

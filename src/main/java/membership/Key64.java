@@ -53,7 +53,7 @@ public final class Key64 implements LongKey {
 
 
     @Override
-    public long pack(int level, int intervalIdx, char ch) {
+    public long pack(int level, int intervalIdx, int ch) {
         return  ((long) level       << LV_SHIFT) |
                 ((long) intervalIdx << IV_SHIFT) |
                 ((long) ch & CH_MASK);

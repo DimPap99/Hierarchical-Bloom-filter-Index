@@ -34,16 +34,12 @@ public class Generator {
         return new String(chars);
     }
 
-    public static String generateZipf(int length, int minDomain, int maxDomain, double exponent) {
-
-        ZipfDistribution dist = new ZipfDistribution(maxDomain - minDomain + 1, exponent);
+    public static String generateZipf(int length, int min_domain, int max_domain, double exponent) {
+        ZipfDistribution dist = new ZipfDistribution(max_domain - min_domain, exponent);
         char[] chars = new char[length];
-
         for (int i = 0; i < length; i++) {
-            int symbol = dist.sample() - 1 + minDomain;   // 0-based index
-            chars[i] = EXTRA_CHARS[symbol % EXTRA_CHARS.length];
+            chars[i] = (char) (dist.sample() - 1 + min_domain);
         }
-
         return new String(chars);
     }
 
