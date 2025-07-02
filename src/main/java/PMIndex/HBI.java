@@ -30,19 +30,20 @@ public final class HBI implements IPMIndexing {
     //maps characters/strings (for n-grams) to an integer
     public HashMap<String, Integer> alphabetMap;
 
-    /* ----------------------------------------------------------- state */
     private       long    indexedItemsCounter = -1;
 
     private final ArrayList<ImplicitTree<Membership>> trees
             = new ArrayList<>();
 
-    /* ---------------------------------------------------------- wiring */
     private final SearchAlgorithm               searchAlgo;
     private final Supplier<Estimator> estimatorFac;
     private final Supplier<Membership>    membershipFac;
     private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
 
+    public boolean getStats = false;
+
+    public ArrayList<Integer> Lp = new ArrayList<>();
     private Verifier verifier;
     public HBI(SearchAlgorithm algo,
                int windowLength,
@@ -67,9 +68,8 @@ public final class HBI implements IPMIndexing {
         trees.addLast(createTree());
     }
 
-    /* ----------------------------------------------------------- api */
 
-    /** Evict the oldest tree unconditionally (same semantics as before). */
+    /** Evict the oldest tree unconditionally */
     public void expire() { trees.removeFirst(); }
 
     /** Stream a single character into the index. */
@@ -110,6 +110,7 @@ public final class HBI implements IPMIndexing {
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
          int lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99).getFirst();
+         if(this.getStats) this.Lp.add(lp);
          fillStackLp(lp, stack);
          scn.seedStack(stack);
 
@@ -149,23 +150,22 @@ public final class HBI implements IPMIndexing {
          interval   = treeLength / 2^L         (chars per node)
          perNode    = min(alphabetSize, interval)
          distinct   = nodes * perNode          (what you called currentLevelItems)
-       That is *identical* to the iniMembershipPerLevel() body you posted.
        -------------------------------------------------------------- */
         IntFunction<Membership> filterFactory = level -> {
             int nodes     = 1 << level;                 // 2^level
             int interval  = treeLength >> level;        // treeLength / 2^level
             int perNode   = Math.min(alphabetSize, interval);
-            int distinct  = nodes * perNode;            // ← exact same n
+            int distinct  = nodes * perNode;
 
             BloomFilter bf = new BloomFilter();
-            bf.init(distinct, fpRate);                  // SAME CALL as before
+            bf.init(distinct, fpRate);
             return bf;
         };
 
         return new ImplicitTree<>(
                 layout,
-                filterFactory,          // one ready-to-use BloomFilter per level
-                new Key64(maxDepth, alphabetSize),          // your 64-bit key codec
+                filterFactory,          // one BloomFilter per level
+                new Key64(maxDepth, alphabetSize),
                 estimatorFac.get());
     }
 
