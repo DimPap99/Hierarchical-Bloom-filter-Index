@@ -1,0 +1,27 @@
+N-gram: 1
+
+HBI avg (ms): 968.000
+RegexIndex avg (ms): 810.650
+HBI Insert avg (ms): 8992.550
+RegexIndex Insert avg (ms): 378.200
+
+
+N-gram: 2
+
+HBI avg (ms): 271.150
+HBI Insert avg (ms): 15304.400
+RegexIndex avg (ms): 844.750
+RegexIndex Insert avg (ms): 365.250
+
+
+
+N-gram: 3
+Window Size: 8388608
+Tree Length: 262144
+Alphabet: 421875
+HBI avg (ms): 37.800
+HBI Insert avg (ms): 17579.600
+RegexIndex avg (ms): 791.000
+RegexIndex Insert avg (ms): 400.400
+
+

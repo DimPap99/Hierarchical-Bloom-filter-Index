@@ -13,8 +13,9 @@ import java.util.Deque;
 
 public class Experiment {
 
-    public static double run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
+    public static ArrayList<Long> run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
 //        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
+        ArrayList<Long> timings =  new ArrayList<>();
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
@@ -48,6 +49,7 @@ public class Experiment {
 //        }
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
+        timings.add(duration);
 //        HBILogger.info("Report: " + report.toString());
 //        HBILogger.info("Time taken: " + duration + " ms");
 //
@@ -85,6 +87,8 @@ public class Experiment {
             System.out.println("Querying duration: " +  duration + " ms");
 
         }
-        return duration;
+        timings.add(duration);
+
+        return timings;
     }
 }

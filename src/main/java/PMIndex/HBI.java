@@ -120,7 +120,9 @@ public final class HBI implements IPMIndexing {
            for(int r : res.getFirst()){
                results.add(r);
            }
-      }
+           scn.positionOffset = res.getSecond();        // advance the starting point
+
+       }
      }
      return results;
 
