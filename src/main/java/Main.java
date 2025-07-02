@@ -12,7 +12,9 @@ import membership.BloomFilter;
 import membership.Membership;
 import utilities.AlphabetMapGen;
 
+import javax.xml.stream.FactoryConfigurationError;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
@@ -28,46 +30,62 @@ public final class Main {
     private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings.txt";
 
     private static final int WINDOW_LEN   = 1 << 23;   // 131 072
-    private static final int TREE_LEN     = 1 << 18;   // 65 536
+    private static final int TREE_LEN     = 1 << 18;
     private static int ALPHABET     = 81;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 100;        // set to 0 for a dry run
-    private static final int NGRAMS = 1;
+    private static final int RUNS         = 5;        // set to 0 for a dry run
+    private static final int NGRAMS = 3;
     public static void main(String[] args) throws IOException {
 
         double hbiTotalMs = 0;
         double ipmTotalMs = 0;
+        double hbiTotalMsInsert = 0;
+        double ipmTotalMsInsert = 0;
         List<Character> letters = IntStream.rangeClosed(48,122)
                 .mapToObj(c -> (char)c)
                 .toList();
 
+        System.out.println("N-gram: " + NGRAMS);
+        System.out.println("Window Size: " + WINDOW_LEN);
+        System.out.println("Tree Length: " + TREE_LEN);
+
         AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
         ALPHABET = gen.alphabetMap.size();
-        /* ---------- 3× JIT warm-up so HotSpot reaches steady state ----- */
-        for (int i = 0; i < 1; i++) {
+        System.out.println("Alphabet: " + ALPHABET);
+
+        /* JIT warm-up so HotSpot reaches steady state */
+        for (int i = 0; i < 5; i++) {
             HBI hbi = newHbi();
             hbi.alphabetMap = gen.alphabetMap;
-            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, true);
+            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
 
-//            IPMIndexing ipm = new RegexIndex();
-//            Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, true);
+            IPMIndexing ipm = new RegexIndex();
+            Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
         }
 
 //        /* ---------- actual benchmark ----------------------------------- */
-//        for (int i = 0; i < RUNS; i++) {
-//            HBI hbi = newHbi();
-//            hbi.alphabetMap = gen.alphabetMap;
-//
-//            hbiTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
-//
-//            IPMIndexing ipm = new RegexIndex();
-//            ipmTotalMs += Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
-//        }
-//
-//        if (RUNS > 0) {
-//            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-//            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-//        }
+        ArrayList<Long> timings = new ArrayList<>();
+        for (int i = 0; i < RUNS; i++) {
+            HBI hbi = newHbi();
+            hbi.alphabetMap = gen.alphabetMap;
+            timings = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+            hbiTotalMs += timings.get(1);
+            hbiTotalMsInsert += timings.get(0);
+            IPMIndexing ipm = new RegexIndex();
+            timings = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+            ipmTotalMs += timings.get(1);
+            ipmTotalMsInsert += timings.get(0);
+
+
+        }
+
+        if (RUNS > 0) {
+            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
+            System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+
+            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
+            System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
+        }
     }
 
     /* ------------------------------------------------------------------ */
