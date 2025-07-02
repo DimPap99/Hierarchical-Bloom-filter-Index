@@ -18,8 +18,8 @@ public class Experiment {
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
-//        String data = Generator.generateZipf(131072, 48, 122, 1.35);
-//                Files.write(Paths.get("zipf_text2.txt"),
+//        String data = Generator.generateZipf(8388608, 48, 122, 1.5);
+//                Files.write(Paths.get("zipf_text_big.txt"),
 //                data.getBytes(StandardCharsets.UTF_8));   // no newline
         long startTime = System.currentTimeMillis();
         int c = 0;
