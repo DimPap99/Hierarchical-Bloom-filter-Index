@@ -27,8 +27,8 @@ public final class Main {
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text_big_1_5_exp.txt";
     private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings.txt";
 
-    private static final int WINDOW_LEN   = 1 << 17;   // 131 072
-    private static final int TREE_LEN     = 1 << 16;   // 65 536
+    private static final int WINDOW_LEN   = 1 << 23;   // 131 072
+    private static final int TREE_LEN     = 1 << 18;   // 65 536
     private static int ALPHABET     = 81;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 100;        // set to 0 for a dry run
