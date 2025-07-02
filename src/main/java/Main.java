@@ -16,18 +16,19 @@ public class Main {
     //z00D
     //zs1000
     public static void main(String[] args) throws IOException {
-        String dataFile = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text.txt";
-        String queries = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/substrings.txt";
+        String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text_big_1_5_exp.txt";
+        String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings.txt";
+
         double durationHBI = 0;
         double durationIPM = 0;
         int runs = 50;
         //TODO: Adds factory for initialization of membership DS. Potentially decouple Algo code
         //do 3 warmup runs for jit
-        for(int i = 0; i < 2; i++){
+        for(int i = 0; i < 1; i++){
             Supplier<Estimator> factory = () -> new HashMapEstimator(65536);   // same instance
             Supplier<Membership> memFactory = () -> new BloomFilter();
-            HBI hbi = new HBI(new BlockSearch(), 131072, 0.001, 81, 65536, factory, memFactory);
-            Experiment.run(dataFile, queries, hbi, true);
+            HBI hbi = new HBI(new BlockSearch(), 8388608, 0.001, 81, 65536, factory, memFactory);
+            Experiment.run(DATA_FILE, QUERIES_FILE, hbi, true);
 //            IPMIndexing index = new RegexIndex();   // switch index implementation
 //            Experiment.run(dataFile, queries, index, false);
         }
