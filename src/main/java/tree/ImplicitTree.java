@@ -9,6 +9,7 @@ import search.BlockSearch;
 import search.Frame;
 import search.PruningPlan;
 
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.function.IntFunction;
 
@@ -97,6 +98,27 @@ public final class ImplicitTree< M extends Membership> {
             framesStack.push(leftFrame);
         }
     }
+
+
+    public ArrayList<Frame> generateChildren(Frame currentFrame, int positionOffset, int workingTreeIdx){
+        int rightChild = this.rightChild(currentFrame.intervalIdx());
+        int leftChild = this.leftChild(currentFrame.intervalIdx());
+        ArrayList<Frame> children = new  ArrayList<Frame>();
+        int nextLevel = currentFrame.level() + 1;
+        Frame leftFrame = new Frame(nextLevel, leftChild);
+        Frame rightFrame = new Frame(nextLevel, rightChild);
+        int maxDepth = this.maxDepth();
+        //add right child
+        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+            children.add(rightFrame);
+        }
+        //add left child
+        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
+            children.add(leftFrame);
+        }
+        return children;
+    }
+
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
         int spanAll = 1 << maxLevel;              // == tree.intervalSize

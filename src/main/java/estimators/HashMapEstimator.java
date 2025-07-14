@@ -51,7 +51,4 @@ public class HashMapEstimator implements Estimator {
         return (int) (Math.floor(Math.log(streamLength/b_a)) + 1);
     }
 
-    public double cost(double bloomCost, double leafCost, int Lp, int maxLevel, int patLength){
-        return patLength * (bloomCost * (Lp - maxLevel) + patLength * leafCost);
-    }
 }
