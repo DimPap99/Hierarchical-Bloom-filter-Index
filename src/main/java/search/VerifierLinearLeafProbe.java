@@ -58,29 +58,46 @@ public class VerifierLinearLeafProbe implements Verifier {
 
 
 
-    int traverse(ImplicitTree<Membership> tree, Frame f, int maxLevel, int posOffset){
-        if(f.level() == maxLevel) {
-            if(f.intervalIdx() >= posOffset) {
-                return tree.buffer.data.get(f.intervalIdx());
+    int traverse(ImplicitTree<Membership> tree,
+                 Frame f,
+                 int maxLevel,
+                 int posOffset,
+                 int firstChar) {
 
-            }
-            else return -1;
+        // Leaf: check the actual buffer position
+        if (f.level() == maxLevel) {
+            return (f.intervalIdx() >= posOffset &&
+                    tree.buffer.data.get(f.intervalIdx()) == firstChar)
+                    ? f.intervalIdx()
+                    : -1;
         }
-        else{
-            ArrayList<Frame> children = tree.generateChildren(f, posOffset, tree.id);
-            for(Frame child : children) {
-                traverse(tree, child, maxLevel, posOffset);
+
+        // Internal node: depth-first search of children
+        for (Frame child : tree.generateChildren(f, posOffset, tree.id)) {
+
+            long key = tree.codec.pack(child.level(), child.intervalIdx(), firstChar);
+
+            if (!tree.contains(child.level(), key)) {
+                // This child cannot possibly contain firstChar – skip it
+                continue;
+            }
+
+            int res = traverse(tree, child, maxLevel, posOffset, firstChar);
+            if (res != -1) {          // found it in this subtree
+                return res;
             }
         }
+
+        // Not found in any child
         return -1;
     }
 
-    public int findCharPos(int currentTreeIdx,
-                           ArrayList<ImplicitTree<Membership>> trees,
-                           int leafStartIdx, int firstChar, int lvl, int intervalIdx)
-    {
-
-    }
+//    public int findCharPos(int currentTreeIdx,
+//                           ArrayList<ImplicitTree<Membership>> trees,
+//                           int leafStartIdx, int firstChar, int lvl, int intervalIdx)
+//    {
+//
+//    }
     public MatchResult verifyAtLeavesNaive(
             int currentTreeIdx,
             ArrayList<ImplicitTree<Membership>> trees,
