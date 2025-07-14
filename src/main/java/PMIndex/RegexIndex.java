@@ -71,4 +71,8 @@ public class RegexIndex implements IPMIndexing {
     public void clear() {
         text.setLength(0);
     }
+
+    public ArrayList<Long> getAvgTimes(search.Pattern pat){
+        return null;
+    }
 }

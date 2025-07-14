@@ -13,4 +13,6 @@ public interface IPMIndexing {
     ArrayList<Integer> report(Pattern key);
 
     public void expire();
+
+    ArrayList<Long> getAvgTimes(Pattern pat);
 }

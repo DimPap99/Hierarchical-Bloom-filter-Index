@@ -54,4 +54,8 @@ public class HashMapEstimatorSol implements Estimator {
         b_a = solveB(pHat, confidence, 1e-10, 1e-12);
         return (int) (Math.floor(Math.log(streamLength/b_a)) + 1);
     }
+
+    public double cost(double bloomCost, double leafCost, int Lp, int maxLevel, int patLength){
+        return 0;
+    }
 }

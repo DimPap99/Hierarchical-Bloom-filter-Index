@@ -129,6 +129,51 @@ public final class HBI implements IPMIndexing {
 
     }
 
+
+    public long getAvgBloomCost(Pattern pat) {
+        ImplicitTree<Membership> tree = this.trees.getLast();
+        int maxLvl = tree.maxDepth() -1;
+        long duration=0;
+        for(int i = 0; i < 10; i++){
+            long startTime = System.nanoTime();
+            for(int j = 0; j < pat.nGramToInt.length; j++){
+                long key = tree.codec.pack(maxLvl, 0, pat.nGramToInt[j]);
+                tree.contains(maxLvl, key);
+
+            }
+            duration += System.nanoTime() - startTime;
+
+        }
+        duration /= 10;
+        return duration;
+    }
+
+
+    public ArrayList<Long> getAvgTimes(Pattern pat) {
+        long avgBloom =  getAvgBloomCost(pat);
+        long avgLeaf = getAvgLeafCost(pat);
+        ArrayList<Long> res = new ArrayList<>();
+        res.add(avgBloom);
+        res.add(avgLeaf);
+        return  res;
+    }
+    public long getAvgLeafCost(Pattern pat) {
+        ImplicitTree<Membership> tree = this.trees.getLast();
+        long duration=0;
+
+        for(int i = 0; i < 10; i++){
+            long startTime = System.nanoTime();
+            for(int j = 0; j < pat.nGramToInt.length; j++){
+                boolean in = tree.buffer.data.get(j) == pat.nGramToInt[j];
+
+            }
+            duration += System.nanoTime() - startTime;
+
+        }
+        duration /= 10;
+        return duration;
+    }
+
     /* -------------------------------------------------------- helpers */
 
     /** Builds a TreeLayout whose root spans {@code treeLength} chars. */
