@@ -58,29 +58,8 @@ public class VerifierLinearLeafProbe implements Verifier {
 
 
 
-    int traverse(ImplicitTree<Membership> tree, Frame f, int maxLevel, int posOffset){
-        if(f.level() == maxLevel) {
-            if(f.intervalIdx() >= posOffset) {
-                return tree.buffer.data.get(f.intervalIdx());
 
-            }
-            else return -1;
-        }
-        else{
-            ArrayList<Frame> children = tree.generateChildren(f, posOffset, tree.id);
-            for(Frame child : children) {
-                traverse(tree, child, maxLevel, posOffset);
-            }
-        }
-        return -1;
-    }
 
-    public int findCharPos(int currentTreeIdx,
-                           ArrayList<ImplicitTree<Membership>> trees,
-                           int leafStartIdx, int firstChar, int lvl, int intervalIdx)
-    {
-
-    }
     public MatchResult verifyAtLeavesNaive(
             int currentTreeIdx,
             ArrayList<ImplicitTree<Membership>> trees,
@@ -104,7 +83,6 @@ public class VerifierLinearLeafProbe implements Verifier {
         int workingTreeIdx  = currentTreeIdx;
         ImplicitTree tree   = trees.get(workingTreeIdx);
         ArrayList<Integer> sb    = tree.buffer.data;                 // convenience ref
-
         /* ---------- main loop ----------------------------------------- */
         for (int i = 0; i < m; i++) {
             int leafIdx  = leafStartIdx + i;

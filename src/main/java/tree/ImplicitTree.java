@@ -119,6 +119,38 @@ public final class ImplicitTree< M extends Membership> {
         return children;
     }
 
+    public int traverse(Frame f,
+                 int maxLevel,
+                 int posOffset,
+                 int firstChar) {
+
+        // Leaf: check the actual buffer position
+        if (f.level() == maxLevel) {
+            return (f.intervalIdx() >= posOffset &&
+                    this.buffer.data.get(f.intervalIdx()) == firstChar)
+                    ? f.intervalIdx()
+                    : -1;
+        }
+
+        // Internal node: depth-first search of children
+        for (Frame child : this.generateChildren(f, posOffset, this.id)) {
+
+            long key = this.codec.pack(child.level(), child.intervalIdx(), firstChar);
+
+            if (!this.contains(child.level(), key)) {
+                // This child cannot possibly contain firstChar – skip it
+                continue;
+            }
+
+            int res = traverse(child, maxLevel, posOffset, firstChar);
+            if (res != -1) {          // found it in this subtree
+                return res;
+            }
+        }
+
+        // Not found in any child
+        return -1;
+    }
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
         int spanAll = 1 << maxLevel;              // == tree.intervalSize

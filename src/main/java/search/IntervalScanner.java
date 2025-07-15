@@ -33,6 +33,10 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
             this.positionOffset = this.searchAlgorithm.getCurrentOffset();
             if (r == null) continue;
             else {
+//                if(pattern.nGramToInt.length > 8){
+//                    int pos = this.tree.traverse(f, this.tree.maxDepth()-1, this.positionOffset, pattern.nGramToInt[0]);
+//                    if(pos != -1) return new CandidateRange(pos, r.endPos());
+//                }
                 return r;
             }
         }
