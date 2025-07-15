@@ -1,5 +1,6 @@
 package PMIndex;
 
+import estimators.CostFunction;
 import membership.*;
 import org.apache.commons.math3.util.Pair;
 import search.*;
@@ -40,7 +41,7 @@ public final class HBI implements IPMIndexing {
     private final Supplier<Membership>    membershipFac;
     private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
-
+    CostFunction cf;
     public boolean getStats = false;
 
     public ArrayList<Integer> Lp = new ArrayList<>();
@@ -65,6 +66,7 @@ public final class HBI implements IPMIndexing {
         this.pruningPlanFac = pruningPlan;
         this.verifier      = verifier;
         /* first tree */
+        this.cf  = new CostFunction();
         trees.addLast(createTree());
     }
 
@@ -109,9 +111,11 @@ public final class HBI implements IPMIndexing {
          tree.pruningPlan    = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
-         int lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99).getFirst();
-         if(this.getStats) this.Lp.add(lp);
-         fillStackLp(lp, stack);
+         ArrayList<Integer> lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99, this.cf);
+         pat.charStartLp = lp;
+         //if(this.getStats) this.Lp.add(lp);
+         //fill the stack with the initial minimum Lp level
+         fillStackLp(lp.stream().min(Integer::compare).get(), stack);
          scn.seedStack(stack);
 
        while (scn.hasNext()) {

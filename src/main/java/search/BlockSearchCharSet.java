@@ -1,21 +1,23 @@
 package search;
 
-import tree.ImplicitTree;
 import estimators.Estimator;
-import org.apache.commons.math3.util.Pair;
+import tree.ImplicitTree;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
 
-public class BlockSearch implements SearchAlgorithm{
+public class BlockSearchCharSet implements SearchAlgorithm {
     public Estimator estimator;
     public int currentOffset;
+
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
         Probe probe = probe(tree,
                 f.level(),             // unchanged helper signature
                 f.intervalIdx(),
-                p.nGramToInt);
+                p.nGramToInt, p.charStartLp);
         this.currentOffset = positionOffset;
         int currentIntervalSize = tree.intervalSize(f.level());
         int childrenIntervalSize = currentIntervalSize / 2;
@@ -35,7 +37,7 @@ public class BlockSearch implements SearchAlgorithm{
 
                 if(probe.complete()) return new CandidateRange(this.currentOffset, intervalEndIdx);
                 else {
-                    //the probes were incomplete. Meaning:
+                    //the probes were inclomplete. Meaning:
                     //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
                     //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
                     //neighboring child (we have an overlap).
@@ -48,24 +50,43 @@ public class BlockSearch implements SearchAlgorithm{
 
 
     public int getCurrentOffset(){return this.currentOffset;}
-    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern) {
 
-
+    //Counts the consecutive matches from the start of the pattern
+    int countStartConsecutiveMatches(boolean[] matchedArr){
         int matches = 0;
-
-        long key;
-        for (int i = 0; i < pattern.length; i++) {
-            key =  tree.codec.pack(level, interval, pattern[i]);
-
-            if (!tree.contains(level, key)) {
-                return new Probe(matches, false);          // first mismatch at i
-            }
-            matches++;
-            if(matches == pattern.length){
-                return new Probe(pattern.length, true);
+        for(int i = 0; i < matchedArr.length; i++){
+            if(!matchedArr[i]){
+               return matches;
+            }else{
+                matches++;
             }
         }
-        return new Probe(pattern.length, true);                 // checked len chars, all good
+        return matches;
+    }
+    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern, ArrayList<Integer> lp) {
+
+        long key;
+
+        boolean[] matchedArr = new boolean[pattern.length];
+        Arrays.fill(matchedArr, Boolean.FALSE);
+
+        for (int i = 0; i < pattern.length; i++) {
+
+            if ( level >= lp.get(i)) {
+                key =  tree.codec.pack(level, interval, pattern[i]);
+
+                if (!tree.contains(level, key)) {
+                    //in case of a mismatch we need to know how many consecutive occurences we have from the start of the pattern
+                    //for anything else we dont care
+                    return new Probe(countStartConsecutiveMatches(matchedArr), false);          // first mismatch at i
+                }
+                matchedArr[i] =  true;
+
+
+            }
+
+        }
+        return new Probe(countStartConsecutiveMatches(matchedArr), true);                 // checked len chars, all good
     }
 
 
@@ -79,4 +100,5 @@ public class BlockSearch implements SearchAlgorithm{
 
         return maxPos >= positionOffset;
     }
+
 }

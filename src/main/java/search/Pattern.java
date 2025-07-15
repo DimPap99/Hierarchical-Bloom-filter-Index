@@ -1,5 +1,7 @@
 package search;
 
+import tree.ImplicitTree;
+
 import java.util.ArrayList;
 
 /** Immutable wrapper around the query plus its KMP π-table. */
@@ -10,8 +12,10 @@ public class Pattern{
 
     public String[] nGramArr;
     public int[] nGramToInt;
+
+    public ArrayList<Integer> charStartLp;
     int nGram = 1;
-    /** Factory that pre-computes π[] once. */
+
     public Pattern(String s, int nGram) {
         this.text = s.toCharArray();
         this.patternTxt = s;
@@ -20,13 +24,15 @@ public class Pattern{
 
         this.nGramArr   = new String[len];
         this.nGramToInt = new int[len];        // or whatever you store there
-
         for (int i = 0; i < len; i++) {
             nGramArr[i] = s.substring(i, i + nGram);   // sliding window
             // nGramToInt[i] = … convert nGramArr[i] to int if needed
         }
 
     }
+
+
+
 
     /* ------- private copy of your helper so callers don't see it ------- */
     private int[] prefixFunction() {

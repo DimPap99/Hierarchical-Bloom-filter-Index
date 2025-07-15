@@ -31,24 +31,6 @@ public class HashMapEstimator implements Estimator {
         return 0;
     }
 
-    public double nodeWith_Conf(double confidence, double prob){
 
-        return Math.log(1 - confidence) / Math.log(1 - prob);
-    }
-
-    @Override
-    public int minPruneLevel(String pattern, int streamLength, int alphabetSize, double confidence) {
-        double b_a;
-        double p_max = 0;
-        double p_temp;
-        for( char c : pattern.toCharArray()){
-            p_temp = this.estimate(c);
-            if(p_temp > p_max){
-                p_max = p_temp;
-            }
-        }
-        b_a = nodeWith_Conf(confidence, p_max);
-        return (int) (Math.floor(Math.log(streamLength/b_a)) + 1);
-    }
 
 }

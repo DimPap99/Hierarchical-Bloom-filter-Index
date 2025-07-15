@@ -34,26 +34,26 @@ public class HashMapEstimatorSol implements Estimator {
         return 0;
     }
 
-    public double nodeWith_Conf(double confidence, double prob){
+//    public double nodeWith_Conf(double confidence, double prob){
+//
+//        return Math.log(1 - confidence) / Math.log(1 - prob);
+//    }
 
-        return Math.log(1 - confidence) / Math.log(1 - prob);
-    }
-
-    @Override
-    public int minPruneLevel(String pattern, int streamLength, int alphabetSize, double confidence) {
-        double b_a;
-        double p_max = 0;
-        double p_temp;
-        double[] pHat = new  double[pattern.length()];
-        int i =0;
-        for( char c : pattern.toCharArray()){
-            pHat[i] = this.estimate(c);
-            i++;
-        }
-
-        b_a = solveB(pHat, confidence, 1e-10, 1e-12);
-        return (int) (Math.floor(Math.log(streamLength/b_a)) + 1);
-    }
+//    @Override
+//    public int minPruneLevel(String pattern, int streamLength, int alphabetSize, double confidence) {
+//        double b_a;
+//        double p_max = 0;
+//        double p_temp;
+//        double[] pHat = new  double[pattern.length()];
+//        int i =0;
+//        for( char c : pattern.toCharArray()){
+//            pHat[i] = this.estimate(c);
+//            i++;
+//        }
+//
+//        b_a = solveB(pHat, confidence, 1e-10, 1e-12);
+//        return (int) (Math.floor(Math.log(streamLength/b_a)) + 1);
+//    }
 
     public double cost(double bloomCost, double leafCost, int Lp, int maxLevel, int patLength){
         return 0;

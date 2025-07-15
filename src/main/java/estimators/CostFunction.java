@@ -1,5 +1,7 @@
 package estimators;
 
+import tree.ImplicitTree;
+
 import static java.lang.Math.pow;
 
 public class CostFunction {
@@ -11,9 +13,20 @@ public class CostFunction {
     public CostFunction() {
 
     }
+
     //hit probability for a single character in an interval b of size w/2^lvl
     public double h_b(int width, int lvl, double prob){
         return Math.pow( 1 - (1 - prob), width/Math.pow(2, lvl));
+    }
+
+
+    public int pruningLevel(ImplicitTree tree, double conf, double prob){
+        double b_a;
+        b_a = Math.log(1 - conf) / Math.log(1 - prob);   //   bα
+        double log2 = Math.log(tree.baseIntervalSize() / b_a)    //   log_e
+                / Math.log(2.0);
+        int    rawLp  = (int) Math.floor(log2) + 1;
+        return Math.max(0, Math.min(rawLp, tree.maxDepth() - 1));
     }
 
     //False Probability rate for current query. Disclaimer: Its not the same as Bloom Filter fp
