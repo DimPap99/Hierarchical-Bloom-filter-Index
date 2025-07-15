@@ -77,7 +77,14 @@ public class BlockSearchCharSet implements SearchAlgorithm {
 
                 if (!tree.contains(level, key)) {
                     //in case of a mismatch we need to know how many consecutive occurences we have from the start of the pattern
-                    //for anything else we dont care
+                    //for anything else we dont care. Because there is a chance we havent checked characters from the beggining
+                    //of the pattern at all, we perform probes until the character we are currently at.
+                    for(int j =0; j < i; j++){
+                        key =  tree.codec.pack(level, interval, pattern[j]);
+                        matchedArr[j] = tree.contains(level, key);
+                        //on first mismatch from the starting char we break
+                        if(!matchedArr[j])break;
+                    }
                     return new Probe(countStartConsecutiveMatches(matchedArr), false);          // first mismatch at i
                 }
                 matchedArr[i] =  true;
