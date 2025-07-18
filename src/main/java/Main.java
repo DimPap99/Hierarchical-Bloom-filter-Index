@@ -36,7 +36,7 @@ public final class Main {
     private static final int TREE_LEN     = 1 << 19;
     private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 15;        // set to 0 for a dry run
+    private static final int RUNS         = 30;        // set to 0 for a dry run
     private static int NGRAMS = 4;
 
     private static int NUMQUERIES = 135;

@@ -25,8 +25,9 @@ public class CostFunction {
         b_a = Math.log(1 - conf) / Math.log(1 - prob);   //   bα
         double log2 = Math.log(tree.baseIntervalSize() / b_a)    //   log_e
                 / Math.log(2.0);
-        int    rawLp  = (int) Math.floor(log2) + 1;
-        return Math.max(0, Math.min(rawLp, tree.maxDepth() - 1));
+        int    rawLp  = (int) Math.floor(log2) + 1;                 //no log2 vs 0 vs log2
+        return Math.max(0, Math.min(rawLp, tree.maxDepth() - 1));//1203.433 vs  1900.867 vs 2245.233 vs 1691.133
+
     }
 
     //False Probability rate for current query. Disclaimer: Its not the same as Bloom Filter fp

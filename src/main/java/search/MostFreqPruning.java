@@ -30,17 +30,19 @@ public class MostFreqPruning implements  PruningPlan {
 
         double b_a;
         double p_max = 0;
+        double p_min = 1.0;
         double p_temp;
         ArrayList<Double> probs = new ArrayList<>();
         for( int c : pattern.nGramToInt){
             p_temp = tree.estimator.estimate(c);
-            probs.add(p_temp);
-            if(p_temp > p_max){
-                p_max = p_temp;
+            //probs.add(p_temp);
+            if(p_temp < p_min){
+                p_min = p_temp;
             }
+
         }
 
-        int    lp   = cf.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
+        int    lp   = cf.pruningLevel(tree, confidence, p_min);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
 
         prunedLevels.add(lp);
         return prunedLevels;
