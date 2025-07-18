@@ -113,7 +113,7 @@ public final class HBI implements IPMIndexing {
          Deque<Frame> stack = new ArrayDeque<>();
          ArrayList<Integer> lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99, this.cf);
          pat.charStartLp = lp;
-         //if(this.getStats) this.Lp.add(lp);
+         if(this.getStats) this.Lp.add(lp.getFirst());
          //fill the stack with the initial minimum Lp level
          fillStackLp(lp.stream().min(Integer::compare).get(), stack);
          scn.seedStack(stack);

@@ -36,7 +36,7 @@ public final class Main {
     private static final int TREE_LEN     = 1 << 19;
     private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 5;        // set to 0 for a dry run
+    private static final int RUNS         = 15;        // set to 0 for a dry run
     private static int NGRAMS = 4;
 
     private static int NUMQUERIES = 135;
@@ -48,7 +48,7 @@ public final class Main {
                 .toList();
 
 
-        for(int n = 1; n <= 4; n++) {
+        for(int n = 2; n <= 2; n++) {
             double hbiTotalMs = 0;
             double ipmTotalMs = 0;
             double hbiTotalMsInsert = 0;
@@ -62,9 +62,10 @@ public final class Main {
             ALPHABET = gen.alphabetMap.size();
             System.out.println("Alphabet: " + ALPHABET);
             int maxLvl;
+
             /* JIT warm-up so HotSpot reaches steady state */
-            for (int i = 0; i < 3; i++) {
-                HBI hbi = newHbi();
+            for (int i = 0; i < 2; i++) {
+                HBI hbi = newHbi(0.999);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
                 Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
@@ -79,10 +80,13 @@ public final class Main {
 
 //        /* ---------- actual benchmark ----------------------------------- */
             ArrayList<Long> timings;
-            for (int i = 0; i < RUNS+1; i++) {
-                HBI hbi = newHbi();
+            for (int i = 0; i < RUNS; i++) {
+
+//                double conf = (i+1) * 0.05;
+//                if( (i+1) == 20) conf = 0.99;
+                HBI hbi = newHbi(0.99);
                 hbi.alphabetMap = gen.alphabetMap;
-                hbi.getStats = false;
+                hbi.getStats = true;
                 timings = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
                 hbiTotalMs += timings.get(1);
                 hbiTotalMsInsert += timings.get(0);
@@ -90,6 +94,14 @@ public final class Main {
                 timings = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
                 ipmTotalMs += timings.get(1);
                 ipmTotalMsInsert += timings.get(0);
+//                System.out.println("Run with confidence " + conf);
+//                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
+//                avgLp = hbi.Lp.stream()
+//                        .mapToDouble(a -> a)
+//                        .sum()/hbi.Lp.size();
+//                System.out.println("Avg Lp for this run " + avgLp);
+//                System.out.println("   ");
+                //System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
 
 
 
@@ -107,7 +119,7 @@ public final class Main {
     }
 
     /*  Helper that builds a *fresh* HBI wired to suppliers each time */
-    private static HBI newHbi() {
+    private static HBI newHbi(double conf) {
         /* Estimator supplier – one instance per ImplicitTree */
         Supplier<Estimator> estFactory =
                 () -> new HashMapEstimator(TREE_LEN);
@@ -116,7 +128,7 @@ public final class Main {
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
         Supplier<PruningPlan> prFactory =
-                () -> new MostFreqPruning();
+                () -> new MostFreqPruning(conf);
         Verifier v = new VerifierLinearLeafProbe();
         return new HBI(new BlockSearch(),
                 WINDOW_LEN,
