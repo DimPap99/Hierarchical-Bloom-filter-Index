@@ -1,6 +1,8 @@
 package estimators;
 
 
+import search.Pattern;
+
 import java.util.HashMap;
 
 import static solvers.PatternPrunerHalley.solveB;
@@ -32,6 +34,14 @@ public class HashMapEstimatorSol implements Estimator {
             return frequencies.get(key)/totalRecords;
         }
         return 0;
+    }
+    @Override
+    public double[] estimateALl(Pattern p){
+        double[] result = new double[p.nGramToInt.length];
+        for(int i = 0; i < p.nGramToInt.length; i++){
+            result[i] = this.estimate(p.nGramToInt[i]);
+        }
+        return result;
     }
 
 //    public double nodeWith_Conf(double confidence, double prob){

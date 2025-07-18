@@ -1,5 +1,7 @@
 package estimators;
 
+import search.Pattern;
+
 import java.util.HashMap;
 
 public class HashMapEstimator implements Estimator {
@@ -30,6 +32,15 @@ public class HashMapEstimator implements Estimator {
         }
         return 0;
     }
+    @Override
+    public double[] estimateALl(Pattern p){
+        double[] result = new double[p.nGramToInt.length];
+        for(int i = 0; i < p.nGramToInt.length; i++){
+            result[i] = this.estimate(p.nGramToInt[i]);
+        }
+        return result;
+    }
+
 
 
 

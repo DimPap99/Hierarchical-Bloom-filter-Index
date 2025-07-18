@@ -1,6 +1,6 @@
 package PMIndex;
 
-import estimators.CostFunction;
+import estimators.CostFunctionMaxProb;
 import membership.*;
 import org.apache.commons.math3.util.Pair;
 import search.*;
@@ -41,10 +41,14 @@ public final class HBI implements IPMIndexing {
     private final Supplier<Membership>    membershipFac;
     private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
-    CostFunction cf;
+    CostFunctionMaxProb cf;
     public boolean getStats = false;
 
+
+    double bfCost;
+    double leafCost;
     public ArrayList<Integer> Lp = new ArrayList<>();
+    public ArrayList<Double> alphas = new ArrayList<>();
     private Verifier verifier;
     public HBI(SearchAlgorithm algo,
                int windowLength,
@@ -66,7 +70,7 @@ public final class HBI implements IPMIndexing {
         this.pruningPlanFac = pruningPlan;
         this.verifier      = verifier;
         /* first tree */
-        this.cf  = new CostFunction();
+        this.cf  = new CostFunctionMaxProb();
         trees.addLast(createTree());
     }
 
@@ -111,11 +115,17 @@ public final class HBI implements IPMIndexing {
          tree.pruningPlan    = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
-         ArrayList<Integer> lp = tree.pruningPlan.pruningPlan(pat, tree, alphabetSize, 0.99, this.cf);
-         pat.charStartLp = lp;
-         if(this.getStats) this.Lp.add(lp.getFirst());
+
+         int lp = cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+
+         pat.charStartLp = new ArrayList<>();
+         pat.charStartLp.add(lp);
+         if(this.getStats) {
+             this.Lp.add(lp);
+             //this.alphas.add(cf.alpha);
+         }
          //fill the stack with the initial minimum Lp level
-         fillStackLp(lp.stream().min(Integer::compare).get(), stack);
+         fillStackLp(lp, stack);
          scn.seedStack(stack);
 
        while (scn.hasNext()) {

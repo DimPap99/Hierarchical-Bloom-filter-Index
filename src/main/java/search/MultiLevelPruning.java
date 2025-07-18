@@ -1,8 +1,8 @@
 package search;
 
-import estimators.CostFunction;
-import estimators.Estimator;
+import estimators.CostFunctionMaxProb;
 import tree.ImplicitTree;
+import utilities.MathUtils;
 
 import java.util.ArrayList;
 import java.util.Deque;
@@ -20,11 +20,11 @@ public class MultiLevelPruning implements  PruningPlan {
     @Override
     public void prepare(Deque<Frame> stack, int lp) {}
     @Override
-    public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, int alphabetSize, double confidence, CostFunction cf) {
+    public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, int alphabetSize, double confidence, CostFunctionMaxProb cf) {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
 
         for(int c: pattern.nGramToInt){
-            int lp = cf.pruningLevel(tree, confidence, tree.estimator.estimate(c));
+            int lp = MathUtils.pruningLevel(tree, confidence, tree.estimator.estimate(c));
             prunedLevels.add(lp);
         }
         return prunedLevels;

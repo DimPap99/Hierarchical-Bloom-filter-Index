@@ -62,7 +62,7 @@ public final class Main {
             ALPHABET = gen.alphabetMap.size();
             System.out.println("Alphabet: " + ALPHABET);
             int maxLvl;
-
+            double avgAlpha =0;
             /* JIT warm-up so HotSpot reaches steady state */
             for (int i = 0; i < 2; i++) {
                 HBI hbi = newHbi(0.999);
@@ -75,6 +75,9 @@ public final class Main {
                 avgLp = hbi.Lp.stream()
                         .mapToDouble(a -> a)
                         .sum()/hbi.Lp.size();
+                avgAlpha = hbi.alphas.stream()
+                        .mapToDouble(a -> a)
+                        .sum()/hbi.alphas.size();
             }
 
 
@@ -112,6 +115,8 @@ public final class Main {
                 System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
                 System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
                 System.out.println("Avg LP: " + avgLp);
+                System.out.println("Avg Alpha: " + avgAlpha);
+
                 System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
                 System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
             }
