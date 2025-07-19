@@ -28,27 +28,29 @@ public class CostFunctionMaxProb implements CostFunction {
     {
 
 
-        double pMax = Arrays.stream(tree.estimator.estimateALl(p)).max().getAsDouble();
+        double pMax = Arrays.stream(tree.estimator.estimateALl(p)).min().getAsDouble();
         double[] pArr = new double[1];
         pArr[0] = pMax;
-//        for (double alpha = confInit; alpha <= 1 + 1e-9; alpha += 0.05) {
-//            if(alpha >=1) alpha = 0.99;
-//            int lp   = pruningLevel(tree, alpha, pMax);
-//            double c = costFunc(pArr, bfFalsePosRate, width, lp, r, maxDepth);
-//
-//            if (c < bestCost) {
-//                bestCost = c;
-//                bestLp   = lp;
-//                this.alpha = alpha;
-//            }
-//
-//            if(alpha == 0.99) {
-//                //System.out.println(bestLp + "niggr");
-//                return bestLp;
-//            }
-//
-//        }
-//        System.out.println("Cyka blyat");
+        double bestCost = Double.POSITIVE_INFINITY;
+        int bestLp = 20;
+        for (double alpha = confInit; alpha <= 1 + 1e-9; alpha += 0.05) {
+            if(alpha >=1) alpha = 0.99;
+            int lp   = pruningLevel(tree, alpha, pMax);
+            double c = costFunc(pArr, bfFalsePosRate, tree.baseIntervalSize(), lp, p.nGramToInt.length, tree.maxDepth());
+
+            if (c < bestCost) {
+                bestCost = c;
+                bestLp   = lp;
+                this.alpha = alpha;
+            }
+
+            if(alpha == 0.99) {
+                //System.out.println(bestLp + "niggr");
+                return bestLp;
+            }
+
+        }
+        System.out.println("Cyka blyat");
 
         return pruningLevel(tree, 0.99, pMax);          // could also return alpha or bestCost
     }
@@ -96,13 +98,13 @@ public class CostFunctionMaxProb implements CostFunction {
         double probesPerNode = expectedProbesPerNode(probs, bfFalsePosRate,
                 blockLen);
 
-        /* ---------- 4. cost components ------------------------- */
+
         double horizontalCost = probesPerNode * horizontalNodes * bloomProbeCost;
 
         double verticalCost   = patternSize * intervalsFollowed *
                 vertNodesPerBr * bloomProbeCost;
 
-        double leafCost       = patternSize * intervalsFollowed * leafSearchCost;
+        double leafCost       = patternSize * ((intervalsFollowed * leafSearchCost) + 1) ;
 
         return horizontalCost + verticalCost + leafCost;
     }
