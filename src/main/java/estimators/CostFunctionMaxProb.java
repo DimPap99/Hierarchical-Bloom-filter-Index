@@ -98,6 +98,7 @@ public class CostFunctionMaxProb implements CostFunction {
         double probesPerNode = expectedProbesPerNode(probs, bfFalsePosRate,
                 blockLen);
 
+        
 
         double horizontalCost = probesPerNode * horizontalNodes * bloomProbeCost;
 
