@@ -3,6 +3,7 @@ import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 
+import estimators.CostFunctionMaxProb;
 import search.*;
 
 import estimators.Estimator;
@@ -29,14 +30,14 @@ public final class Main {
 
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/zipf_text_big_2m.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings_300_2m.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/uniform_text_big_16.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings_uniform16.txt";
 
-    private static final int WINDOW_LEN   = 1 << 21;
-    private static final int TREE_LEN     = 1 << 19;
+    private static final int WINDOW_LEN   = 1 << 16;//1 << 21;
+    private static final int TREE_LEN     = 1 << 14;
     private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 15;        // set to 0 for a dry run
+    private static final int RUNS         = 150;        // set to 0 for a dry run
     private static int NGRAMS = 4;
 
     private static int NUMQUERIES = 135;
@@ -48,7 +49,7 @@ public final class Main {
                 .toList();
 
 
-        for(int n = 2; n <= 2; n++) {
+        for(int n = 1; n <= 1; n++) {
             double hbiTotalMs = 0;
             double ipmTotalMs = 0;
             double hbiTotalMsInsert = 0;
@@ -68,6 +69,7 @@ public final class Main {
                 HBI hbi = newHbi(0.999);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
+
                 Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
 
                 IPMIndexing ipm = new RegexIndex();
@@ -80,13 +82,11 @@ public final class Main {
                         .sum()/hbi.alphas.size();
             }
 
-
-//        /* ---------- actual benchmark ----------------------------------- */
             ArrayList<Long> timings;
             for (int i = 0; i < RUNS; i++) {
 
-//                double conf = (i+1) * 0.05;
-//                if( (i+1) == 20) conf = 0.99;
+
+
                 HBI hbi = newHbi(0.99);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
@@ -106,9 +106,6 @@ public final class Main {
 //                System.out.println("   ");
                 //System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
 
-
-
-
             }
 
             if (RUNS > 0) {
@@ -123,19 +120,19 @@ public final class Main {
         }
     }
 
-    /*  Helper that builds a *fresh* HBI wired to suppliers each time */
+    // Helper that builds a fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
-        /* Estimator supplier – one instance per ImplicitTree */
         Supplier<Estimator> estFactory =
                 () -> new HashMapEstimator(TREE_LEN);
 
-        /* Membership supplier – one instance *per tree level* */
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
         Supplier<PruningPlan> prFactory =
                 () -> new MostFreqPruning(conf);
+
         Verifier v = new VerifierLinearLeafProbe();
         return new HBI(new BlockSearch(),
+
                 WINDOW_LEN,
                 FP_RATE,
                 ALPHABET,
@@ -143,6 +140,6 @@ public final class Main {
                 estFactory,
                 memFactory,
                 prFactory,
-                v);
+                v, new CostFunctionMaxProb(), conf);
     }
 }

@@ -19,8 +19,8 @@ public class Experiment {
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
-//        String data = Generator.generateZipf(8388608, 48, 122, 1);
-//                Files.write(Paths.get("zipf_text_big_2m.txt"),
+//        String data = Generator.generateUniform(1 << 16, 48, 122);
+//                Files.write(Paths.get("uniform_text_big_16.txt"),
 //                data.getBytes(StandardCharsets.UTF_8));   // no newline
         long startTime = System.currentTimeMillis();
         int c = 0;
@@ -70,6 +70,7 @@ public class Experiment {
         for(String query : queries){
 //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(new Pattern(query, Ngram));
+//            ArrayList<Long> s = index.getAvgTimes(new Pattern(query, Ngram));
             if(verbose){
                 if(report.size() < 20){
                     System.out.println(query + ":" + report);

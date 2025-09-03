@@ -13,7 +13,7 @@ public class MostFreqPruning implements  PruningPlan {
     public void PruningPlan() {
     }
     public MostFreqPruning(double conf){
-        this.conf = conf;
+       // this.conf = conf;
 
     }
     @Override

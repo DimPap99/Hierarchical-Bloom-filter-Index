@@ -1,5 +1,6 @@
 package PMIndex;
 
+import estimators.CostFunction;
 import estimators.CostFunctionMaxProb;
 import membership.*;
 import org.apache.commons.math3.util.Pair;
@@ -8,12 +9,11 @@ import estimators.Estimator;
 import tree.ImplicitTree;
 import tree.TreeLayout;
 
-import java.util.ArrayList;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashMap;
+import java.util.*;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
+
+import static utilities.MathUtils.pruningLevel;
 
 /**
  * Sliding-window index façade (legacy name “HBI”) adapted to the new
@@ -27,6 +27,11 @@ public final class HBI implements IPMIndexing {
     private final int     treeLength;
     private final int     alphabetSize;
     private final double  fpRate;
+    private int BC_COST_ESTIM_ITER = 1000000;
+    private int LC_COST_ESTIM_ITER = 1000000;
+
+    public ArrayList<Long> BC_COSTS;
+    public long LC_COST;
 
     //maps characters/strings (for n-grams) to an integer
     public HashMap<String, Integer> alphabetMap;
@@ -41,7 +46,7 @@ public final class HBI implements IPMIndexing {
     private final Supplier<Membership>    membershipFac;
     private final Supplier<PruningPlan> pruningPlanFac;
     private LongKey codec;
-    CostFunctionMaxProb cf;
+    CostFunction cf;
     public boolean getStats = false;
 
 
@@ -50,6 +55,8 @@ public final class HBI implements IPMIndexing {
     public ArrayList<Integer> Lp = new ArrayList<>();
     public ArrayList<Double> alphas = new ArrayList<>();
     private Verifier verifier;
+    double conf;
+    int maxActiveTrees;
     public HBI(SearchAlgorithm algo,
                int windowLength,
                double fpRate,
@@ -58,7 +65,7 @@ public final class HBI implements IPMIndexing {
                Supplier<Estimator> estimator,
                Supplier<Membership> membership,
                Supplier<PruningPlan> pruningPlan,
-               Verifier verifier) {
+               Verifier verifier, CostFunction cf, double conf) {
 
         this.searchAlgo    = algo;
         this.windowLength  = windowLength;
@@ -70,8 +77,10 @@ public final class HBI implements IPMIndexing {
         this.pruningPlanFac = pruningPlan;
         this.verifier      = verifier;
         /* first tree */
-        this.cf  = new CostFunctionMaxProb();
+        this.cf  = cf;
         trees.addLast(createTree());
+        this.conf = conf;
+        this.maxActiveTrees = (int) Math.ceil(windowLength/treeLength);
     }
 
 
@@ -94,6 +103,10 @@ public final class HBI implements IPMIndexing {
             lastTree.estimator.insert(intC);
             lastTree.append(intC, indexedItemsCounter);
         }
+        //think this through properly
+        if(trees.getLast().indexedItemsCounter + (trees.size()-2)* this.treeLength > this.windowLength) {
+            this.expire();
+        }
     }
     public void  fillStackLp(int lp, Deque<Frame> fStack){
         for(int i=0; i< Math.pow(2, lp); i++){
@@ -115,14 +128,16 @@ public final class HBI implements IPMIndexing {
          tree.pruningPlan    = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
+         double[] pp = tree.estimator.estimateALl(pat);
+         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
 
-         int lp = cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+         int lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
          if(this.getStats) {
              this.Lp.add(lp);
-             //this.alphas.add(cf.alpha);
+             this.alphas.add(cf.getAlpha());
          }
          //fill the stack with the initial minimum Lp level
          fillStackLp(lp, stack);
@@ -147,18 +162,18 @@ public final class HBI implements IPMIndexing {
     public long getAvgBloomCost(Pattern pat) {
         ImplicitTree<Membership> tree = this.trees.getLast();
         int maxLvl = tree.maxDepth() -1;
-        long duration=0;
-        for(int i = 0; i < 10; i++){
-            long startTime = System.nanoTime();
-            for(int j = 0; j < pat.nGramToInt.length; j++){
-                long key = tree.codec.pack(maxLvl, 0, pat.nGramToInt[j]);
+//        for (int i = 0; i < maxLvl; i++) {
+            long duration = 0;
+            for (int z = 0; z < BC_COST_ESTIM_ITER; z++) {  // <-- BUG: tests i and increments i
+                long startTime = System.nanoTime();
+
+                long key = tree.codec.pack(maxLvl, 0, pat.nGramToInt[0]);
                 tree.contains(maxLvl, key);
 
+                duration += System.nanoTime() - startTime;
             }
-            duration += System.nanoTime() - startTime;
-
-        }
-        duration /= 10;
+            duration /= BC_COST_ESTIM_ITER;
+        //}
         return duration;
     }
 
@@ -166,6 +181,8 @@ public final class HBI implements IPMIndexing {
     public ArrayList<Long> getAvgTimes(Pattern pat) {
         long avgBloom =  getAvgBloomCost(pat);
         long avgLeaf = getAvgLeafCost(pat);
+        this.bfCost = avgBloom;
+        this.leafCost = avgLeaf;
         ArrayList<Long> res = new ArrayList<>();
         res.add(avgBloom);
         res.add(avgLeaf);
@@ -175,16 +192,16 @@ public final class HBI implements IPMIndexing {
         ImplicitTree<Membership> tree = this.trees.getLast();
         long duration=0;
 
-        for(int i = 0; i < 10; i++){
+        for(int i = 0; i < LC_COST_ESTIM_ITER; i++){
             long startTime = System.nanoTime();
-            for(int j = 0; j < pat.nGramToInt.length; j++){
-                boolean in = tree.buffer.data.get(j) == pat.nGramToInt[j];
+            for(int j = 0; j < pat.nGramToInt.length-1; j++){
+                boolean in = tree.buffer.data.get(0) == 1;
 
             }
             duration += System.nanoTime() - startTime;
 
         }
-        duration /= 10;
+        duration /= LC_COST_ESTIM_ITER;
         return duration;
     }
 

@@ -1,136 +1,161 @@
 package estimators;
 
+import org.apache.commons.math3.util.Pair;
 import search.Pattern;
 import tree.ImplicitTree;
-
-import java.util.Arrays;
-
-import static utilities.MathUtils.*;
+import utilities.MathUtils;
 
 public class CostFunctionMaxProb implements CostFunction {
 
     //cost of constant operations. Typically measured in nano seconds.
-    double bloomProbeCost = 3654;
-    double leafSearchCost = 600;
+    double bloomProbeCost = 97;
+    double leafSearchCost = 26;
     public double alpha;
     public CostFunctionMaxProb() {
 
     }
 
-    //hit probability for a single character in an interval b of size w/2^lvl
 
 
 
-    public int minCostLp(ImplicitTree tree,
-                         double   bfFalsePosRate,   // Bloom collision per symbol (β)
-                         double confInit,
-                            Pattern p, double bfCost, double leafCost)       // largest p̂ in pattern
-    {
+    @Override
+    public double getAlpha() {
+        return this.alpha;
+    }
 
 
-        double pMax = Arrays.stream(tree.estimator.estimateALl(p)).min().getAsDouble();
-        double[] pArr = new double[1];
-        pArr[0] = pMax;
+
+    /**
+     * Branching-aware Cost–3:
+     *   C_total = C_hor(Lp) + C_vert(Lp..stop) + C_leaf
+     * where:
+     *   C_hor  = bc * H(Lp) * 2^Lp
+     *   C_vert = sum_{L=Lp+1..L_stop} bc * H(L) * N_L
+     *            with N_{Lp+1} = 2 * (1 + F(Lp)*(2^Lp - 1)),
+     *                 N_{L+1}  = 2 * (1 + F(L)*(N_L - 1))
+     *   C_leaf = lc * ( r + (followed_final - 1) * (r - 1) )
+     *
+     * F(L) = ∏ q_i(L)  (all-pass),  H(L) = tail-sum expected probes.
+     */
+
+
+    @Override
+    public int minCostLp(ImplicitTree tree, double bfFalsePosRate, double confInit, Pattern p, double bfCost, double leafCost) {   // measured lc (ns)
+        if (bfCost > 0) this.bloomProbeCost = bfCost;
+        if (leafCost > 0) this.leafSearchCost = leafCost;
+
+        // Per-symbol probabilities for the pattern from the estimator
+        final double[] probs = tree.estimator.estimateALl(p);
+        final int width      = tree.baseIntervalSize();
+        final int maxDepth   = tree.maxDepth();
+        final int r          = p.nGramToInt.length;
+
+        // Deepest level we might touch (children still host the full pattern)
+        int LStopMax = 0;
+        for (int L = 0; L < maxDepth; L++) {
+            if (MathUtils.childCanHost(width, L, r)) LStopMax = L;
+            else break;
+        }
+
         double bestCost = Double.POSITIVE_INFINITY;
-        int bestLp = 20;
-        for (double alpha = confInit; alpha <= 1 + 1e-9; alpha += 0.05) {
-            if(alpha >=1) alpha = 0.99;
-            int lp   = pruningLevel(tree, alpha, pMax);
-            double c = costFunc(pArr, bfFalsePosRate, tree.baseIntervalSize(), lp, p.nGramToInt.length, tree.maxDepth());
+        int    bestLp   = 0;
 
-            if (c < bestCost) {
-                bestCost = c;
-                bestLp   = lp;
-                this.alpha = alpha;
+        // Evaluate cost for each candidate Lp (no α sweep needed)
+        for (int Lp = 0; Lp <= LStopMax; Lp++) {
+            double cost = costAtLevel(tree, probs, Lp, bfFalsePosRate);
+            if (cost < bestCost) {
+                bestCost = cost;
+                bestLp   = Lp;
             }
+        }
 
-            if(alpha == 0.99) {
-                //System.out.println(bestLp + "niggr");
-                return bestLp;
+//            // Record an α consistent with bestLp (purely for reporting)
+//            double Fbest = MathUtils.allPass(probs, width, bestLp, bloomFp);
+//            double Fprev = (bestLp > 0) ? MathUtils.allPass(probs, width, bestLp - 1, bloomFp) : 1.0;
+//            this.alpha   = Math.min(0.99, Math.max(Fbest + 1e-9, 0.5 * (Fbest + Fprev)));
+
+        return bestLp;
+    }
+
+
+    /* ------------ cost pieces ---------------- */
+
+    private double costAtLevel(ImplicitTree<?> tree,
+                               double[] probs,
+                               int Lp,
+                               double bloomFp) {
+        final int width    = tree.baseIntervalSize();
+        final int maxDepth = tree.maxDepth();
+        final int r        = probs.length;
+
+        // Horizontal at Lp
+        double H_lp  = MathUtils.expectedProbesPerNode(probs, bloomFp, width, Lp);
+        double C_hor = bloomProbeCost * H_lp * (1 << Lp);
+
+        // Vertical from Lp+1 down (Lp work already paid in C_hor)
+        Pair<Double, Double> vert = verticalCostBranching(probs, width, maxDepth, r, Lp, bloomFp);
+        double C_vert   = vert.getFirst();
+        double followed = vert.getSecond();
+
+        // Leaf (worst-case model, using 'followed' from the deepest level reached)
+        double C_leaf = leafSearchCost * (r + (followed - 1.0) * (r - 1.0));
+
+        return C_hor + C_vert + C_leaf;
+    }
+
+    /**
+     * Returns (verticalCost, followedFinal).
+     * followedFinal is the expected "1 + F*(N-1)" at the last processed level
+     * and is used in the caller's leaf term (to mirror the provided Python).
+     */
+    private Pair<Double, Double> verticalCostBranching(double[] probs,
+                                                       int width,
+                                                       int maxDepth,
+                                                       int r,
+                                                       int Lp,
+                                                       double bloomFp) {
+
+//        double minProb =         Arrays.stream(probs).min().getAsDouble();
+;
+        double F_lp    = MathUtils.fp_rate(probs, width, Lp, bloomFp);
+        if (!MathUtils.childCanHost(width, Lp, r)) {
+            // No deeper levels to visit; followed = 1 + F(Lp)*(2^Lp - 1)
+//            double F_lp    = MathUtils.fp_rate(probs, width, Lp, bloomFp);
+            double followed = 1.0 + F_lp * ((1 << Lp) - 1.0);
+            return Pair.create(0.0, followed);
+        }
+
+        // Start from children of Lp
+        double followed = 1.0 + F_lp * ((1 << Lp) - 1.0);
+        double N        = 2.0 * followed;               // nodes processed at Lp+1
+
+        // Compute deepest level we could ever reach under the stop rule
+        int L_stop = Lp + 1;
+        while (L_stop < maxDepth - 1 && MathUtils.childCanHost(width, L_stop, r)) {
+            L_stop++;
+        }
+
+        double cost = 0.0;
+        for (int L = Lp + 1; L <= L_stop; L++) {
+            // Pay per-node probes at this level
+            double H_L = MathUtils.expectedProbesPerNode(probs, bloomFp, width, L);
+            cost += bloomProbeCost * H_L * N;
+
+            // Update branching if we can go deeper
+            if (MathUtils.childCanHost(width, L, r)) {
+                double F_L = MathUtils.fp_rate(probs, width, L, bloomFp);
+                followed   = 1.0 + F_L * (N - 1.0);
+                N          = 2.0 * followed;
+            } else {
+                break;
             }
-
         }
-        System.out.println("Cyka blyat");
 
-        return pruningLevel(tree, 0.99, pMax);          // could also return alpha or bestCost
+        return Pair.create(cost, followed);
     }
 
 
-    //False Probability rate for current query. Disclaimer: Its not the same as Bloom Filter fp
-    //The current index does not enforce an order in the characters of a pattern. Therefor we might be searching for
-    //abc but we can be getting a positive answer for all its permutation such as bca etc without abc being inside
-    //the indexed items. Along that false positive rate we also add the FP of the bloom filter as shown below.
-    //This is the simple worst case cf, where we dont track an active set of characters per level and we use a universal
-    //pruning level
-    public double fpRate(double[] probs, double bfFalsePosRate, int width, int lvl){
-        double total_probes_prob = 1;
-         //assume independece between character sequences. (Basically we dont use conditional probs)
-        for(double prob: probs){
-            double currHB = h_b(width, lvl, prob);
-            double elementFromBFFP = (1 - currHB) * bfFalsePosRate;
-            //add the probabilities that a particular character is inside our interval as well as
-            //the probability that the character is not inside that interval (1 - hb) but we still get a positive
-            //answer due to the fp from the bloom filter.
-            total_probes_prob *= currHB + elementFromBFFP;
-        }
-        return total_probes_prob;
-    }
 
-    double costFunc(double[] probs,
-                    double   bfFalsePosRate,   // Bloom collision per symbol (β)
-                    int      width,            // root-window size W = 2^d
-                    int      lvl,              // current L_max
-                    int      patternSize,      // r
-                    int      maxDepth)         // deepest internal level (d)
-    {
-        // basic node counts
-        double horizontalNodes   = 1L << lvl;               // 2^L
-        double vertNodesPerBr    = maxDepth - lvl + 1;      // incl. start node
 
-        // symbol-set false-positive rate
-        double fpr = fpRate(probs, bfFalsePosRate, width, lvl);   // see helper
 
-        // expected # intervals followed = true branch + FP branches
-        double intervalsFollowed = 1.0 + fpr * (horizontalNodes - 1);
-
-        // expected probes per node
-        int    blockLen = width >> lvl;                      // W / 2^L
-        double probesPerNode = expectedProbesPerNode(probs, bfFalsePosRate,
-                blockLen);
-
-        
-
-        double horizontalCost = probesPerNode * horizontalNodes * bloomProbeCost;
-
-        double verticalCost   = patternSize * intervalsFollowed *
-                vertNodesPerBr * bloomProbeCost;
-
-        double leafCost       = patternSize * ((intervalsFollowed * leafSearchCost) + 1) ;
-
-        return horizontalCost + verticalCost + leafCost;
-    }
-//    public double costFunc(double[] probs, double bfFalsePosRate, int width, int lvl, int patternSize, int maxDepth){
-//        //horizontal nodes
-//        double horizontalNodes =  Math.pow(2, lvl);
-//        double verticalNodes =  maxDepth - lvl;
-//        double fpr = this.fpRate(probs, bfFalsePosRate, width, lvl);
-//        //the cost incured by doing a the first vertical scan to determine if the pattern is inside an interval
-//        double intervalsToBeChecked = 1 + fpr * (horizontalNodes - 1); //1 because one of them will be true the others are fp
-//        //for the intervals that we have the true occurence as we ll as the fp, we gonna probe for all the characters of the pattern
-//        //the other intervals do not have the full occurences. As such we need at least one and less that patternSize
-//        //to reject them.
-//        // TODO: For now assume we reject them on 1. (thats not necessarily accurate) We could even fully add them
-//        //and not include the vertical cost. Need to play around with this.)
-//        double horizontalCost = patternSize * intervalsToBeChecked * this.bloomProbeCost + (horizontalNodes - intervalsToBeChecked);
-//
-//        double verticalCost = patternSize * intervalsToBeChecked * verticalNodes * this.bloomProbeCost;
-//        //this occurs only once per vertical search one we reach the leaf level
-//        double leafCost = patternSize * intervalsToBeChecked * this.leafSearchCost;
-//
-//
-//        //full cost of current plan in terms of operations multiplied with time
-//        return horizontalCost + verticalCost + leafCost;
-//
-//
-//    }
 }

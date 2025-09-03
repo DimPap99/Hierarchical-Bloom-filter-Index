@@ -14,7 +14,7 @@ public class MultiLevelPruning implements  PruningPlan {
 
     }
     public MultiLevelPruning(double conf){
-        this.conf = conf;
+        //this.conf = conf;
 
     }
     @Override
