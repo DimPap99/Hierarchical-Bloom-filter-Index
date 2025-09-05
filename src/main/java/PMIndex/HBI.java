@@ -129,9 +129,9 @@ public final class HBI implements IPMIndexing {
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
 //         double[] pp = tree.estimator.estimateALl(pat);
-//         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
+         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
 
-         int lp = this.cf.minCostLp(tree, 0.001, pat, this.bfCost, this.leafCost);//pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+         int lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
@@ -243,6 +243,15 @@ public final class HBI implements IPMIndexing {
                 filterFactory,          // one BloomFilter per level
                 new Key64(maxDepth, alphabetSize),
                 estimatorFac.get());
+    }
+
+    public int getAllprobes(){
+
+        int sum=0;
+        for(ImplicitTree<Membership> tree: this.trees){
+            sum+= tree.containCounter;
+        }
+        return sum;
     }
 
 }

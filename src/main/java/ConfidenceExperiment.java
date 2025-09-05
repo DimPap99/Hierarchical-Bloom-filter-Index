@@ -79,6 +79,7 @@ public class ConfidenceExperiment {
 
             ArrayList<Long> timings;
             ExperimentRunResult runResult;
+            int probes = 0;
             for (int i = 0; i < RUNS; i++) {
                 HBI hbi = newHbi(alpha);
                 hbi.alphabetMap = gen.alphabetMap;
@@ -90,6 +91,7 @@ public class ConfidenceExperiment {
                 runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
                 ipmTotalMs += runResult.totalRunTimeMs();
                 ipmTotalMsInsert += runResult.totalInsertTimeMs();
+                probes+= hbi.getAllprobes();
 //                System.out.println("Run with confidence " + conf);
 //                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
 //                avgLp = hbi.Lp.stream()
@@ -110,7 +112,7 @@ public class ConfidenceExperiment {
                 System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
                 System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
                 System.out.println("\n\n\n");
-                results.add(new RunResult(alpha, hbiTotalMs / RUNS, avgLp));
+                results.add(new RunResult(alpha, hbiTotalMs / RUNS, avgLp, probes/RUNS));
             }
             if(alpha == 0.99)break;
         }

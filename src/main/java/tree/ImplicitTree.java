@@ -23,6 +23,7 @@ import java.util.function.IntFunction;
  */
 public final class ImplicitTree< M extends Membership> {
 
+    public int containCounter = 0;
     private final TreeLayout           layout;
     public int indexedItemsCounter=-1;
 
@@ -46,6 +47,7 @@ public final class ImplicitTree< M extends Membership> {
         this.codec    = codec;
         this.capacity = layout.intervalSize(0);
         this.estimator = est;
+        containCounter = 0;
 //        this.tr
     }
 
@@ -166,6 +168,7 @@ public final class ImplicitTree< M extends Membership> {
 
     // ---- Membership lookup ------------------------------------
     public boolean contains(int level, long key) {
+        containCounter++;
         return levels.contains(level, key);
     }
 
