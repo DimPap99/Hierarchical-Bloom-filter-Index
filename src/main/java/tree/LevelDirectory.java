@@ -22,7 +22,7 @@ public final class LevelDirectory<M extends Membership> {
         for (int l = 0; l < depth; l++) {
             levelFilters.add(factory.apply(l));
         }
-        }
+    }
 
     public void insert(int level, long key) {
         levelFilters.get(level).insert(key);
@@ -35,4 +35,9 @@ public final class LevelDirectory<M extends Membership> {
     public M filter(int level) { return levelFilters.get(level); }
 
     public int depth() { return levelFilters.size(); }
+
+
+    public double getLevelFpRate(int level) {
+        return levelFilters.get(level).getFpRate();
+    }
 }

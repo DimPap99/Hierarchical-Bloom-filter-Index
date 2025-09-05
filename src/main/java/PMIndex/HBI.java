@@ -50,8 +50,8 @@ public final class HBI implements IPMIndexing {
     public boolean getStats = false;
 
 
-    double bfCost;
-    double leafCost;
+    double bfCost = 96;
+    double leafCost = 26;
     public ArrayList<Integer> Lp = new ArrayList<>();
     public ArrayList<Double> alphas = new ArrayList<>();
     private Verifier verifier;
@@ -128,10 +128,10 @@ public final class HBI implements IPMIndexing {
          tree.pruningPlan    = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
-         double[] pp = tree.estimator.estimateALl(pat);
-         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
+//         double[] pp = tree.estimator.estimateALl(pat);
+//         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
 
-         int lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+         int lp = this.cf.minCostLp(tree, 0.001, pat, this.bfCost, this.leafCost);//pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);

@@ -168,4 +168,9 @@ public final class ImplicitTree< M extends Membership> {
     public boolean contains(int level, long key) {
         return levels.contains(level, key);
     }
+
+    public double getMembershipFpRate(int level) {
+        if(level <= maxDepth()) return this.levels.getLevelFpRate(level);
+        else return -1;
+    }
 }

@@ -44,7 +44,7 @@ public final class  MathUtils {
             prod *= qs[i];
             total += prod;
         }
-        // Optional guard: cap by r
+        //  cap by r. The total expected probes cant exceed the length of the pattern
         return Math.min(total, r);
     }
 
@@ -55,6 +55,15 @@ public final class  MathUtils {
         }
         return Math.max(0.0, Math.min(1.0, f));
     }
+
+    public static double fp_rate_from_q(double[] q_yes, int width, int level, double bloomFp){
+        double f = 1.0;
+        for (double p : q_yes) {
+            f *= p;
+        }
+        return Math.max(0.0, Math.min(1.0, f));
+    }
+
 
     // Can the children of level L still host a pattern of length r? */
     public static boolean childCanHost(int width, int level, int patternLength){

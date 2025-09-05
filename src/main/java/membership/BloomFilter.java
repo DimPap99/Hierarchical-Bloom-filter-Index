@@ -171,5 +171,10 @@ public class BloomFilter implements Membership {
             return true;                            // maybe FP
         }
 
+    @Override
+    public double getFpRate() {
+        return this.p;
+    }
+
 
 }

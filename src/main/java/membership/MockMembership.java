@@ -22,4 +22,9 @@ public class MockMembership implements Membership{
     public boolean contains(long key) {
         return this.hashSet.contains(key);
     }
+
+    @Override
+    public double getFpRate() {
+        return 0;
+    }
 }

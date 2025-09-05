@@ -5,6 +5,10 @@ import search.Pattern;
 import tree.ImplicitTree;
 import utilities.MathUtils;
 
+import java.util.Arrays;
+
+import static utilities.MathUtils.q_yes;
+
 public class CostFunctionMaxProb implements CostFunction {
 
     //cost of constant operations. Typically measured in nano seconds.
@@ -35,12 +39,12 @@ public class CostFunctionMaxProb implements CostFunction {
      *                 N_{L+1}  = 2 * (1 + F(L)*(N_L - 1))
      *   C_leaf = lc * ( r + (followed_final - 1) * (r - 1) )
      *
-     * F(L) = ∏ q_i(L)  (all-pass),  H(L) = tail-sum expected probes.
+     * F(L) = Π q_i(L)  (all-pass),  H(L) = tail-sum expected probes.
      */
 
 
     @Override
-    public int minCostLp(ImplicitTree tree, double bfFalsePosRate, double confInit, Pattern p, double bfCost, double leafCost) {   // measured lc (ns)
+    public int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost) {   // measured lc (ns)
         if (bfCost > 0) this.bloomProbeCost = bfCost;
         if (leafCost > 0) this.leafSearchCost = leafCost;
 
@@ -49,20 +53,24 @@ public class CostFunctionMaxProb implements CostFunction {
         final int width      = tree.baseIntervalSize();
         final int maxDepth   = tree.maxDepth();
         final int r          = p.nGramToInt.length;
+        double minProb = Arrays.stream(probs).min().getAsDouble();
 
-        // Deepest level we might touch (children still host the full pattern)
-        int LStopMax = 0;
-        for (int L = 0; L < maxDepth; L++) {
-            if (MathUtils.childCanHost(width, L, r)) LStopMax = L;
-            else break;
-        }
+
+        //Get the maximum Lp level (Deepest Lp) that can actually FIT the pattern. After that level
+        //Our pattern matching algorithm switches to leaf probing so there is no reason to search further
+        //e.g. if pattern length is 17 then that level is 5, since 5^2 = 32 --> fits 17. (4^2 = 16 doesnt fit it)
+        int maxLpLevel = tree.maxDepth() - (int) Math.ceil(Math.log(p.nGramToInt.length) / Math.log(2.0));
+
+        //Thats the Lp level that is closer to the root
+        int minLp =  MathUtils.pruningLevel(tree, 0.99, minProb);
+
 
         double bestCost = Double.POSITIVE_INFINITY;
         int    bestLp   = 0;
 
         // Evaluate cost for each candidate Lp (no α sweep needed)
-        for (int Lp = 0; Lp <= LStopMax; Lp++) {
-            double cost = costAtLevel(tree, probs, Lp, bfFalsePosRate);
+        for (int Lp = minLp; Lp <= maxLpLevel; Lp++) {
+            double cost = costAtLevel(tree, probs, Lp, tree.getMembershipFpRate(Lp), maxDepth);
             if (cost < bestCost) {
                 bestCost = cost;
                 bestLp   = Lp;
@@ -83,7 +91,7 @@ public class CostFunctionMaxProb implements CostFunction {
     private double costAtLevel(ImplicitTree<?> tree,
                                double[] probs,
                                int Lp,
-                               double bloomFp) {
+                               double bloomFp, int stopLp) {
         final int width    = tree.baseIntervalSize();
         final int maxDepth = tree.maxDepth();
         final int r        = probs.length;
@@ -93,7 +101,7 @@ public class CostFunctionMaxProb implements CostFunction {
         double C_hor = bloomProbeCost * H_lp * (1 << Lp);
 
         // Vertical from Lp+1 down (Lp work already paid in C_hor)
-        Pair<Double, Double> vert = verticalCostBranching(probs, width, maxDepth, r, Lp, bloomFp);
+        Pair<Double, Double> vert = verticalCostBranching(probs, width, maxDepth, r, Lp, bloomFp, stopLp);
         double C_vert   = vert.getFirst();
         double followed = vert.getSecond();
 
@@ -106,17 +114,15 @@ public class CostFunctionMaxProb implements CostFunction {
     /**
      * Returns (verticalCost, followedFinal).
      * followedFinal is the expected "1 + F*(N-1)" at the last processed level
-     * and is used in the caller's leaf term (to mirror the provided Python).
      */
     private Pair<Double, Double> verticalCostBranching(double[] probs,
                                                        int width,
                                                        int maxDepth,
                                                        int r,
                                                        int Lp,
-                                                       double bloomFp) {
+                                                       double bloomFp, int stopLp) {
 
 //        double minProb =         Arrays.stream(probs).min().getAsDouble();
-;
         double F_lp    = MathUtils.fp_rate(probs, width, Lp, bloomFp);
         if (!MathUtils.childCanHost(width, Lp, r)) {
             // No deeper levels to visit; followed = 1 + F(Lp)*(2^Lp - 1)
@@ -129,14 +135,10 @@ public class CostFunctionMaxProb implements CostFunction {
         double followed = 1.0 + F_lp * ((1 << Lp) - 1.0);
         double N        = 2.0 * followed;               // nodes processed at Lp+1
 
-        // Compute deepest level we could ever reach under the stop rule
-        int L_stop = Lp + 1;
-        while (L_stop < maxDepth - 1 && MathUtils.childCanHost(width, L_stop, r)) {
-            L_stop++;
-        }
+
 
         double cost = 0.0;
-        for (int L = Lp + 1; L <= L_stop; L++) {
+        for (int L = Lp + 1; L <= stopLp; L++) {
             // Pay per-node probes at this level
             double H_L = MathUtils.expectedProbesPerNode(probs, bloomFp, width, L);
             cost += bloomProbeCost * H_L * N;
