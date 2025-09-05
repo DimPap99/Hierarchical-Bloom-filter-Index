@@ -1,4 +1,4 @@
 package utilities;
 
-public class PatternResult {
+public record PatternResult (double totalRunTime, int occurences, int Lp) {
 }

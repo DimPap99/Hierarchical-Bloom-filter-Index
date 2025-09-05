@@ -8,6 +8,7 @@ import membership.BloomFilter;
 import membership.Membership;
 import search.*;
 import utilities.AlphabetMapGen;
+import utilities.ExperimentRunResult;
 import utilities.RunResult;
 
 import java.io.IOException;
@@ -77,17 +78,18 @@ public class ConfidenceExperiment {
             }
 
             ArrayList<Long> timings;
+            ExperimentRunResult runResult;
             for (int i = 0; i < RUNS; i++) {
                 HBI hbi = newHbi(alpha);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
-                hbiTotalMs += timings.get(1);
-                hbiTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+                hbiTotalMs += runResult.totalRunTimeMs();
+                hbiTotalMsInsert += runResult.totalInsertTimeMs();
                 IPMIndexing ipm = new RegexIndex();
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
-                ipmTotalMs += timings.get(1);
-                ipmTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+                ipmTotalMs += runResult.totalRunTimeMs();
+                ipmTotalMsInsert += runResult.totalInsertTimeMs();
 //                System.out.println("Run with confidence " + conf);
 //                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
 //                avgLp = hbi.Lp.stream()

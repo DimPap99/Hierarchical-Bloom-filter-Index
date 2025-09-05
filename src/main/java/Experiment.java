@@ -2,7 +2,9 @@ import PMIndex.IPMIndexing;
 import datagenerators.Generator;
 import search.Pattern;
 import utilities.CharRingBuffer;
+import utilities.ExperimentRunResult;
 import utilities.HBILogger;
+import utilities.RunResult;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -13,9 +15,8 @@ import java.util.Deque;
 
 public class Experiment {
 
-    public static ArrayList<Long> run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
+    public static ExperimentRunResult run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
 //        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
-        ArrayList<Long> timings =  new ArrayList<>();
         int read;
         // Read characters
 //        HBILogger.info("Reading input file...");
@@ -48,8 +49,8 @@ public class Experiment {
 //            index.insert(cc);
 //        }
         long endTime = System.currentTimeMillis();
-        long duration = endTime - startTime;
-        timings.add(duration);
+        long insertDuration = endTime - startTime;
+        //timings.add(duration);
 //        HBILogger.info("Report: " + report.toString());
 //        HBILogger.info("Time taken: " + duration + " ms");
 //
@@ -82,14 +83,12 @@ public class Experiment {
 
         }
         endTime = System.currentTimeMillis();
-        duration = endTime - startTime;
+        long queryDuration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());
         if(verbose){
-            System.out.println("Querying duration: " +  duration + " ms");
+            System.out.println("Querying duration: " +  queryDuration + " ms");
 
         }
-        timings.add(duration);
-
-        return timings;
+        return new ExperimentRunResult(queryDuration,insertDuration, null);
     }
 }

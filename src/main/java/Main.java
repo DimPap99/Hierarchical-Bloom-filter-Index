@@ -12,6 +12,7 @@ import estimators.HashMapEstimator;
 import membership.BloomFilter;
 import membership.Membership;
 import utilities.AlphabetMapGen;
+import utilities.ExperimentRunResult;
 
 import javax.xml.stream.FactoryConfigurationError;
 import java.io.IOException;
@@ -48,6 +49,7 @@ public final class Main {
                 .mapToObj(c -> (char)c)
                 .toList();
 
+        ExperimentRunResult runResult;
 
         for(int n = 1; n <= 1; n++) {
             double hbiTotalMs = 0;
@@ -90,13 +92,13 @@ public final class Main {
                 HBI hbi = newHbi(0.99);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
-                hbiTotalMs += timings.get(1);
-                hbiTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+                hbiTotalMs += runResult.totalRunTimeMs();
+                hbiTotalMsInsert += runResult.totalInsertTimeMs();
                 IPMIndexing ipm = new RegexIndex();
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
-                ipmTotalMs += timings.get(1);
-                ipmTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+                ipmTotalMs +=  runResult.totalRunTimeMs();
+                ipmTotalMsInsert +=  runResult.totalInsertTimeMs();
 //                System.out.println("Run with confidence " + conf);
 //                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
 //                avgLp = hbi.Lp.stream()
