@@ -8,6 +8,7 @@ import search.*;
 import estimators.Estimator;
 import tree.ImplicitTree;
 import tree.TreeLayout;
+import utilities.PatternResult;
 
 import java.util.*;
 import java.util.function.IntFunction;
@@ -27,11 +28,12 @@ public final class HBI implements IPMIndexing {
     private final int     treeLength;
     private final int     alphabetSize;
     private final double  fpRate;
+
+    //dirty way of getting results of a query when reporting (should fix)
+    private PatternResult latestQresults;
+
     private int BC_COST_ESTIM_ITER = 1000000;
     private int LC_COST_ESTIM_ITER = 1000000;
-
-    public ArrayList<Long> BC_COSTS;
-    public long LC_COST;
 
     //maps characters/strings (for n-grams) to an integer
     public HashMap<String, Integer> alphabetMap;
@@ -123,6 +125,9 @@ public final class HBI implements IPMIndexing {
     for(int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) pat.nGramToInt[nIdx] = this.alphabetMap.get(pat.nGramArr[nIdx]);
 
      int positionOffset = -1;
+     long startTime = System.currentTimeMillis();
+     int lp =0;
+     int lpCf = 0;
      for (int i = 0; i < this.trees.size(); i++) {
          ImplicitTree<Membership> tree = this.trees.get(i);
          tree.pruningPlan    = this.pruningPlanFac.get();
@@ -130,8 +135,9 @@ public final class HBI implements IPMIndexing {
          Deque<Frame> stack = new ArrayDeque<>();
 //         double[] pp = tree.estimator.estimateALl(pat);
          double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
+         lpCf = cf.minCostLp(tree, 0.001, pat, this.bfCost, this.leafCost);
+         lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
 
-         int lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
@@ -154,6 +160,7 @@ public final class HBI implements IPMIndexing {
 
        }
      }
+     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, this.getAllprobes(), lp, pat, lpCf);
      return results;
 
     }
@@ -188,6 +195,12 @@ public final class HBI implements IPMIndexing {
         res.add(avgLeaf);
         return  res;
     }
+
+    @Override
+    public PatternResult getLatestStats() {
+        return this.latestQresults;
+    }
+
     public long getAvgLeafCost(Pattern pat) {
         ImplicitTree<Membership> tree = this.trees.getLast();
         long duration=0;
@@ -250,6 +263,7 @@ public final class HBI implements IPMIndexing {
         int sum=0;
         for(ImplicitTree<Membership> tree: this.trees){
             sum+= tree.containCounter;
+            tree.containCounter = 0;
         }
         return sum;
     }

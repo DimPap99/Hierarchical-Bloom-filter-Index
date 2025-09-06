@@ -1,10 +1,7 @@
 import PMIndex.IPMIndexing;
 import datagenerators.Generator;
 import search.Pattern;
-import utilities.CharRingBuffer;
-import utilities.ExperimentRunResult;
-import utilities.HBILogger;
-import utilities.RunResult;
+import utilities.*;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -15,9 +12,10 @@ import java.util.Deque;
 
 public class Experiment {
 
-    public static ExperimentRunResult run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose) throws IOException {
+    public static ExperimentRunResult run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose, boolean queryResults) throws IOException {
 //        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
         int read;
+        ArrayList<PatternResult> queryResultsList = new ArrayList<>();
         // Read characters
 //        HBILogger.info("Reading input file...");
 //        String data = Generator.generateUniform(1 << 16, 48, 122);
@@ -71,6 +69,10 @@ public class Experiment {
         for(String query : queries){
 //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(new Pattern(query, Ngram));
+            if(queryResults){
+                PatternResult rr = index.getLatestStats();
+                queryResultsList.add(rr);
+            }
 //            ArrayList<Long> s = index.getAvgTimes(new Pattern(query, Ngram));
             if(verbose){
                 if(report.size() < 20){
@@ -89,6 +91,6 @@ public class Experiment {
             System.out.println("Querying duration: " +  queryDuration + " ms");
 
         }
-        return new ExperimentRunResult(queryDuration,insertDuration, null);
+        return new ExperimentRunResult(queryDuration,insertDuration, queryResultsList);
     }
 }

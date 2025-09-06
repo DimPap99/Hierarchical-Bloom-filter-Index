@@ -1,5 +1,7 @@
 package PMIndex;
 
+import utilities.PatternResult;
+
 import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -73,6 +75,11 @@ public class RegexIndex implements IPMIndexing {
     }
 
     public ArrayList<Long> getAvgTimes(search.Pattern pat){
+        return null;
+    }
+
+    @Override
+    public PatternResult getLatestStats() {
         return null;
     }
 }

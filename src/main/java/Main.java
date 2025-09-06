@@ -72,10 +72,10 @@ public final class Main {
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
 
-                Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+                Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
 
                 IPMIndexing ipm = new RegexIndex();
-                Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+                Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
                 avgLp = hbi.Lp.stream()
                         .mapToDouble(a -> a)
                         .sum()/hbi.Lp.size();
@@ -92,11 +92,11 @@ public final class Main {
                 HBI hbi = newHbi(0.99);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
-                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
                 hbiTotalMs += runResult.totalRunTimeMs();
                 hbiTotalMsInsert += runResult.totalInsertTimeMs();
                 IPMIndexing ipm = new RegexIndex();
-                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
                 ipmTotalMs +=  runResult.totalRunTimeMs();
                 ipmTotalMsInsert +=  runResult.totalInsertTimeMs();
 //                System.out.println("Run with confidence " + conf);

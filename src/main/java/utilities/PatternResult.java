@@ -1,4 +1,6 @@
 package utilities;
 
-public record PatternResult (double totalRunTime, int occurences, int Lp) {
+import search.Pattern;
+
+public record PatternResult (double totalRunTime, int probes, int Lp, Pattern p, int cfLp) {
 }

@@ -1,43 +1,31 @@
-
-
-
-
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
-
 import estimators.CostFunctionMaxProb;
-import search.*;
-
-        import estimators.Estimator;
+import estimators.Estimator;
 import estimators.HashMapEstimator;
-
 import membership.BloomFilter;
 import membership.Membership;
+import search.*;
 import utilities.AlphabetMapGen;
+import utilities.ExperimentRunResult;
+import utilities.RunResult;
 
-import javax.xml.stream.FactoryConfigurationError;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
-import static java.util.Arrays.stream;
-
-/**
- * Simple driver that benchmarks both the refactored HBI and the legacy
- * RegexIndex on the same data / query workload.
- */
-public final class HBIDatasetBenchmark {
+public class HBIDatasetBenchmark {
 
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_16_experiment_small.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/unique_substrings_uniform16.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_16_1.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings_zipf16.txt";
 
     private static final int WINDOW_LEN   = 1 << 16;//1 << 21;
-    private static final int TREE_LEN     = 1 << 14;
+    private static final int TREE_LEN     = 1 << 16;
     private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 150;        // set to 0 for a dry run
@@ -51,32 +39,34 @@ public final class HBIDatasetBenchmark {
                 .mapToObj(c -> (char)c)
                 .toList();
 
+        ArrayList<RunResult> results = new ArrayList<>();
 
-        for(int n = 1; n <= 1; n++) {
-            double hbiTotalMs = 0;
+        for (double alpha = 0.1; alpha <= 1 + 0.1; alpha += 0.1+ 1e-9) {
+            if(alpha >=1) alpha = 0.99;            double hbiTotalMs = 0;
             double ipmTotalMs = 0;
             double hbiTotalMsInsert = 0;
             double ipmTotalMsInsert = 0;
             double avgLp = 0;
-            NGRAMS = n;
+            NGRAMS = 1;
             System.out.println("N-gram: " + NGRAMS);
             System.out.println("Window Size: " + WINDOW_LEN);
             System.out.println("Tree Length: " + TREE_LEN);
             AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
             ALPHABET = gen.alphabetMap.size();
             System.out.println("Alphabet: " + ALPHABET);
+            System.out.println("ALPHA: " + alpha);
             int maxLvl;
             double avgAlpha =0;
             /* JIT warm-up so HotSpot reaches steady state */
-            for (int i = 0; i < 2; i++) {
-                HBI hbi = newHbi(0.999);
+            for (int i = 0; i < 5; i++) {
+                HBI hbi = newHbi(alpha);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
-
-                Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
+                //if(i ==0)hbi.getAvgTimes(new Pattern("wZE2bl[cuO", 1));
+                Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
 
                 IPMIndexing ipm = new RegexIndex();
-                Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
+                Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
                 avgLp = hbi.Lp.stream()
                         .mapToDouble(a -> a)
                         .sum()/hbi.Lp.size();
@@ -86,20 +76,20 @@ public final class HBIDatasetBenchmark {
             }
 
             ArrayList<Long> timings;
+            ExperimentRunResult runResult;
+            int probes = 0;
             for (int i = 0; i < RUNS; i++) {
-
-
-
-                HBI hbi = newHbi(0.99);
+                HBI hbi = newHbi(alpha);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false);
-                hbiTotalMs += timings.get(1);
-                hbiTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
+                hbiTotalMs += runResult.totalRunTimeMs();
+                hbiTotalMsInsert += runResult.totalInsertTimeMs();
                 IPMIndexing ipm = new RegexIndex();
-                timings = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false);
-                ipmTotalMs += timings.get(1);
-                ipmTotalMsInsert += timings.get(0);
+                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
+                ipmTotalMs += runResult.totalRunTimeMs();
+                ipmTotalMsInsert += runResult.totalInsertTimeMs();
+                probes+= hbi.getAllprobes();
 //                System.out.println("Run with confidence " + conf);
 //                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
 //                avgLp = hbi.Lp.stream()
@@ -119,8 +109,17 @@ public final class HBIDatasetBenchmark {
 
                 System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
                 System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
+                System.out.println("\n\n\n");
+                results.add(new RunResult(alpha, hbiTotalMs / RUNS, avgLp, probes/RUNS));
             }
+            if(alpha == 0.99)break;
         }
+
+        System.out.println("\n\nAlpha,AvgMs,Lp");
+        for(RunResult r: results){
+            r.print();
+        }
+
     }
 
     // Helper that builds a fresh HBI wired to suppliers each time
@@ -135,7 +134,6 @@ public final class HBIDatasetBenchmark {
 
         Verifier v = new VerifierLinearLeafProbe();
         return new HBI(new BlockSearch(),
-
                 WINDOW_LEN,
                 FP_RATE,
                 ALPHABET,

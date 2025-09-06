@@ -1,6 +1,7 @@
 package PMIndex;
 
 import search.Pattern;
+import utilities.PatternResult;
 
 import java.util.ArrayList;
 
@@ -15,4 +16,6 @@ public interface IPMIndexing {
     public void expire();
 
     ArrayList<Long> getAvgTimes(Pattern pat);
+
+    PatternResult getLatestStats();
 }
