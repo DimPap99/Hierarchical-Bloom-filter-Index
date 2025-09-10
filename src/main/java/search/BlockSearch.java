@@ -12,14 +12,15 @@ public class BlockSearch implements SearchAlgorithm{
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
-        Probe probe = probe(tree,
-                f.level(),             // unchanged helper signature
-                f.intervalIdx(),
-                p.nGramToInt);
-        this.currentOffset = positionOffset;
         int currentIntervalSize = tree.intervalSize(f.level());
         int childrenIntervalSize = currentIntervalSize / 2;
         int treeBaseInterval = tree.baseIntervalSize();
+
+        Probe probe = probe(tree,
+                f.level(),             // unchanged helper signature
+                f.intervalIdx(),
+                p.nGramToInt, currentIntervalSize);
+        this.currentOffset = positionOffset;
 
         if (probe.consumed() == 0) {
             this.currentOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
@@ -48,24 +49,24 @@ public class BlockSearch implements SearchAlgorithm{
 
 
     public int getCurrentOffset(){return this.currentOffset;}
-    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern) {
+    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern, int currentIntervalSize) {
 
 
         int matches = 0;
-
+        int effectiveLookupRange = Math.min(currentIntervalSize, pattern.length);
         long key;
-        for (int i = 0; i < pattern.length; i++) {
+        for (int i = 0; i < effectiveLookupRange; i++) {
             key =  tree.codec.pack(level, interval, pattern[i]);
 
             if (!tree.contains(level, key)) {
                 return new Probe(matches, false);          // first mismatch at i
             }
             matches++;
-            if(matches == pattern.length){
-                return new Probe(pattern.length, true);
+            if(matches == effectiveLookupRange){
+                return new Probe(effectiveLookupRange, true);
             }
         }
-        return new Probe(pattern.length, true);                 // checked len chars, all good
+        return new Probe(effectiveLookupRange, true);                 // checked len chars, all good
     }
 
 

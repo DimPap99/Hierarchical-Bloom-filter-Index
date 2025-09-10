@@ -22,6 +22,16 @@ public class CostFunctionSetConf  implements CostFunction {
     public double getAlpha() {
         return 0;
     }
+
+    @Override
+    public double getEstimatedProbeCost() {
+        return 0;
+    }
+
+    @Override
+    public double costAtLevel(ImplicitTree<?> tree, double[] probs, int[] keySeq, int Lp, double bloomFp, int stopLp) {
+        return 0;
+    }
 }
 
 

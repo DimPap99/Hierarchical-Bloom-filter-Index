@@ -4,7 +4,8 @@ package tree;
 public record TreeLayout(int levels,
                          int baseIntervalSize) {
 
-    /** Size (in characters) of one interval on {@code level}. */
+    /** Size (in characters) of one interval on {@code level}. Essentially gives the size of a block when we divide
+     the window by W/2^level intervals*/
     public int intervalSize(int level) {
         if (level < 0 || level >= levels)
             throw new IllegalArgumentException("level " + level + " out of range");

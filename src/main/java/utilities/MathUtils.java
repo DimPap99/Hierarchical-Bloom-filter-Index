@@ -21,40 +21,65 @@ public final class  MathUtils {
         return h + bfFp * (1.0 - h);
     }
 
+    public static double q_child_given_parent_yes(double prob,
+                                                  int width,
+                                                  int parentLevel,
+                                                  double beta) {
+        // Parent at L, child at L+1
+        int childLevel = parentLevel + 1;
+        double hParent = h_b(width, parentLevel, prob);      // 1 - (1-p)^(W/2^L)
+        double hChild  = h_b(width, childLevel,  prob);      // 1 - (1-p)^(W/2^(L+1))
+        double qParent = q_yes(prob, width, parentLevel, beta); // β + (1-β)*hParent
+        // Conditional child YES given "parent YES"
+        return beta + (1.0 - beta) * (hChild / qParent);
+    }
+
     /**
      * Expected probes per node (tail sum):
      * H = 1 + q1 + q1*q2 + ... + q1*...*q_{r-1}
      * Probe order = as given in probs[].
      */
     public static double expectedProbesPerNode(double[] probs,
+                                               int[] keySeq,
                                                double bloomFp,
                                                int width,
                                                int level) {
-        final int r = probs.length;
-        if (r <= 1) return 1.0;
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        if (ell <= 0) return 0.0;
+        if (ell == 1) return 1.0;
 
-        double[] qs = new double[r];
-        for (int i = 0; i < r; i++) {
-            qs[i] = q_yes(probs[i], width, level, bloomFp);
+        double total = 1.0;     // P(N >= 1) = 1
+        double prod  = 1.0;     // product over q's for first occurrences seen so far
+        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+
+        for (int i = 0; i < ell - 1; i++) {
+            int sym = keySeq[i];
+            if (seen.add(sym)) {
+                // first time we see this key at this node
+                prod *= q_yes(probs[i], width, level, bloomFp);
+            }
+            total += prod;      // duplicates add the current prod again
+        }
+        return total;
         }
 
-        double total = 1.0;      // P(N>=1) = 1
-        double prod  = 1.0;
-        for (int i = 0; i < r - 1; i++) {  // add q1, q1*q2, ..., q1*...*q_{r-1}
-            prod *= qs[i];
-            total += prod;
+
+
+    public static double fp_rate(double[] probs, int[] keySeq, int width, int level, double bloomFp){
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        double prod = 1.0;
+        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+        for (int i = 0; i < ell; i++) {
+            int sym = keySeq[i];
+            if (seen.add(sym)) {
+                prod *= q_yes(probs[i], width, level, bloomFp);
+            }
         }
-        //  cap by r. The total expected probes cant exceed the length of the pattern
-        return Math.min(total, r);
+        return prod;
     }
 
-    public static double fp_rate(double[] probs, int width, int level, double bloomFp){
-        double f = 1.0;
-        for (double p : probs) {
-            f *= q_yes(p, width, level, bloomFp);
-        }
-        return Math.max(0.0, Math.min(1.0, f));
-    }
 
     public static double fp_rate_from_q(double[] q_yes, int width, int level, double bloomFp){
         double f = 1.0;
@@ -72,9 +97,10 @@ public final class  MathUtils {
 
     // Alpha→Lp mapping for a single p
     public static int pruningLevel(ImplicitTree<?> tree, double conf, double prob){
-        double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob);   // b_α
-        double log2   = Math.log(tree.baseIntervalSize() / bAlpha) / Math.log(2.0);
-        int rawLp     = (int) Math.floor(log2) + 1;
-        return Math.max(0, Math.min(rawLp, tree.maxDepth() - 1));
+        double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob); // > 0
+        double val    = Math.log(tree.baseIntervalSize() / bAlpha) / Math.log(2.0);
+        int L         = (int) Math.ceil(val);
+        return Math.max(0, Math.min(L, tree.maxDepth() - 1));
     }
+
 }

@@ -103,8 +103,30 @@ public class BloomFilter implements Membership {
         z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
         return z ^ (z >>> 31);
     }
+    @Override
+    public double getFpRate() {
+        // empirical FP from current occupancy
+        double rho = (double) filter.cardinality() / m;   // 0..1
+        if (rho <= 0) return 0.0;
+        if (rho >= 1) return 1.0;
+        return Math.pow(rho, k);
+    }
 
-//    public void insert(long key) {
+    // (optional) keep the design target around for logging
+    public double getDesignFpRate() {
+        return p;
+    }
+
+    // (optional) estimate distinct inserts so far
+    public long estimateDistinct() {
+        double rho = (double) filter.cardinality() / m;
+        if (rho <= 0) return 0;
+        if (rho >= 1) return Long.MAX_VALUE;
+        return Math.round(-(m / (double) k) * Math.log(1.0 - rho));
+    }
+
+
+    //    public void insert(long key) {
 //
 //        longToLE(key, leByteArr);   // fill the 4-byte buffer
 //
@@ -171,10 +193,10 @@ public class BloomFilter implements Membership {
             return true;                            // maybe FP
         }
 
-    @Override
-    public double getFpRate() {
-        return this.p;
-    }
+//    @Override
+//    public double getFpRate() {
+//        return this.p;
+//    }
 
 
 }

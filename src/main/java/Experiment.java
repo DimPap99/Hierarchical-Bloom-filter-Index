@@ -66,9 +66,12 @@ public class Experiment {
 
 //        HBILogger.info("Will start querying...");
         startTime = System.currentTimeMillis();
+        int avgQueryLength = 0;
         for(String query : queries){
+            Pattern qPat = new Pattern(query, Ngram);
 //            HBILogger.info("Query: " + query);
-            ArrayList<Integer> report = index.report(new Pattern(query, Ngram));
+            ArrayList<Integer> report = index.report(qPat);
+            avgQueryLength += qPat.nGramToInt.length;
             if(queryResults){
                 PatternResult rr = index.getLatestStats();
                 queryResultsList.add(rr);
@@ -84,6 +87,7 @@ public class Experiment {
 
 
         }
+        avgQueryLength = avgQueryLength / queries.size();
         endTime = System.currentTimeMillis();
         long queryDuration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());
@@ -91,6 +95,6 @@ public class Experiment {
             System.out.println("Querying duration: " +  queryDuration + " ms");
 
         }
-        return new ExperimentRunResult(queryDuration,insertDuration, queryResultsList);
+        return new ExperimentRunResult(queryDuration,insertDuration, queryResultsList, avgQueryLength);
     }
 }

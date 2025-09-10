@@ -8,6 +8,7 @@ import search.*;
 import estimators.Estimator;
 import tree.ImplicitTree;
 import tree.TreeLayout;
+import utilities.MathUtils;
 import utilities.PatternResult;
 
 import java.util.*;
@@ -52,8 +53,9 @@ public final class HBI implements IPMIndexing {
     public boolean getStats = false;
 
 
-    double bfCost = 96;
+    double bfCost = 97;
     double leafCost = 26;
+    public int setLp;
     public ArrayList<Integer> Lp = new ArrayList<>();
     public ArrayList<Double> alphas = new ArrayList<>();
     private Verifier verifier;
@@ -126,18 +128,19 @@ public final class HBI implements IPMIndexing {
 
      int positionOffset = -1;
      long startTime = System.currentTimeMillis();
-     int lp =0;
+     int lp = 0;
      int lpCf = 0;
+     double cp_cost = 0;
      for (int i = 0; i < this.trees.size(); i++) {
          ImplicitTree<Membership> tree = this.trees.get(i);
-         tree.pruningPlan    = this.pruningPlanFac.get();
+         tree.pruningPlan = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
-//         double[] pp = tree.estimator.estimateALl(pat);
-         double pMax = Arrays.stream(tree.estimator.estimateALl(pat)).min().getAsDouble();
-         lpCf = cf.minCostLp(tree, 0.001, pat, this.bfCost, this.leafCost);
-         lp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
-
+         double[] pp = tree.estimator.estimateALl(pat);
+         double pMax = Arrays.stream(pp).min().getAsDouble();
+         lpCf = cf.minCostLp(tree, this.conf, pat, this.bfCost, this.leafCost);
+         lp = this.setLp;//pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+         cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, 14)/97;
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
@@ -160,7 +163,10 @@ public final class HBI implements IPMIndexing {
 
        }
      }
-     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, this.getAllprobes(), lp, pat, lpCf);
+     int actualCost = this.getAllprobes();
+     System.out.println("For Lp: " + lp + " The error rate is: " + Math.abs(1 - (cp_cost/actualCost)));
+     System.out.println("Predicted: " + cp_cost + " Actual: " + actualCost);
+     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost);
      return results;
 
     }
@@ -171,7 +177,7 @@ public final class HBI implements IPMIndexing {
         int maxLvl = tree.maxDepth() -1;
 //        for (int i = 0; i < maxLvl; i++) {
             long duration = 0;
-            for (int z = 0; z < BC_COST_ESTIM_ITER; z++) {  // <-- BUG: tests i and increments i
+            for (int z = 0; z < BC_COST_ESTIM_ITER; z++) {
                 long startTime = System.nanoTime();
 
                 long key = tree.codec.pack(maxLvl, 0, pat.nGramToInt[0]);
@@ -246,7 +252,7 @@ public final class HBI implements IPMIndexing {
             int perNode   = Math.min(alphabetSize, interval);
             int distinct  = nodes * perNode;
 
-            BloomFilter bf = new BloomFilter();
+            Membership bf = membershipFac.get();
             bf.init(distinct, fpRate);
             return bf;
         };

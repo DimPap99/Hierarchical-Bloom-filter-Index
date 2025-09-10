@@ -6,201 +6,218 @@ import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
 import membership.Membership;
+import membership.MockMembership;
 import search.*;
 import utilities.*;
 
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 public class ConfidenceExperiment {
 
-
-
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/unique_substrings_zipf21_1_1500.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_21_experiment.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform21/unique_substrings_uniform21_10_300.txt";
 
-    private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
+    private static final int WINDOW_LEN   = 1 << 21;
     private static final int TREE_LEN     = 1 << 21;
-    private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 1;        // Set to 1 when counting probes
-    private static int NGRAMS = 4;
 
-    public static class confExpResult{
-        public int lp;
-        public int probes;
-        public int cflp;
-        public int maxProbes;
-        public int maxLp;
-        public int cflpProbes;
-        public confExpResult(int lp, int probes, int cflp, int maxProbes, int maxLp, int cflpProbes){
-            this.lp = lp;
-            this.probes = probes;
-            this.cflp = cflp;
-            this.maxProbes = maxProbes;
-            this.maxLp = maxLp;
-            this.cflpProbes = cflpProbes;
+    // Controls how many times we rerun the whole workload to average out JIT etc.
+    private static final int RUNS         = 17;
+
+    // N-grams for this experiment (you can parameterize if needed)
+    private static int NGRAMS = 1;
+
+    private static int ALPHABET = 74;
+
+    /** Per-pattern row for (optional) CSV dump. */
+    private record PatternRow(
+            int runIdx,
+            int lp, int cfLp,
+            int actualProbes,
+            double estProbes,
+            double relError,   // |1 - est/act|
+            int patLen
+    ) {}
+
+    /** Aggregates for one run. */
+    private static final class RunStats {
+        int    runIdx;
+        int    patterns;             // counted (non-zero actual probes)
+        double sumActual;
+        double sumEstimated;
+        double sumAbsError;          // Σ |est - actual|
+        double sumAbsRelError;       // Σ |1 - est/actual|
+        double sumSqError;           // Σ (est - actual)^2
+        int    lpMatches;            // count of patterns with Lp == cfLp
+        // extremes
+        double minRelError = Double.POSITIVE_INFINITY;
+        double maxRelError = 0.0;
+        PatternRow minRow  = null;
+        PatternRow maxRow  = null;
+
+        double mape() { return (patterns == 0) ? 0.0 : (sumAbsRelError / patterns); }
+        double overallRelError() {
+            return (sumActual <= 0.0) ? 0.0 : Math.abs(1.0 - (sumEstimated / sumActual));
+        }
+        double rmse() {
+            return (patterns == 0) ? 0.0 : Math.sqrt(sumSqError / patterns);
+        }
+        double lpMatchRate() {
+            return (patterns == 0) ? 0.0 : (lpMatches * 1.0 / patterns);
         }
     }
+
     public static void main(String[] args) throws IOException {
+        System.out.println("Starting experiment…");
+        System.out.printf("Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d%n",
+                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, RUNS);
 
-
-        List<Character> letters = IntStream.rangeClosed(48,122)
-                .mapToObj(c -> (char)c)
+        // Build alphabet map for n-grams
+        List<Character> letters = IntStream.rangeClosed(48, 121)
+                .mapToObj(c -> (char) c)
                 .toList();
+        AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
+        ALPHABET = gen.alphabetMap.size();
 
-        ArrayList<RunResult> results = new ArrayList<>();
-        ArrayList<ExperimentRunResult> experimentResults = new ArrayList<>();
+        // Per-run summaries
+        List<List<?>> runRows = new ArrayList<>();
+        runRows.add(List.of("run",
+                "patterns",
+                "sumActualProbes",
+                "sumEstimatedProbes",
+                "overallRelError",
+                "MAPE",
+                "RMSE",
+                "LpMatchRate",
+                "queryTimeMs",
+                "insertTimeMs",
+                "avgQueryLen"));
 
-        for (double alpha = 0.1; alpha <= 1 + 0.1; alpha += 0.1+ 1e-9) {
+        // Optional per-pattern CSV (comment out if too big)
+        List<List<?>> patternRows = new ArrayList<>();
+        patternRows.add(List.of("run", "Lp", "cfLp", "actualProbes", "estProbes", "relError", "patternLen"));
 
-            if(alpha >=1) alpha = 0.99;            double hbiTotalMs = 0;
-            double ipmTotalMs = 0;
-            double hbiTotalMsInsert = 0;
-            double ipmTotalMsInsert = 0;
-            double avgLp = 0;
-            NGRAMS = 1;
-            System.out.println("N-gram: " + NGRAMS);
-            System.out.println("Window Size: " + WINDOW_LEN);
-            System.out.println("Tree Length: " + TREE_LEN);
-            AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
-            ALPHABET = gen.alphabetMap.size();
-            System.out.println("Alphabet: " + ALPHABET);
-            System.out.println("ALPHA: " + alpha);
-            int maxLvl;
-            double avgAlpha =0;
-            /* JIT warm-up so HotSpot reaches steady state */
-            for (int i = 0; i < 5; i++) {
-                HBI hbi = newHbi(alpha);
-                hbi.alphabetMap = gen.alphabetMap;
-                hbi.getStats = true;
-                //if(i ==0)hbi.getAvgTimes(new Pattern("wZE2bl[cuO", 1));
-                Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
+        // Cross-run aggregates (over the per-run summaries)
+        double aggOverallRelErr = 0.0;
+        double aggMAPE          = 0.0;
+        double aggRMSE          = 0.0;
 
-                IPMIndexing ipm = new RegexIndex();
-                Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
-                avgLp = hbi.Lp.stream()
-                        .mapToDouble(a -> a)
-                        .sum()/hbi.Lp.size();
-                avgAlpha = hbi.alphas.stream()
-                        .mapToDouble(a -> a)
-                        .sum()/hbi.alphas.size();
-            }
+        for (int run = 0; run < RUNS; run++) {
+            // --- Build a fresh HBI and stream data ---
+            HBI hbi = newHbi(0.99);
+            hbi.setLp = run;
+            hbi.alphabetMap = gen.alphabetMap;
+            hbi.getStats = true;
 
-            ArrayList<Long> timings;
-//            ExperimentRunResult runResult;
-            int probes = 0;
-            for (int i = 0; i < RUNS; i++) {
-                HBI hbi = newHbi(alpha);
-                hbi.alphabetMap = gen.alphabetMap;
-                hbi.getStats = true;
-                ExperimentRunResult runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
-                experimentResults.add(runResult);
-                hbiTotalMs += runResult.totalRunTimeMs();
-                hbiTotalMsInsert += runResult.totalInsertTimeMs();
-                IPMIndexing ipm = new RegexIndex();
-                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
-                ipmTotalMs += runResult.totalRunTimeMs();
-                ipmTotalMsInsert += runResult.totalInsertTimeMs();
-                probes+= hbi.getAllprobes();
+            ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
 
+            // --- Summarize this run ---
+            RunStats stats = summarizeRun(run, result, patternRows);
 
-            }
+            // Print concise per-run summary
+            System.out.printf(Locale.ROOT,
+                    "Run %2d: patterns=%4d  sumActual=%.0f  sumEst=%.1f  overallRelErr=%.4f  MAPE=%.4f  RMSE=%.2f  LpMatch=%.2f%n",
+                    run, stats.patterns, stats.sumActual, stats.sumEstimated,
+                    stats.overallRelError(), stats.mape(), stats.rmse(), stats.lpMatchRate());
 
+            // Add run row for CSV
+            runRows.add(List.of(
+                    run,
+                    stats.patterns,
+                    (long) stats.sumActual,
+                    stats.sumEstimated,
+                    stats.overallRelError(),
+                    stats.mape(),
+                    stats.rmse(),
+                    stats.lpMatchRate(),
+                    result.totalRunTimeMs(),
+                    result.totalInsertTimeMs(),
+                    result.avgQuerySize()
+            ));
 
-            if (RUNS > 0) {
-                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-                System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
-                System.out.println("Avg LP: " + avgLp);
-                System.out.println("Avg Alpha: " + avgAlpha);
-
-                System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-                System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
-                System.out.println("\n\n\n");
-                results.add(new RunResult(alpha, hbiTotalMs / RUNS, avgLp, probes/RUNS));
-            }
-            if(alpha == 0.99)break;
+            // Accumulate for cross-run
+            aggOverallRelErr += stats.overallRelError();
+            aggMAPE          += stats.mape();
+            aggRMSE          += stats.rmse();
         }
 
-        System.out.println("\n\nAlpha,AvgMs,Lp");
-        for(RunResult r: results){
-            r.print();
-        }
-        ArrayList<confExpResult> rTriplets = new ArrayList<>();
-        for(int run = 0; run < experimentResults.size(); run++){
-            ArrayList<PatternResult> patternResults = experimentResults.get(run).patternResults();
-            for(int row = 0; row < patternResults.size(); row++){
-                PatternResult prst = patternResults.get(row);
-                //int lp, int probes, int cflplp, int probes, int cflp
-                confExpResult triplet = new confExpResult(prst.Lp(), prst.probes(), prst.cfLp(), prst.probes(), prst.Lp(), prst.probes());
-                if(run == 0) rTriplets.add(triplet);
-                else{
-                    if(triplet.probes > rTriplets.get(row).maxProbes){
-                        rTriplets.get(row).maxProbes = triplet.probes;
-                        rTriplets.get(row).maxLp = triplet.lp;
+        // --- Final cross-run summary ---
+        double avgOverallRelErr = aggOverallRelErr / RUNS;
+        double avgMAPE          = aggMAPE / RUNS;
+        double avgRMSE          = aggRMSE / RUNS;
 
-                    }
-                    if(triplet.probes < rTriplets.get(row).probes){
-                        rTriplets.get(row).probes = triplet.probes;
-                        rTriplets.get(row).lp = triplet.lp;
-                        rTriplets.get(row).cflp = triplet.cflp;
+        System.out.println("\n=== Cross-run summary ===");
+        System.out.printf(Locale.ROOT, "Avg overallRelError = %.4f%n", avgOverallRelErr);
+        System.out.printf(Locale.ROOT, "Avg MAPE            = %.4f%n", avgMAPE);
+        System.out.printf(Locale.ROOT, "Avg RMSE (probes)   = %.2f%n", avgRMSE);
 
-                    }
-                    if(triplet.lp == triplet.cflp) rTriplets.get(row).cflpProbes = triplet.probes;
-
-                }
-            }
-        }
-        double errorRate = 0;
-        double meanProbeError = 0;
-        int minProbes = 0;
-        int maxProbes = 0;
-        int cfProbes = 0;
-        List<List<?>> rows =  new ArrayList<>();
-        List<?> header = List.of("minProbes", "maxProbes", "cfProbes");
-        rows.add(header);
-        for(confExpResult triplet: rTriplets){
-            List<?> row;
-
-            System.out.println("Lp: " + triplet.lp + " CfLp: " + triplet.cflp + " Probes: " + triplet.probes + " MaxProbes: " + triplet.maxProbes + " MaxLp: " +  triplet.maxLp + " Cflp Probes: " +  triplet.cflpProbes);
-            errorRate += Math.abs(triplet.lp - triplet.cflp);
-            meanProbeError += Math.abs(triplet.probes - triplet.cflpProbes);
-            minProbes += triplet.probes;
-            maxProbes += triplet.maxProbes;
-            cfProbes += triplet.cflpProbes;
-
-            rows.add(List.of(minProbes, maxProbes,  cfProbes));
-
-
-
-
-        }
-        CsvUtil.writeRows(Path.of("probes.csv"), rows);
-
-
-        System.out.println("ErrorRate: " + errorRate/rTriplets.size());
-        System.out.println("ExtraProbes: " + meanProbeError/rTriplets.size());
-
+        // --- Write CSVs ---
+        CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
+        CsvUtil.writeRows(Path.of("patterns_summary.csv"), patternRows);
     }
 
-    // Helper that builds a fresh HBI wired to suppliers each time
+    /** Computes all per-run stats, optionally filling per-pattern rows. */
+    private static RunStats summarizeRun(int runIdx, ExperimentRunResult res, List<List<?>> patternRows) {
+        RunStats s = new RunStats();
+        s.runIdx = runIdx;
+
+        for (PatternResult pr : res.patternResults()) {
+            int    actual = pr.probes();
+            double est    = pr.predictedCost();   // already in "probes" units
+
+            if (actual <= 0) continue;            // avoid divide-by-zero; skip empty probe cases
+
+            double diff   = est - actual;
+            double relErr = Math.abs(1.0 - (est / actual));
+
+            s.patterns++;
+            s.sumActual     += actual;
+            s.sumEstimated  += est;
+            s.sumAbsError   += Math.abs(diff);
+            s.sumAbsRelError+= relErr;
+            s.sumSqError    += diff * diff;
+            if (pr.Lp() == pr.cfLp()) s.lpMatches++;
+
+            // track extremes
+            if (relErr < s.minRelError) {
+                s.minRelError = relErr;
+                s.minRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length);
+            }
+            if (relErr > s.maxRelError) {
+                s.maxRelError = relErr;
+                s.maxRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length);
+            }
+
+            // optional detailed CSV
+            patternRows.add(List.of(
+                    runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length
+            ));
+        }
+
+        // (Optional) print extremes for debug
+        if (s.minRow != null && s.maxRow != null) {
+            System.out.printf(Locale.ROOT,
+                    "  ↳ minRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)   maxRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)%n",
+                    s.minRow.relError, s.minRow.lp, s.minRow.cfLp, s.minRow.actualProbes, s.minRow.estProbes,
+                    s.maxRow.relError, s.maxRow.lp, s.maxRow.cfLp, s.maxRow.actualProbes, s.maxRow.estProbes);
+        }
+
+        return s;
+    }
+
+    // Helper: fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
-        Supplier<Estimator> estFactory =
-                () -> new HashMapEstimator(TREE_LEN);
-
-        Supplier<Membership> memFactory =
-                () -> new BloomFilter();
-        Supplier<PruningPlan> prFactory =
-                () -> new MostFreqPruning(conf);
-
+        Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
+        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
         Verifier v = new VerifierLinearLeafProbe();
-        return new HBI(new BlockSearch(),
+        return new HBI(
+                new BlockSearch(),
                 WINDOW_LEN,
                 FP_RATE,
                 ALPHABET,
@@ -208,6 +225,9 @@ public class ConfidenceExperiment {
                 estFactory,
                 memFactory,
                 prFactory,
-                v, new CostFunctionMaxProb(), conf);
+                v,
+                new CostFunctionMaxProb(),
+                conf
+        );
     }
 }

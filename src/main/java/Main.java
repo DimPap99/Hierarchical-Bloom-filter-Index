@@ -31,14 +31,14 @@ public final class Main {
 
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/uniform_text_big_16.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/unique_substrings_uniform16.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_60.txt";
 
-    private static final int WINDOW_LEN   = 1 << 16;//1 << 21;
-    private static final int TREE_LEN     = 1 << 14;
+    private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
+    private static final int TREE_LEN     = 1 << 20;
     private static int ALPHABET     = 75;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 150;        // set to 0 for a dry run
+    private static final int RUNS         = 1;        // set to 0 for a dry run
     private static int NGRAMS = 4;
 
     private static int NUMQUERIES = 135;
@@ -51,7 +51,7 @@ public final class Main {
 
         ExperimentRunResult runResult;
 
-        for(int n = 1; n <= 1; n++) {
+        for(int n = 1; n <= 3; n++) {
             double hbiTotalMs = 0;
             double ipmTotalMs = 0;
             double hbiTotalMsInsert = 0;
@@ -67,7 +67,7 @@ public final class Main {
             int maxLvl;
             double avgAlpha =0;
             /* JIT warm-up so HotSpot reaches steady state */
-            for (int i = 0; i < 2; i++) {
+            for (int i = 0; i < 1; i++) {
                 HBI hbi = newHbi(0.999);
                 hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
@@ -83,42 +83,43 @@ public final class Main {
                         .mapToDouble(a -> a)
                         .sum()/hbi.alphas.size();
             }
-
             ArrayList<Long> timings;
-            for (int i = 0; i < RUNS; i++) {
 
 
-
-                HBI hbi = newHbi(0.99);
-                hbi.alphabetMap = gen.alphabetMap;
-                hbi.getStats = true;
-                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
-                hbiTotalMs += runResult.totalRunTimeMs();
-                hbiTotalMsInsert += runResult.totalInsertTimeMs();
-                IPMIndexing ipm = new RegexIndex();
-                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
-                ipmTotalMs +=  runResult.totalRunTimeMs();
-                ipmTotalMsInsert +=  runResult.totalInsertTimeMs();
-//                System.out.println("Run with confidence " + conf);
+//            for (int i = 0; i < RUNS; i++) {
+//
+//
+//
+//                HBI hbi = newHbi(0.99);
+//                hbi.alphabetMap = gen.alphabetMap;
+//                hbi.getStats = true;
+//                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);
+//                hbiTotalMs += runResult.totalRunTimeMs();
+//                hbiTotalMsInsert += runResult.totalInsertTimeMs();
+//                IPMIndexing ipm = new RegexIndex();
+//                runResult = Experiment.run(DATA_FILE, QUERIES_FILE, ipm, 1, false, false);
+//                ipmTotalMs +=  runResult.totalRunTimeMs();
+//                ipmTotalMsInsert +=  runResult.totalInsertTimeMs();
+////                System.out.println("Run with confidence " + conf);
+////                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
+////                avgLp = hbi.Lp.stream()
+////                        .mapToDouble(a -> a)
+////                        .sum()/hbi.Lp.size();
+////                System.out.println("Avg Lp for this run " + avgLp);
+////                System.out.println("   ");
+//                //System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+//
+//            }
+//
+//            if (RUNS > 0) {
 //                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-//                avgLp = hbi.Lp.stream()
-//                        .mapToDouble(a -> a)
-//                        .sum()/hbi.Lp.size();
-//                System.out.println("Avg Lp for this run " + avgLp);
-//                System.out.println("   ");
-                //System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
-
-            }
-
-            if (RUNS > 0) {
-                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-                System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
-                System.out.println("Avg LP: " + avgLp);
-                System.out.println("Avg Alpha: " + avgAlpha);
-
-                System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-                System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
-            }
+//                System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+//                System.out.println("Avg LP: " + avgLp);
+//                System.out.println("Avg Alpha: " + avgAlpha);
+//
+//                System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
+//                System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
+//            }
         }
     }
 
