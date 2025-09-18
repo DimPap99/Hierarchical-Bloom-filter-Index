@@ -8,6 +8,7 @@ import search.*;
 import estimators.Estimator;
 import tree.ImplicitTree;
 import tree.TreeLayout;
+import utilities.AlphabetMapper;
 import utilities.MathUtils;
 import utilities.PatternResult;
 
@@ -37,7 +38,7 @@ public final class HBI implements IPMIndexing {
     private int LC_COST_ESTIM_ITER = 1000000;
 
     //maps characters/strings (for n-grams) to an integer
-    public HashMap<String, Integer> alphabetMap;
+    public AlphabetMapper<String> alphabetMap;
 
     private       long    indexedItemsCounter = -1;
 
@@ -94,7 +95,7 @@ public final class HBI implements IPMIndexing {
     /** Stream a single character into the index. */
     public void insert(String c) {
 
-        int intC = this.alphabetMap.get(c);
+        int intC = this.alphabetMap.insert(c);
         indexedItemsCounter++;
         ImplicitTree lastTree = trees.getLast();
         if (lastTree.isFull()) {
@@ -124,7 +125,7 @@ public final class HBI implements IPMIndexing {
     public ArrayList<Integer> report(Pattern pat) {
     ArrayList<Integer> results = new ArrayList<>();
     //convert ngram to int representation
-    for(int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) pat.nGramToInt[nIdx] = this.alphabetMap.get(pat.nGramArr[nIdx]);
+    for(int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) pat.nGramToInt[nIdx] = this.alphabetMap.getId(pat.nGramArr[nIdx]);
 
      int positionOffset = -1;
      long startTime = System.currentTimeMillis();
@@ -140,7 +141,8 @@ public final class HBI implements IPMIndexing {
          double pMax = Arrays.stream(pp).min().getAsDouble();
          lpCf = cf.minCostLp(tree, this.conf, pat, this.bfCost, this.leafCost);
          lp = this.setLp;//pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
-         cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, 14)/97;
+         int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length)/Math.log(2)));
+         cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, m);
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
@@ -163,10 +165,12 @@ public final class HBI implements IPMIndexing {
 
        }
      }
-     int actualCost = this.getAllprobes();
-     System.out.println("For Lp: " + lp + " The error rate is: " + Math.abs(1 - (cp_cost/actualCost)));
-     System.out.println("Predicted: " + cp_cost + " Actual: " + actualCost);
-     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost);
+     int leafProbes = 0;//this.verifier.getLeafProbes();
+     int actualCost = this.getAllprobes() + leafProbes;
+     this.verifier.reset();
+//     System.out.println("For Lp: " + lp + " The error rate is: " + Math.abs(1 - (cp_cost/actualCost)));
+//     System.out.println("Predicted: " + cp_cost + " Actual: " + actualCost);
+     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes);
      return results;
 
     }

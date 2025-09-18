@@ -14,6 +14,12 @@ public final class  MathUtils {
         int blockLen = width >> lvl;                 // W / 2^L
         return 1.0 - Math.pow(1.0 - prob, blockLen);
     }
+    public static double h_b(int width, int lvl, double prob, int count){
+        int blockLen = width >> lvl;                 // W / 2^L
+        blockLen -= count;
+        return 1.0 - Math.pow(1.0 - prob, blockLen);
+    }
+
 
     /** q = h + beta*(1-h) — Bloom YES prob for one symbol at level L */
     public static double q_yes(double prob, int width, int lvl, double bfFp){

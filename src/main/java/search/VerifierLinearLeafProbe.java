@@ -11,7 +11,7 @@ import tree.ImplicitTree;
 public class VerifierLinearLeafProbe implements Verifier {
 
     public VerifierLinearLeafProbe() {}   // static utility
-
+    int leafProbesCounter = 0;
 
     public Pair<ArrayList<Integer>, Integer> verify(int currentTreeIdx,
                                                     ArrayList<ImplicitTree<Membership>> trees,
@@ -56,8 +56,15 @@ public class VerifierLinearLeafProbe implements Verifier {
         return new Pair<>(matches, leafStartIdx);
     }
 
+    @Override
+    public int getLeafProbes() {
+        return this.leafProbesCounter;
+    }
 
-
+    @Override
+    public void reset() {
+        this.leafProbesCounter = 0;
+    }
 
 
     public MatchResult verifyAtLeavesNaive(
@@ -106,6 +113,7 @@ public class VerifierLinearLeafProbe implements Verifier {
                 return new MatchResult(false, leafIdx - 1);
 
             /* --- actual character comparison -------------------------- */
+            this.leafProbesCounter++;
             if (sb.get(localPos) != pat[i]) {
                 int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
                 return new MatchResult(false, failPos);

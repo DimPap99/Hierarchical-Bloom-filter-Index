@@ -12,4 +12,7 @@ public interface Verifier {
                                              ArrayList<ImplicitTree<Membership>> trees,
                                              CandidateRange candidateRange,
                                              Pattern pat);
+
+    int getLeafProbes();
+    void reset();
 }

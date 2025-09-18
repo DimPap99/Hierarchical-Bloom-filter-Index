@@ -19,15 +19,16 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_21_experiment.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform21/unique_substrings_uniform21_10_300.txt";
-
-    private static final int WINDOW_LEN   = 1 << 21;
-    private static final int TREE_LEN     = 1 << 21;
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_19_experiment.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform19/unique_substrings_uniform19_120_100.txt";
+    private static final int TextSize = 19;
+    private static final int WINDOW_LEN   = 1 << TextSize;
+    private static final int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.001;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS         = 17;
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(120)/Math.log(2)));
+
 
     // N-grams for this experiment (you can parameterize if needed)
     private static int NGRAMS = 1;
@@ -60,6 +61,9 @@ public class ConfidenceExperiment {
         PatternRow minRow  = null;
         PatternRow maxRow  = null;
 
+        int bloomProbes;
+        int leafProbes;
+
         double mape() { return (patterns == 0) ? 0.0 : (sumAbsRelError / patterns); }
         double overallRelError() {
             return (sumActual <= 0.0) ? 0.0 : Math.abs(1.0 - (sumEstimated / sumActual));
@@ -81,8 +85,8 @@ public class ConfidenceExperiment {
         List<Character> letters = IntStream.rangeClosed(48, 121)
                 .mapToObj(c -> (char) c)
                 .toList();
-        AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
-        ALPHABET = gen.alphabetMap.size();
+//        AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
+        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         // Per-run summaries
         List<List<?>> runRows = new ArrayList<>();
@@ -111,19 +115,21 @@ public class ConfidenceExperiment {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
             hbi.setLp = run;
-            hbi.alphabetMap = gen.alphabetMap;
+            hbi.alphabetMap = new AlphabetMapper<String>(ALPHABET);
             hbi.getStats = true;
 
             ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
 
             // --- Summarize this run ---
-            RunStats stats = summarizeRun(run, result, patternRows);
+            RunStats stats = summarizeRun(run, result, patternRows, true);
 
             // Print concise per-run summary
             System.out.printf(Locale.ROOT,
                     "Run %2d: patterns=%4d  sumActual=%.0f  sumEst=%.1f  overallRelErr=%.4f  MAPE=%.4f  RMSE=%.2f  LpMatch=%.2f%n",
                     run, stats.patterns, stats.sumActual, stats.sumEstimated,
                     stats.overallRelError(), stats.mape(), stats.rmse(), stats.lpMatchRate());
+            System.out.println("Leaf probes: " + stats.leafProbes + " Bloom Probes: " + stats.bloomProbes);
+
 
             // Add run row for CSV
             runRows.add(List.of(
@@ -162,14 +168,14 @@ public class ConfidenceExperiment {
     }
 
     /** Computes all per-run stats, optionally filling per-pattern rows. */
-    private static RunStats summarizeRun(int runIdx, ExperimentRunResult res, List<List<?>> patternRows) {
+    private static RunStats summarizeRun(int runIdx, ExperimentRunResult res, List<List<?>> patternRows, boolean verbose) {
         RunStats s = new RunStats();
         s.runIdx = runIdx;
 
         for (PatternResult pr : res.patternResults()) {
             int    actual = pr.probes();
             double est    = pr.predictedCost();   // already in "probes" units
-
+            int leafprobes = pr.leafProbes();
             if (actual <= 0) continue;            // avoid divide-by-zero; skip empty probe cases
 
             double diff   = est - actual;
@@ -181,6 +187,8 @@ public class ConfidenceExperiment {
             s.sumAbsError   += Math.abs(diff);
             s.sumAbsRelError+= relErr;
             s.sumSqError    += diff * diff;
+            s.leafProbes += leafprobes;
+            s.bloomProbes += actual - leafprobes;
             if (pr.Lp() == pr.cfLp()) s.lpMatches++;
 
             // track extremes
@@ -200,7 +208,7 @@ public class ConfidenceExperiment {
         }
 
         // (Optional) print extremes for debug
-        if (s.minRow != null && s.maxRow != null) {
+        if (s.minRow != null && s.maxRow != null && verbose) {
             System.out.printf(Locale.ROOT,
                     "  ↳ minRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)   maxRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)%n",
                     s.minRow.relError, s.minRow.lp, s.minRow.cfLp, s.minRow.actualProbes, s.minRow.estProbes,

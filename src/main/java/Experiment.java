@@ -17,13 +17,14 @@ public class Experiment {
         int read;
         ArrayList<PatternResult> queryResultsList = new ArrayList<>();
         // Read characters
+
 //        HBILogger.info("Reading input file...");
 //        String data = Generator.generateUniform(1 << 16, 48, 122);
 //                Files.write(Paths.get("uniform_text_big_16.txt"),
 //                data.getBytes(StandardCharsets.UTF_8));   // no newline
         long startTime = System.currentTimeMillis();
         int c = 0;
-        CharRingBuffer window = new CharRingBuffer(Ngram);
+        RingBuffer<Character> window = new CharRingBuffer(Ngram);
 // ------------------------------------------------------------------
 
         try (FileReader fr = new FileReader(inputFilePath)) {
@@ -34,7 +35,7 @@ public class Experiment {
 
                 /* Only once we have k chars -> emit the N-gram */
                 if (window.isFilled()) {
-                    index.insert(window.view());   // the whole k-gram
+                    index.insert(window.snapshot().toString());   // the whole k-gram
                 }
             }
         }
@@ -67,6 +68,7 @@ public class Experiment {
 //        HBILogger.info("Will start querying...");
         startTime = System.currentTimeMillis();
         int avgQueryLength = 0;
+        int i =0;
         for(String query : queries){
             Pattern qPat = new Pattern(query, Ngram);
 //            HBILogger.info("Query: " + query);
@@ -79,11 +81,14 @@ public class Experiment {
 //            ArrayList<Long> s = index.getAvgTimes(new Pattern(query, Ngram));
             if(verbose){
                 if(report.size() < 20){
-                    System.out.println(query + ":" + report);
+                    if(query.length() < 80){System.out.println(query + ":" + report);}
+                    else{ System.out.println("Query number " + i + ": " + report);
+                    }
                 }else{
                     System.out.println(query + ":" + report.size());
                 }
             }
+                    i++;
 
 
         }
