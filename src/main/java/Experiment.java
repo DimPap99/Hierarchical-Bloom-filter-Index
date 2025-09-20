@@ -1,36 +1,22 @@
 import PMIndex.IPMIndexing;
-import datagenerators.Generator;
 import search.Pattern;
 import utilities.*;
 
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Deque;
 
 public class Experiment {
 
     public static ExperimentRunResult run(String inputFilePath, String queriesFilePath, IPMIndexing index, int Ngram, boolean verbose, boolean queryResults) throws IOException {
 //        HBILogger.info("Running experiment for Index: " + index.getClass().getSimpleName());
-        int read;
         ArrayList<PatternResult> queryResultsList = new ArrayList<>();
-        // Read characters
-
-//        HBILogger.info("Reading input file...");
-//        String data = Generator.generateUniform(1 << 16, 48, 122);
-//                Files.write(Paths.get("uniform_text_big_16.txt"),
-//                data.getBytes(StandardCharsets.UTF_8));   // no newline
         long startTime = System.currentTimeMillis();
-        int c = 0;
         RingBuffer<Character> window = new CharRingBuffer(Ngram);
-// ------------------------------------------------------------------
+        long insertDuration = 0L;
+        ArrayList<String> queries = new ArrayList<>();
 
-        try (FileReader fr = new FileReader(inputFilePath)) {
-            int ch;
-            while ((ch = fr.read()) != -1) {
-                char cChar = (char) ch;
+        try (DatasetReader reader = new DatasetReader(inputFilePath, queriesFilePath, true)) {
+            for (char cChar : reader) {
                 window.append(cChar);
 
                 /* Only once we have k chars -> emit the N-gram */
@@ -38,37 +24,33 @@ public class Experiment {
                     index.insert(window.snapshot().toString());   // the whole k-gram
                 }
             }
-        }
-        catch (IOException e){
-            e.printStackTrace();
-        }
 
+            insertDuration = System.currentTimeMillis() - startTime;
 
-//        for(char cc : data.toCharArray()){
-//            index.insert(cc);
-//        }
-        long endTime = System.currentTimeMillis();
-        long insertDuration = endTime - startTime;
-        //timings.add(duration);
-//        HBILogger.info("Report: " + report.toString());
-//        HBILogger.info("Time taken: " + duration + " ms");
-//
-//        HBILogger.info("Reading queries file...");
-        ArrayList<String> queries = new ArrayList<>();
-        try{
-            BufferedReader reader = new BufferedReader(new FileReader(queriesFilePath));
-            String line;
-            while((line = reader.readLine()) != null){
-                queries.add(line);
+            reader.setQueryMode();
+            StringBuilder currentQuery = new StringBuilder();
+            for (char ch : reader) {
+                if (ch == '\r') {
+                    continue;
+                }
+                if (ch == '\n') {
+                    queries.add(currentQuery.toString());
+                    currentQuery.setLength(0);
+                } else {
+                    currentQuery.append(ch);
+                }
             }
-        }catch (IOException e){
-            e.printStackTrace();
+            if (currentQuery.length() > 0) {
+                queries.add(currentQuery.toString());
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
 
 //        HBILogger.info("Will start querying...");
         startTime = System.currentTimeMillis();
         int avgQueryLength = 0;
-        int i =0;
+        int i = 0;
         for(String query : queries){
             Pattern qPat = new Pattern(query, Ngram);
 //            HBILogger.info("Query: " + query);
@@ -88,12 +70,12 @@ public class Experiment {
                     System.out.println(query + ":" + report.size());
                 }
             }
-                    i++;
-
-
+            i++;
         }
-        avgQueryLength = avgQueryLength / queries.size();
-        endTime = System.currentTimeMillis();
+        if(!queries.isEmpty()){
+            avgQueryLength = avgQueryLength / queries.size();
+        }
+        long endTime = System.currentTimeMillis();
         long queryDuration = endTime - startTime;
 //        HBILogger.info("Report: " + report.toString());
         if(verbose){

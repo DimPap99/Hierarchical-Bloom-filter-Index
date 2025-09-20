@@ -31,7 +31,7 @@ public class ConfidenceExperiment {
 
 
     // N-grams for this experiment (you can parameterize if needed)
-    private static int NGRAMS = 1;
+    private static int NGRAMS = 2;
 
     private static int ALPHABET = 74;
 
@@ -111,7 +111,9 @@ public class ConfidenceExperiment {
         double aggMAPE          = 0.0;
         double aggRMSE          = 0.0;
 
-        for (int run = 0; run < RUNS; run++) {
+        Map<String, PatternAccuracy> patternAccuracy = new HashMap<>();
+
+        for (int run = 0; run <= RUNS; run++) {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
             hbi.setLp = run;
@@ -121,7 +123,7 @@ public class ConfidenceExperiment {
             ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
 
             // --- Summarize this run ---
-            RunStats stats = summarizeRun(run, result, patternRows, true);
+            RunStats stats = summarizeRun(run, result, patternRows, true, patternAccuracy);
 
             // Print concise per-run summary
             System.out.printf(Locale.ROOT,
@@ -162,13 +164,42 @@ public class ConfidenceExperiment {
         System.out.printf(Locale.ROOT, "Avg MAPE            = %.4f%n", avgMAPE);
         System.out.printf(Locale.ROOT, "Avg RMSE (probes)   = %.2f%n", avgRMSE);
 
+        // --- Predicted vs actual optimal level statistics ---
+        int predictedMatches = 0;
+        int predictedWithinOne = 0;
+        for (PatternAccuracy accuracy : patternAccuracy.values()) {
+            if (accuracy.predictedMatchesActual()) {
+                predictedMatches++;
+            }
+            if (accuracy.predictedWithinTolerance(1)) {
+                predictedWithinOne++;
+            }
+        }
+        int evaluatedPatterns = patternAccuracy.size();
+        double predictedMatchRate = evaluatedPatterns == 0 ? 0.0 : (predictedMatches * 1.0 / evaluatedPatterns);
+        double predictedNearRate  = evaluatedPatterns == 0 ? 0.0 : (predictedWithinOne * 1.0 / evaluatedPatterns);
+        System.out.printf(Locale.ROOT,
+                "Predicted optimal Lp matches actual best: %d/%d (%.2f%%)%n",
+                predictedMatches,
+                evaluatedPatterns,
+                predictedMatchRate * 100.0);
+        System.out.printf(Locale.ROOT,
+                "Predicted optimal Lp within ±1 level: %d/%d (%.2f%%)%n",
+                predictedWithinOne,
+                evaluatedPatterns,
+                predictedNearRate * 100.0);
+
         // --- Write CSVs ---
         CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
         CsvUtil.writeRows(Path.of("patterns_summary.csv"), patternRows);
     }
 
     /** Computes all per-run stats, optionally filling per-pattern rows. */
-    private static RunStats summarizeRun(int runIdx, ExperimentRunResult res, List<List<?>> patternRows, boolean verbose) {
+    private static RunStats summarizeRun(int runIdx,
+                                         ExperimentRunResult res,
+                                         List<List<?>> patternRows,
+                                         boolean verbose,
+                                         Map<String, PatternAccuracy> patternAccuracy) {
         RunStats s = new RunStats();
         s.runIdx = runIdx;
 
@@ -180,6 +211,11 @@ public class ConfidenceExperiment {
 
             double diff   = est - actual;
             double relErr = Math.abs(1.0 - (est / actual));
+
+            String patternKey = pr.p().patternTxt;
+            PatternAccuracy accuracy = patternAccuracy.computeIfAbsent(patternKey, k -> new PatternAccuracy());
+            accuracy.recordPrediction(pr.cfLp());
+            accuracy.recordObservation(pr.Lp(), actual);
 
             s.patterns++;
             s.sumActual     += actual;
@@ -216,6 +252,52 @@ public class ConfidenceExperiment {
         }
 
         return s;
+    }
+
+    private static final class PatternAccuracy {
+        private final Set<Integer> predictedLps = new HashSet<>();
+        private final Set<Integer> bestActualLps = new HashSet<>();
+        private int bestActualProbes = Integer.MAX_VALUE;
+
+        void recordPrediction(int predictedLp) {
+            predictedLps.add(predictedLp);
+        }
+
+        void recordObservation(int actualLp, int probes) {
+            if (probes < bestActualProbes) {
+                bestActualProbes = probes;
+                bestActualLps.clear();
+                bestActualLps.add(actualLp);
+            } else if (probes == bestActualProbes) {
+                bestActualLps.add(actualLp);
+            }
+        }
+
+        boolean predictedMatchesActual() {
+            if (bestActualLps.isEmpty() || predictedLps.isEmpty()) {
+                return false;
+            }
+            for (int predicted : predictedLps) {
+                if (bestActualLps.contains(predicted)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        boolean predictedWithinTolerance(int tolerance) {
+            if (bestActualLps.isEmpty() || predictedLps.isEmpty()) {
+                return false;
+            }
+            for (int predicted : predictedLps) {
+                for (int actual : bestActualLps) {
+                    if (Math.abs(predicted - actual) <= tolerance) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
     }
 
     // Helper: fresh HBI wired to suppliers each time
