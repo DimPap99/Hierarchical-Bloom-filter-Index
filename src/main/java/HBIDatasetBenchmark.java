@@ -73,18 +73,18 @@ public class HBIDatasetBenchmark {
                     for (int i = 0; i < 2; i++) {
                         HBI hbi = newHbi(0.999);
 
-                        hbi.getStats = true;
+                        hbi.stats().setCollecting(true);
 
                         Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
 
                         IPMIndexing ipm = new RegexIndex();
                         Experiment.run(DATA_FILE, file.toString(), ipm, 1, false, false);
-                        avgLp = hbi.Lp.stream()
+                        avgLp = hbi.stats().lpLevels().stream()
                                 .mapToDouble(a -> a)
-                                .sum() / hbi.Lp.size();
-                        avgAlpha = hbi.alphas.stream()
+                                .sum() / hbi.stats().lpLevels().size();
+                        avgAlpha = hbi.stats().alphas().stream()
                                 .mapToDouble(a -> a)
-                                .sum() / hbi.alphas.size();
+                                .sum() / hbi.stats().alphas().size();
 
                     }
 
@@ -93,7 +93,7 @@ public class HBIDatasetBenchmark {
 
                         HBI hbi = newHbi(0.99);
 
-                        hbi.getStats = true;
+                        hbi.stats().setCollecting(true);
                         runResult = Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
                         hbiTotalMs += runResult.totalRunTimeMs();
                         hbiTotalMsInsert += runResult.totalInsertTimeMs();
