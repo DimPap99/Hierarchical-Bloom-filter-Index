@@ -45,10 +45,6 @@ public final class Main {
     public static void main(String[] args) throws IOException {
 
 
-        List<Character> letters = IntStream.rangeClosed(48,122)
-                .mapToObj(c -> (char)c)
-                .toList();
-
         ExperimentRunResult runResult;
 
         for(int n = 1; n <= 3; n++) {
@@ -58,18 +54,17 @@ public final class Main {
             double ipmTotalMsInsert = 0;
             double avgLp = 0;
             NGRAMS = n;
+            ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
+
             System.out.println("N-gram: " + NGRAMS);
             System.out.println("Window Size: " + WINDOW_LEN);
             System.out.println("Tree Length: " + TREE_LEN);
-            AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
-            ALPHABET = gen.alphabetMap.size();
             System.out.println("Alphabet: " + ALPHABET);
             int maxLvl;
             double avgAlpha =0;
             /* JIT warm-up so HotSpot reaches steady state */
             for (int i = 0; i < 1; i++) {
                 HBI hbi = newHbi(0.999);
-                hbi.alphabetMap = gen.alphabetMap;
                 hbi.getStats = true;
 
                 Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, false);

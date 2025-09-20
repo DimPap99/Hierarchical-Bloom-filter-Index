@@ -34,6 +34,8 @@ public final class HBI implements IPMIndexing {
     //dirty way of getting results of a query when reporting (should fix)
     private PatternResult latestQresults;
 
+    public boolean experimentMode = true;
+
     private int BC_COST_ESTIM_ITER = 1000000;
     private int LC_COST_ESTIM_ITER = 1000000;
 
@@ -132,17 +134,23 @@ public final class HBI implements IPMIndexing {
      int lp = 0;
      int lpCf = 0;
      double cp_cost = 0;
+     int arbitraryConfLp = 0;
      for (int i = 0; i < this.trees.size(); i++) {
          ImplicitTree<Membership> tree = this.trees.get(i);
          tree.pruningPlan = this.pruningPlanFac.get();
          IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
          Deque<Frame> stack = new ArrayDeque<>();
-         double[] pp = tree.estimator.estimateALl(pat);
-         double pMax = Arrays.stream(pp).min().getAsDouble();
          lpCf = cf.minCostLp(tree, this.conf, pat, this.bfCost, this.leafCost);
-         lp = this.setLp;//pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
-         int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length)/Math.log(2)));
-         cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, m);
+         if(experimentMode) {
+             double[] pp = tree.estimator.estimateALl(pat);
+             double pMax = Arrays.stream(pp).min().getAsDouble();
+             lp = this.setLp;
+             arbitraryConfLp = pruningLevel(tree, this.conf, pMax);//cf.minCostLp(tree, 0.001, 0.5, pat, this.bfCost, this.leafCost);
+//         predictedLp = this.cf.minCostLp(tree, 0.99, pat, this.bfCost, this.leafCost);
+             int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
+             cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, m);
+         }else lp = lpCf;
+
 
          pat.charStartLp = new ArrayList<>();
          pat.charStartLp.add(lp);
@@ -165,12 +173,17 @@ public final class HBI implements IPMIndexing {
 
        }
      }
-     int leafProbes = 0;//this.verifier.getLeafProbes();
-     int actualCost = this.getAllprobes() + leafProbes;
-     this.verifier.reset();
-//     System.out.println("For Lp: " + lp + " The error rate is: " + Math.abs(1 - (cp_cost/actualCost)));
-//     System.out.println("Predicted: " + cp_cost + " Actual: " + actualCost);
-     this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes);
+     if(experimentMode) {
+         int leafProbes = 0;//this.verifier.getLeafProbes();
+         int actualCost = this.getAllprobes() + leafProbes;
+         this.verifier.reset();
+//
+//         System.out.println("For Lp: " + lp + " The error rate is: " + Math.abs(1 - (cp_cost/actualCost)));
+//         System.out.println("Predicted: " + cp_cost + " Actual: " + actualCost);
+//         System.out.println("Lp tested: " + lp + " CF LP: " + lpCf + "Arbitrary Lp: " + arbitraryConfLp);
+         this.latestQresults = new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp);
+     }
+
      return results;
 
     }

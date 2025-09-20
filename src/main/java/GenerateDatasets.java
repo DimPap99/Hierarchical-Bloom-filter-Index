@@ -9,10 +9,10 @@ public class GenerateDatasets {
     public static void main(String[] args) throws IOException {
         System.out.println("Generating datasets...");
         //uniform distributions
-//        String data = Generator.generateUniform(1 << 16, 48, 122);
-//        Files.write(Paths.get("data/uniform_text_16_experiment_small.txt"),
-//        data.getBytes(StandardCharsets.UTF_8));
-//
+        String data = Generator.generateUniform(1 << 18, 48, 89);
+        Files.write(Paths.get("data/uniform_text_18_experiment_domain_48_88.txt"),
+        data.getBytes(StandardCharsets.UTF_8));
+
 //        data = Generator.generateUniform(1 << 21, 48, 122);
 //        Files.write(Paths.get("data/uniform_text_21_experiment.txt"),
 //        data.getBytes(StandardCharsets.UTF_8));

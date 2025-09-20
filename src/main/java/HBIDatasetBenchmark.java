@@ -44,9 +44,6 @@ public class HBIDatasetBenchmark {
         List<List<?>> rows =  new ArrayList<>();
         List<?> header = List.of("nGram", "runAvgMs", "insertAvgMs", "avgQueryLength", "index");
         rows.add(header);
-        List<Character> letters = IntStream.rangeClosed(48,122)
-                .mapToObj(c -> (char)c)
-                .toList();
 
         ExperimentRunResult runResult;
         double ipmTotalMs = 0;
@@ -67,15 +64,15 @@ public class HBIDatasetBenchmark {
                     System.out.println("N-gram: " + NGRAMS);
                     System.out.println("Window Size: " + WINDOW_LEN);
                     System.out.println("Tree Length: " + TREE_LEN);
-                    AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
-                    ALPHABET = gen.alphabetMap.size();
+                    ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
+
                     System.out.println("Alphabet: " + ALPHABET);
                     System.out.println("\n");
                     double avgAlpha = 0;
                     /* JIT warm-up so HotSpot reaches steady state */
                     for (int i = 0; i < 2; i++) {
                         HBI hbi = newHbi(0.999);
-                        hbi.alphabetMap = gen.alphabetMap;
+
                         hbi.getStats = true;
 
                         Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
@@ -95,7 +92,7 @@ public class HBIDatasetBenchmark {
                     for (int i = 0; i < RUNS; i++) {
 
                         HBI hbi = newHbi(0.99);
-                        hbi.alphabetMap = gen.alphabetMap;
+
                         hbi.getStats = true;
                         runResult = Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
                         hbiTotalMs += runResult.totalRunTimeMs();
