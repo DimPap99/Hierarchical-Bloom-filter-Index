@@ -6,7 +6,6 @@ import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
 import membership.Membership;
-import membership.MockMembership;
 import search.*;
 import utilities.*;
 
@@ -167,6 +166,10 @@ public class ConfidenceExperiment {
         // --- Predicted vs actual optimal level statistics ---
         int predictedMatches = 0;
         int predictedWithinOne = 0;
+        long cfVsArbitraryGain = 0L;
+        int cfVsArbitraryCount = 0;
+        long arbitraryVsRootGain = 0L;
+        int arbitraryVsRootCount = 0;
         for (PatternAccuracy accuracy : patternAccuracy.values()) {
             if (accuracy.predictedMatchesActual()) {
                 predictedMatches++;
@@ -174,10 +177,25 @@ public class ConfidenceExperiment {
             if (accuracy.predictedWithinTolerance(1)) {
                 predictedWithinOne++;
             }
+
+            Integer cfProbes = accuracy.probesForPredictedLp();
+            Integer arbitraryProbes = accuracy.probesForArbitraryLp();
+            Integer rootProbes = accuracy.probesForLp(0);
+
+            if (cfProbes != null && arbitraryProbes != null) {
+                cfVsArbitraryGain += (long) arbitraryProbes - cfProbes;
+                cfVsArbitraryCount++;
+            }
+            if (arbitraryProbes != null && rootProbes != null) {
+                arbitraryVsRootGain += (long) rootProbes - arbitraryProbes;
+                arbitraryVsRootCount++;
+            }
         }
         int evaluatedPatterns = patternAccuracy.size();
         double predictedMatchRate = evaluatedPatterns == 0 ? 0.0 : (predictedMatches * 1.0 / evaluatedPatterns);
         double predictedNearRate  = evaluatedPatterns == 0 ? 0.0 : (predictedWithinOne * 1.0 / evaluatedPatterns);
+        double avgCfVsArbitraryGain = cfVsArbitraryCount == 0 ? 0.0 : (cfVsArbitraryGain * 1.0 / cfVsArbitraryCount);
+        double avgArbitraryVsRootGain = arbitraryVsRootCount == 0 ? 0.0 : (arbitraryVsRootGain * 1.0 / arbitraryVsRootCount);
         System.out.printf(Locale.ROOT,
                 "Predicted optimal Lp matches actual best: %d/%d (%.2f%%)%n",
                 predictedMatches,
@@ -188,6 +206,14 @@ public class ConfidenceExperiment {
                 predictedWithinOne,
                 evaluatedPatterns,
                 predictedNearRate * 100.0);
+        System.out.printf(Locale.ROOT,
+                "Avg probe reduction (CF vs arbitrary): %.2f over %d patterns%n",
+                avgCfVsArbitraryGain,
+                cfVsArbitraryCount);
+        System.out.printf(Locale.ROOT,
+                "Avg probe reduction (arbitrary vs Lp=0): %.2f over %d patterns%n",
+                avgArbitraryVsRootGain,
+                arbitraryVsRootCount);
 
         // --- Write CSVs ---
         CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
@@ -215,6 +241,7 @@ public class ConfidenceExperiment {
             String patternKey = pr.p().patternTxt;
             PatternAccuracy accuracy = patternAccuracy.computeIfAbsent(patternKey, k -> new PatternAccuracy());
             accuracy.recordPrediction(pr.cfLp());
+            accuracy.recordArbitrary(pr.arbitraryConfLp());
             accuracy.recordObservation(pr.Lp(), actual);
 
             s.patterns++;
@@ -257,13 +284,20 @@ public class ConfidenceExperiment {
     private static final class PatternAccuracy {
         private final Set<Integer> predictedLps = new HashSet<>();
         private final Set<Integer> bestActualLps = new HashSet<>();
+        private final Set<Integer> arbitraryLps = new HashSet<>();
+        private final Map<Integer, Integer> probesByLp = new HashMap<>();
         private int bestActualProbes = Integer.MAX_VALUE;
 
         void recordPrediction(int predictedLp) {
             predictedLps.add(predictedLp);
         }
 
+        void recordArbitrary(int arbitraryLp) {
+            arbitraryLps.add(arbitraryLp);
+        }
+
         void recordObservation(int actualLp, int probes) {
+            probesByLp.merge(actualLp, probes, Math::min);
             if (probes < bestActualProbes) {
                 bestActualProbes = probes;
                 bestActualLps.clear();
@@ -297,6 +331,30 @@ public class ConfidenceExperiment {
                 }
             }
             return false;
+        }
+
+        Integer probesForLp(int lp) {
+            return probesByLp.get(lp);
+        }
+
+        Integer probesForPredictedLp() {
+            return bestProbesForSet(predictedLps);
+        }
+
+        Integer probesForArbitraryLp() {
+            return bestProbesForSet(arbitraryLps);
+        }
+
+        private Integer bestProbesForSet(Set<Integer> lps) {
+            Integer best = null;
+            for (int lp : lps) {
+                Integer probes = probesByLp.get(lp);
+                if (probes == null) continue;
+                if (best == null || probes < best) {
+                    best = probes;
+                }
+            }
+            return best;
         }
     }
 
