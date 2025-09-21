@@ -34,9 +34,9 @@ public class HashMapEstimator implements Estimator {
     }
     @Override
     public double[] estimateALl(Pattern p){
-        double[] result = new double[p.nGramToInt.length];
-        for(int i = 0; i < p.nGramToInt.length; i++){
-            result[i] = this.estimate(p.nGramToInt[i]);
+        double[] result = new double[p.effectiveNgramArr.length];
+        for(int i = 0; i < p.effectiveNgramArr.length; i++){
+            result[i] = this.estimate(p.effectiveNgramArr[i]);
         }
         return result;
     }

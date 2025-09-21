@@ -19,18 +19,18 @@ public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_120.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.001;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(120)/Math.log(2)));
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
 
     // N-grams for this experiment (you can parameterize if needed)
-    private static int NGRAMS = 2;
+    private static int NGRAMS = 1;
 
     private static int ALPHABET = 74;
 
@@ -74,18 +74,15 @@ public class ConfidenceExperiment {
             return (patterns == 0) ? 0.0 : (lpMatches * 1.0 / patterns);
         }
     }
-
+    //356578
+    //258699
+    //53372
     public static void main(String[] args) throws IOException {
         System.out.println("Starting experiment…");
+        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
+
         System.out.printf("Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d%n",
                 WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, RUNS);
-
-        // Build alphabet map for n-grams
-        List<Character> letters = IntStream.rangeClosed(48, 121)
-                .mapToObj(c -> (char) c)
-                .toList();
-//        AlphabetMapGen<Character> gen = new AlphabetMapGen<>(NGRAMS, letters);
-        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         // Per-run summaries
         List<List<?>> runRows = new ArrayList<>();
@@ -165,26 +162,49 @@ public class ConfidenceExperiment {
 
         // --- Predicted vs actual optimal level statistics ---
         int predictedMatches = 0;
-        int predictedWithinOne = 0;
+        int predictedStrictOne = 0;
+        int predictedWithinOneInclusive = 0;
         long cfVsArbitraryGain = 0L;
         int cfVsArbitraryCount = 0;
         long arbitraryVsRootGain = 0L;
         int arbitraryVsRootCount = 0;
+        int mispredictedTotal = 0;
+        int mispredictedComparable = 0;
+        int mispredictedPredBetter = 0;
+        int mispredictedPredWorse = 0;
         for (PatternAccuracy accuracy : patternAccuracy.values()) {
-            if (accuracy.predictedMatchesActual()) {
+            boolean matches = accuracy.predictedMatchesActual();
+            if (matches) {
                 predictedMatches++;
             }
-            if (accuracy.predictedWithinTolerance(1)) {
-                predictedWithinOne++;
+            boolean withinStrictOne = accuracy.predictedWithinExactTolerance(1);
+            boolean withinZeroOrOne = matches || withinStrictOne;
+            if (withinStrictOne) {
+                predictedStrictOne++;
+            }
+            if (withinZeroOrOne) {
+                predictedWithinOneInclusive++;
             }
 
             Integer cfProbes = accuracy.probesForPredictedLp();
             Integer arbitraryProbes = accuracy.probesForArbitraryLp();
             Integer rootProbes = accuracy.probesForLp(0);
+            boolean hasComparison = cfProbes != null && arbitraryProbes != null;
 
-            if (cfProbes != null && arbitraryProbes != null) {
+            if (hasComparison) {
                 cfVsArbitraryGain += (long) arbitraryProbes - cfProbes;
                 cfVsArbitraryCount++;
+            }
+            if (!withinZeroOrOne && accuracy.hasPredictions()) {
+                mispredictedTotal++;
+                if (hasComparison) {
+                    mispredictedComparable++;
+                    if (cfProbes < arbitraryProbes) {
+                        mispredictedPredBetter++;
+                    } else if (cfProbes > arbitraryProbes) {
+                        mispredictedPredWorse++;
+                    }
+                }
             }
             if (arbitraryProbes != null && rootProbes != null) {
                 arbitraryVsRootGain += (long) rootProbes - arbitraryProbes;
@@ -193,19 +213,27 @@ public class ConfidenceExperiment {
         }
         int evaluatedPatterns = patternAccuracy.size();
         double predictedMatchRate = evaluatedPatterns == 0 ? 0.0 : (predictedMatches * 1.0 / evaluatedPatterns);
-        double predictedNearRate  = evaluatedPatterns == 0 ? 0.0 : (predictedWithinOne * 1.0 / evaluatedPatterns);
+        double predictedNearRate  = evaluatedPatterns == 0 ? 0.0 : (predictedStrictOne * 1.0 / evaluatedPatterns);
+        double predictedNearInclusiveRate = evaluatedPatterns == 0 ? 0.0 : (predictedWithinOneInclusive * 1.0 / evaluatedPatterns);
         double avgCfVsArbitraryGain = cfVsArbitraryCount == 0 ? 0.0 : (cfVsArbitraryGain * 1.0 / cfVsArbitraryCount);
         double avgArbitraryVsRootGain = arbitraryVsRootCount == 0 ? 0.0 : (arbitraryVsRootGain * 1.0 / arbitraryVsRootCount);
+        double mispredBetterRate = mispredictedComparable == 0 ? 0.0 : (mispredictedPredBetter * 1.0 / mispredictedComparable);
+        double mispredWorseRate = mispredictedComparable == 0 ? 0.0 : (mispredictedPredWorse * 1.0 / mispredictedComparable);
         System.out.printf(Locale.ROOT,
                 "Predicted optimal Lp matches actual best: %d/%d (%.2f%%)%n",
                 predictedMatches,
                 evaluatedPatterns,
                 predictedMatchRate * 100.0);
         System.out.printf(Locale.ROOT,
-                "Predicted optimal Lp within ±1 level: %d/%d (%.2f%%)%n",
-                predictedWithinOne,
+                "Predicted optimal Lp exactly ±1 level: %d/%d (%.2f%%)%n",
+                predictedStrictOne,
                 evaluatedPatterns,
                 predictedNearRate * 100.0);
+        System.out.printf(Locale.ROOT,
+                "Predicted optimal Lp within {0,±1}: %d/%d (%.2f%%)%n",
+                predictedWithinOneInclusive,
+                evaluatedPatterns,
+                predictedNearInclusiveRate * 100.0);
         System.out.printf(Locale.ROOT,
                 "Avg probe reduction (CF vs arbitrary): %.2f over %d patterns%n",
                 avgCfVsArbitraryGain,
@@ -214,6 +242,12 @@ public class ConfidenceExperiment {
                 "Avg probe reduction (arbitrary vs Lp=0): %.2f over %d patterns%n",
                 avgArbitraryVsRootGain,
                 arbitraryVsRootCount);
+        System.out.printf(Locale.ROOT,
+                "Mispredicted cases (>|1| off optimal): %d  with arbitrary comparison: %d  cf better: %.2f%%  arbitrary better: %.2f%%%n",
+                mispredictedTotal,
+                mispredictedComparable,
+                mispredBetterRate * 100.0,
+                mispredWorseRate * 100.0);
 
         // --- Write CSVs ---
         CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
@@ -292,6 +326,10 @@ public class ConfidenceExperiment {
             predictedLps.add(predictedLp);
         }
 
+        boolean hasPredictions() {
+            return !predictedLps.isEmpty();
+        }
+
         void recordArbitrary(int arbitraryLp) {
             arbitraryLps.add(arbitraryLp);
         }
@@ -326,6 +364,20 @@ public class ConfidenceExperiment {
             for (int predicted : predictedLps) {
                 for (int actual : bestActualLps) {
                     if (Math.abs(predicted - actual) <= tolerance) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        boolean predictedWithinExactTolerance(int tolerance) {
+            if (bestActualLps.isEmpty() || predictedLps.isEmpty()) {
+                return false;
+            }
+            for (int predicted : predictedLps) {
+                for (int actual : bestActualLps) {
+                    if (Math.abs(predicted - actual) == tolerance) {
                         return true;
                     }
                 }

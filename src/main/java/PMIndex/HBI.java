@@ -174,8 +174,11 @@ public final class HBI implements IPMIndexing {
     public ArrayList<Integer> report(Pattern pat) {
         ArrayList<Integer> results = new ArrayList<>();
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
-            pat.nGramToInt[nIdx] = this.alphabetMap.getId(pat.nGramArr[nIdx]);
+            int ngToInt = this.alphabetMap.getId(pat.nGramArr[nIdx]);
+            pat.nGramToInt[nIdx] = ngToInt;
+            if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = ngToInt;
         }
+        if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToInt[pat.nGramToInt.length-1];
 
         int positionOffset = -1;
         long startTime = System.currentTimeMillis();
@@ -195,7 +198,7 @@ public final class HBI implements IPMIndexing {
                 lp = this.lpOverride;
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
-                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, m);
+                cp_cost = cf.costAtLevel(tree, pp, pat.effectiveNgramArr, lp, 0.001, m);
             } else {
                 lp = lpCf;
             }

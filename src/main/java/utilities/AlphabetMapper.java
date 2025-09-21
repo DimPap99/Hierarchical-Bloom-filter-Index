@@ -7,6 +7,7 @@ public class AlphabetMapper <T>{
 
     float loadFactor = 0.75f;
     HashMap<T, Integer> wordToId;
+    HashMap<Integer, T> idToWord;
 
     //wont use for now
     int capacity;
@@ -17,6 +18,7 @@ public class AlphabetMapper <T>{
             //pre assign enough space to hashmap so that we avoid resizes
             int internalCapacity = Math.max(16, (int) Math.ceil(capacity / loadFactor));
             this.wordToId = new HashMap<>(internalCapacity, loadFactor);
+            this.idToWord = new HashMap<>(internalCapacity, loadFactor);
         }else{
             throw new IllegalArgumentException("Negative or zero capacity");
         }
@@ -30,6 +32,7 @@ public class AlphabetMapper <T>{
             this.nextId++;
             if(id >= this.capacity){ throw new IllegalStateException("Exceeded capacity.");}
             wordToId.put(item, id);
+            idToWord.put(id, item);
         }
         return id;
     }

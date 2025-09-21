@@ -60,7 +60,7 @@ public class CostFunctionMaxProb implements CostFunction {
         final double[] probs = tree.estimator.estimateALl(p);
         final int width      = tree.baseIntervalSize();
         final int maxDepth   = tree.maxDepth();
-        final int r          = p.nGramToInt.length;
+        final int r          = p.effectiveNgramArr.length;
         double minProb = Arrays.stream(probs).min().getAsDouble();
 
 
@@ -68,7 +68,7 @@ public class CostFunctionMaxProb implements CostFunction {
         //Our pattern matching algorithm switches to leaf probing so there is no reason to search further
         //e.g. if pattern length is 17 then that level is 5, since 5^2 = 32 --> fits 17. (4^2 = 16 doesnt fit it)
         //11
-        int maxLpLevel = Math.min(MathUtils.pruningLevel(tree, 0.05, minProb), (int) (tree.maxDepth()-1 - Math.ceil(Math.log(p.nGramToInt.length)/Math.log(2))));
+        int maxLpLevel = Math.min(MathUtils.pruningLevel(tree, 0.05, minProb), (int) (tree.maxDepth()-1 - Math.ceil(Math.log(p.originalSz)/Math.log(2))));
 
         //Thats the Lp level that is closer to the root
         int minLp =  MathUtils.pruningLevel(tree, 0.99, minProb);
@@ -80,7 +80,7 @@ public class CostFunctionMaxProb implements CostFunction {
         // Evaluate cost for each candidate Lp (no α sweep needed)
         for (int Lp = minLp; Lp <= maxLpLevel; Lp++) {
 
-            double cost = costAtLevel(tree, probs, p.nGramToInt, Lp, tree.getMembershipFpRate(Lp), maxDepth);
+            double cost = costAtLevel(tree, probs, p.effectiveNgramArr, Lp, tree.getMembershipFpRate(Lp), maxDepth);
             if (cost < bestCost) {
                 bestCost = cost;
                 bestLp   = Lp;

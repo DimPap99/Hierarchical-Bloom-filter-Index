@@ -53,7 +53,8 @@ public class Experiment {
         int i = 0;
         for(String query : queries){
             Pattern qPat = new Pattern(query, Ngram);
-//            HBILogger.info("Query: " + query);
+
+            //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(qPat);
             avgQueryLength += qPat.nGramToInt.length;
             if(queryResults){
