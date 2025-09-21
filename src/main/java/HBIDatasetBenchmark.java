@@ -26,11 +26,11 @@ public class HBIDatasetBenchmark {
 
     /** Adjust to your file locations. */
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/unique_substrings_zipf16_1_15.txt";
+
 
     private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
     private static final int TREE_LEN     = 1 << 20;
-    private static int ALPHABET     = 75;
+    private static int ALPHABET     = 74;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 5;        // set to 0 for a dry run
     private static int NGRAMS = 4;
@@ -54,7 +54,7 @@ public class HBIDatasetBenchmark {
             for (File file : directoryListing) {
 
                 System.out.println("Running queries for " + file.toString());
-                for (int n = 1; n <= 3; n++) {
+                for (int n = 1; n <= 2; n++) {
                     double hbiTotalMs = 0;
                     ipmTotalMs = 0;
                     double hbiTotalMsInsert = 0;
@@ -73,18 +73,19 @@ public class HBIDatasetBenchmark {
                     for (int i = 0; i < 2; i++) {
                         HBI hbi = newHbi(0.999);
 
-                        hbi.stats().setCollecting(true);
+                        hbi.stats().setCollecting(false);
+                        hbi.stats().setExperimentMode(false);
 
                         Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
 
                         IPMIndexing ipm = new RegexIndex();
                         Experiment.run(DATA_FILE, file.toString(), ipm, 1, false, false);
-                        avgLp = hbi.stats().lpLevels().stream()
-                                .mapToDouble(a -> a)
-                                .sum() / hbi.stats().lpLevels().size();
-                        avgAlpha = hbi.stats().alphas().stream()
-                                .mapToDouble(a -> a)
-                                .sum() / hbi.stats().alphas().size();
+//                        avgLp = hbi.stats().lpLevels().stream()
+//                                .mapToDouble(a -> a)
+//                                .sum() / hbi.stats().lpLevels().size();
+//                        avgAlpha = hbi.stats().alphas().stream()
+//                                .mapToDouble(a -> a)
+//                                .sum() / hbi.stats().alphas().size();
 
                     }
 

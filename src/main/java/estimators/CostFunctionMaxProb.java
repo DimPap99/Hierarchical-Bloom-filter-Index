@@ -60,7 +60,7 @@ public class CostFunctionMaxProb implements CostFunction {
         final double[] probs = tree.estimator.estimateALl(p);
         final int width      = tree.baseIntervalSize();
         final int maxDepth   = tree.maxDepth();
-        final int r          = p.effectiveNgramArr.length;
+        final int r          = probs.length;
         double minProb = Arrays.stream(probs).min().getAsDouble();
 
 

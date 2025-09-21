@@ -191,10 +191,12 @@ public final class HBI implements IPMIndexing {
             tree.pruningPlan = this.pruningPlanFac.get();
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
             Deque<Frame> stack = new ArrayDeque<>();
-            lpCf = cf.minCostLp(tree, this.conf, pat, this.bfCost, this.leafCost);
+            double[] pp = tree.estimator.estimateALl(pat);
+            double pMax = Arrays.stream(pp).min().getAsDouble();
+            lpCf = pruningLevel(tree, this.conf, pMax);
             if (stats.isExperimentMode()) {
-                double[] pp = tree.estimator.estimateALl(pat);
-                double pMax = Arrays.stream(pp).min().getAsDouble();
+                pp = tree.estimator.estimateALl(pat);
+                pMax = Arrays.stream(pp).min().getAsDouble();
                 lp = this.lpOverride;
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
