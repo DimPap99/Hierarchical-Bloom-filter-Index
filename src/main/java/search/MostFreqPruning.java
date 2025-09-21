@@ -5,7 +5,10 @@ import tree.ImplicitTree;
 import utilities.MathUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
+
+import static utilities.MathUtils.pruningLevel;
 
 public class MostFreqPruning implements  PruningPlan {
 
@@ -24,23 +27,25 @@ public class MostFreqPruning implements  PruningPlan {
     }
 
     @Override
-    public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, int alphabetSize, double confidence, CostFunctionMaxProb cf ) {
+        public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, double confidence ) {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
-
-        double b_a;
-        double p_max = 0;
-        double p_temp;
-//        ArrayList<Double> probs = new ArrayList<>();
-        for( int c : pattern.nGramToInt){
-            p_temp = tree.estimator.estimate(c);
-//            probs.add(p_temp);
-            if(p_temp > p_max){
-                p_max = p_temp;
-            }
-        }
-
-        int    lp   = MathUtils.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
-
+//
+//        double b_a;
+//        double p_max = 0;
+//        double p_temp;
+////        ArrayList<Double> probs = new ArrayList<>();
+//        for( int c : pattern.nGramToInt){
+//            p_temp = tree.estimator.estimate(c);
+////            probs.add(p_temp);
+//            if(p_temp > p_max){
+//                p_max = p_temp;
+//            }
+//        }
+//
+//        int    lp   = MathUtils.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
+        double[] pp = tree.estimator.estimateALl(pattern);
+        double pMax = Arrays.stream(pp).min().getAsDouble();
+        int lp = pruningLevel(tree, 0.99, pMax);
         prunedLevels.add(lp);
         return prunedLevels;
     }

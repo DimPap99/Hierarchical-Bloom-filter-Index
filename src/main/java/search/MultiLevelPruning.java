@@ -20,7 +20,7 @@ public class MultiLevelPruning implements  PruningPlan {
     @Override
     public void prepare(Deque<Frame> stack, int lp) {}
     @Override
-    public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, int alphabetSize, double confidence, CostFunctionMaxProb cf) {
+    public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, double confidence) {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
 
         for(int c: pattern.nGramToInt){
