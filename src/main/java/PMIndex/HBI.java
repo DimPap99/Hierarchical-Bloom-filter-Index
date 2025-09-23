@@ -199,6 +199,7 @@ public final class HBI implements IPMIndexing {
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
                 cp_cost = cf.costAtLevel(tree, pp, pat.effectiveNgramArr, lp, 0.001, m);
+                lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26);
             } else {
                 lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99);
 //                lp = lpCf;
