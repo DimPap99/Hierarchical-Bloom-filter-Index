@@ -9,7 +9,8 @@ public class AlphabetMapper <T>{
     HashMap<T, Integer> wordToId;
     HashMap<Integer, T> idToWord;
 
-    //wont use for now
+    //TODO: for hashmap space allocation maybe follow a strategy as cpp vector. Start with init capacity and double once we reach it
+    // ---> with a lot of ngrams still explodes memory
     int capacity;
     public AlphabetMapper(int capacity) {
         this.nextId = 0;
@@ -18,7 +19,7 @@ public class AlphabetMapper <T>{
             //pre assign enough space to hashmap so that we avoid resizes
             int internalCapacity = Math.max(16, (int) Math.ceil(capacity / loadFactor));
             this.wordToId = new HashMap<>(internalCapacity, loadFactor);
-            this.idToWord = new HashMap<>(internalCapacity, loadFactor);
+//            this.idToWord = new HashMap<>(internalCapacity, loadFactor);
         }else{
             throw new IllegalArgumentException("Negative or zero capacity");
         }
@@ -32,7 +33,7 @@ public class AlphabetMapper <T>{
             this.nextId++;
             if(id >= this.capacity){ throw new IllegalStateException("Exceeded capacity.");}
             wordToId.put(item, id);
-            idToWord.put(id, item);
+//            idToWord.put(id, item);
         }
         return id;
     }

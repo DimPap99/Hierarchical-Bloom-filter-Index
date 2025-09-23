@@ -10,6 +10,7 @@ import search.*;
 import utilities.*;
 
 import java.io.IOException;
+import java.lang.reflect.UndeclaredThrowableException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Supplier;
@@ -19,7 +20,7 @@ public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/unique_substrings_pg2701_1000.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/unique_substrings_pg2701_500.txt";
 
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -28,11 +29,11 @@ public class ConfidenceExperiment {
     private static final boolean LINEBREAK_DATASET = false;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(1000)/Math.log(2)));
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(500)/Math.log(2)));
 
 
-    // N-grams for this experiment (you can parameterize if needed)
-    private static int NGRAMS = 2;
+    // N-grams for this experiment
+    private static int NGRAMS = 1;
 
     private static int ALPHABET = 89;
 
@@ -64,7 +65,9 @@ public class ConfidenceExperiment {
 
         int bloomProbes;
         int leafProbes;
+        int overEstimations = 0;
 
+        double overestimation(){return (double)overEstimations/patterns;}
         double mape() { return (patterns == 0) ? 0.0 : (sumAbsRelError / patterns); }
         double overallRelError() {
             return (sumActual <= 0.0) ? 0.0 : Math.abs(1.0 - (sumEstimated / sumActual));
@@ -84,7 +87,7 @@ public class ConfidenceExperiment {
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf("Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d%n",
-                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, RUNS);
+                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS+1));
 
         // Per-run summaries
         List<List<?>> runRows = new ArrayList<>();
@@ -110,6 +113,7 @@ public class ConfidenceExperiment {
         double aggRMSE          = 0.0;
 
         Map<String, PatternAccuracy> patternAccuracy = new HashMap<>();
+        double avgOverallOverestimation = 0.0;
 
         for (int run = 0; run <= RUNS; run++) {
             // --- Build a fresh HBI and stream data ---
@@ -150,12 +154,15 @@ public class ConfidenceExperiment {
             aggOverallRelErr += stats.overallRelError();
             aggMAPE          += stats.mape();
             aggRMSE          += stats.rmse();
-        }
+            avgOverallOverestimation += stats.overestimation();
+            int b =2;
 
+        }
+        //divide with run+1 cause for loop is <=
         // --- Final cross-run summary ---
-        double avgOverallRelErr = aggOverallRelErr / RUNS;
-        double avgMAPE          = aggMAPE / RUNS;
-        double avgRMSE          = aggRMSE / RUNS;
+        double avgOverallRelErr = aggOverallRelErr / (RUNS+1);
+        double avgMAPE          = aggMAPE / (RUNS+1);
+        double avgRMSE          = aggRMSE / (RUNS+1);
 
         System.out.println("\n=== Cross-run summary ===");
         System.out.printf(Locale.ROOT, "Avg overallRelError = %.4f%n", avgOverallRelErr);
@@ -212,6 +219,7 @@ public class ConfidenceExperiment {
                 arbitraryVsRootGain += (long) rootProbes - arbitraryProbes;
                 arbitraryVsRootCount++;
             }
+
         }
         int evaluatedPatterns = patternAccuracy.size();
         double predictedMatchRate = evaluatedPatterns == 0 ? 0.0 : (predictedMatches * 1.0 / evaluatedPatterns);
@@ -221,6 +229,7 @@ public class ConfidenceExperiment {
         double avgArbitraryVsRootGain = arbitraryVsRootCount == 0 ? 0.0 : (arbitraryVsRootGain * 1.0 / arbitraryVsRootCount);
         double mispredBetterRate = mispredictedComparable == 0 ? 0.0 : (mispredictedPredBetter * 1.0 / mispredictedComparable);
         double mispredWorseRate = mispredictedComparable == 0 ? 0.0 : (mispredictedPredWorse * 1.0 / mispredictedComparable);
+        avgOverallOverestimation /= (RUNS+1);
         System.out.printf(Locale.ROOT,
                 "Predicted optimal Lp matches actual best: %d/%d (%.2f%%)%n",
                 predictedMatches,
@@ -250,6 +259,10 @@ public class ConfidenceExperiment {
                 mispredictedComparable,
                 mispredBetterRate * 100.0,
                 mispredWorseRate * 100.0);
+        double u = 1f - avgOverallOverestimation;
+        System.out.printf(Locale.ROOT,
+                "Overall Overestimation: " + avgOverallOverestimation + " Underestimation: " + u);
+
 
         // --- Write CSVs ---
         CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
@@ -288,6 +301,8 @@ public class ConfidenceExperiment {
             s.sumSqError    += diff * diff;
             s.leafProbes += leafprobes;
             s.bloomProbes += actual - leafprobes;
+            if(est >= actual) s.overEstimations++;
+
             if (pr.Lp() == pr.cfLp()) s.lpMatches++;
 
             // track extremes
@@ -312,6 +327,11 @@ public class ConfidenceExperiment {
                     "  ↳ minRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)   maxRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)%n",
                     s.minRow.relError, s.minRow.lp, s.minRow.cfLp, s.minRow.actualProbes, s.minRow.estProbes,
                     s.maxRow.relError, s.maxRow.lp, s.maxRow.cfLp, s.maxRow.actualProbes, s.maxRow.estProbes);
+            double pctOver = s.overestimation();
+            double under = 1f - pctOver;
+            System.out.println("Pct Overstimate: " + pctOver);
+            System.out.println("Pct Underestimated: " + under);
+
         }
 
         return s;

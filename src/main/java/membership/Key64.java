@@ -74,7 +74,6 @@ public final class Key64 implements LongKey {
         return (char) (key & CH_MASK);
     }
 
-    /* ---------------- optional introspection ------------------------ */
     public int charBits()     { return CH_BITS; }
     public int intervalBits() { return IV_BITS; }
     public int levelBits()    { return LV_BITS; }

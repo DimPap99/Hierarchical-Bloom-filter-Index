@@ -73,7 +73,7 @@ public class BlockSearch implements SearchAlgorithm{
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
         int spanAll = 1 << maxLevel;              // == tree.intervalSize
 
-        /* end position of current interval inside the *global* stream */
+        // end position of current interval inside the *global* stream
         int maxPos = (1 << (maxLevel - level)) * (intervalIdx + 1)
                 + workingTreeIdx * spanAll
                 - 1;

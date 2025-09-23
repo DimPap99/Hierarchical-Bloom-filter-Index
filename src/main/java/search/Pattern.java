@@ -4,7 +4,6 @@ import tree.ImplicitTree;
 
 import java.util.ArrayList;
 
-/** Immutable wrapper around the query plus its KMP π-table. */
 public class Pattern{
     public char[] text;
     public String patternTxt;

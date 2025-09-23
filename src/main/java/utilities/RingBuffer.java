@@ -8,7 +8,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-/** Generic fixed-size circular buffer preserving insertion order on iteration. */
+// Generic fixed-size circular buffer preserving insertion order on iteration for ngrams.
 public class RingBuffer<T> {
 
     private final Object[] buf;

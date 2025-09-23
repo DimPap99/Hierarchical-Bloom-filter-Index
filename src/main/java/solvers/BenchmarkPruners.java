@@ -42,10 +42,8 @@ public class BenchmarkPruners {
                 name, avgMs, bestMs);
     }
 
-    /* ---------------------------- demo ------------------------------ */
     public static void main(String[] args) {
 
-        /* ---- build a reproducible test-set of random patterns ------- */
         int       numPatterns = 500;
         int       maxLen      = 15;           // pattern length r  (1…10)
         Random    rng         = new Random(42);
@@ -61,7 +59,6 @@ public class BenchmarkPruners {
         double a = 0.99;                      // same confidence for all
         int    repeats = 100;                   // run each solver 5×
 
-        /* ---- wrap the concrete solvers with lambdas ---------------- */
         PrunerSolver halley = (p, conf) ->
                 PatternPrunerHalley.solveB(p, conf, 1e-10, 1e-12);
 
@@ -74,7 +71,6 @@ public class BenchmarkPruners {
                 PatternPrunerHybrid.solveBHybrid(p, conf, 1e-10, 1e-12);
 
 
-        /* ---- benchmark --------------------------------------------- */
         benchmark("Halley", halley, patterns, a, repeats);
         benchmark("Brent",  brent,  patterns, a, repeats);
         benchmark("pPrune", pPrune, patterns, a, repeats);

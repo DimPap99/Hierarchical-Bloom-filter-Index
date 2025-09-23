@@ -4,7 +4,6 @@ import java.util.Arrays;
 
 public final class PatternPruner {
 
-    /** continuous, strictly increasing objective F(b) - a */
     private static double FminusA(double b, double[] pHat, double a) {
         double logProd = 0.0;               // work in log-space to avoid underflow
         for (double p : pHat) {

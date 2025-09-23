@@ -17,22 +17,13 @@ import tree.TreeLayout;
 import utilities.AlphabetMapper;
 import utilities.PatternResult;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Deque;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 import static utilities.MathUtils.pruningLevel;
 
-/**
- * Sliding-window index façade (legacy name “HBI”) adapted to the new
- * tree-layer split.  The public constructor remains so existing callers keep
- * compiling, but the runtime configuration and optional statistics collection
- * are now handled by {@link HbiConfiguration} and {@link HbiStats}.
- */
+
 public final class HBI implements IPMIndexing {
 
     private static final int DEFAULT_BC_COST_ESTIM_ITER = 1_000_000;
@@ -173,6 +164,8 @@ public final class HBI implements IPMIndexing {
     @Override
     public ArrayList<Integer> report(Pattern pat) {
         ArrayList<Integer> results = new ArrayList<>();
+        long queryStartNanos = System.nanoTime();
+        long totalLpTimeNanos = 0L;
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             int ngToInt = this.alphabetMap.getId(pat.nGramArr[nIdx]);
             pat.nGramToInt[nIdx] = ngToInt;
@@ -193,7 +186,12 @@ public final class HBI implements IPMIndexing {
             Deque<Frame> stack = new ArrayDeque<>();
             double[] pp = tree.estimator.estimateALl(pat);
             double pMax = Arrays.stream(pp).min().getAsDouble();
-            lpCf = pruningLevel(tree, this.conf, pMax);
+            long lpStart = System.nanoTime();
+            ArrayList<Integer> lps = null; 
+//            lp = Collections.min(lps);
+            totalLpTimeNanos += System.nanoTime() - lpStart;
+              //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
+
             if (stats.isExperimentMode()) {
                 pp = tree.estimator.estimateALl(pat);
                 pMax = Arrays.stream(pp).min().getAsDouble();
@@ -202,11 +200,12 @@ public final class HBI implements IPMIndexing {
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
                 cp_cost = cf.costAtLevel(tree, pp, pat.effectiveNgramArr, lp, 0.001, m);
             } else {
-                lp = lpCf;
+                lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99);
+//                lp = lpCf;
             }
 
-            pat.charStartLp = new ArrayList<>();
-            pat.charStartLp.add(lp);
+            pat.charStartLp = lps;
+
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
                 stats.recordAlpha(cf.getAlpha());
@@ -224,9 +223,15 @@ public final class HBI implements IPMIndexing {
                 scn.positionOffset = res.getSecond();
             }
         }
+        long queryDuration = System.nanoTime() - queryStartNanos;
+        stats.recordQueryTiming(queryDuration, totalLpTimeNanos);
         if (stats.isExperimentMode()) {
-            int leafProbes = 0;
-            int actualCost = this.getAllprobes() + leafProbes;
+
+            int leafProbes = this.verifier.getLeafProbes();
+            int bfprobes = this.getAllprobes();
+            int actualCost = bfprobes;
+//            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
+
             this.verifier.reset();
             stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
         }

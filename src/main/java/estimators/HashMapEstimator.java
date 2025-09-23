@@ -9,7 +9,7 @@ public class HashMapEstimator implements Estimator {
     public HashMap<Integer, Integer> frequencies;
 
     public double totalRecords;
-
+    //TODO: Preallocate space on the hashmap to make it faster.
     public HashMapEstimator(int totalRecords){
         this.init(totalRecords);
     }

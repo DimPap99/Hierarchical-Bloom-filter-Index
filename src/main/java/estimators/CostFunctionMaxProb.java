@@ -64,14 +64,16 @@ public class CostFunctionMaxProb implements CostFunction {
         double minProb = Arrays.stream(probs).min().getAsDouble();
 
 
+
+        //Thats the Lp level that is closer to the root
+        int minLp =  MathUtils.pruningLevel(tree, 0.99, minProb);
+
         //Get the maximum Lp level (Deepest Lp) that can actually FIT the pattern. After that level
         //Our pattern matching algorithm switches to leaf probing so there is no reason to search further
         //e.g. if pattern length is 17 then that level is 5, since 5^2 = 32 --> fits 17. (4^2 = 16 doesnt fit it)
         //11
+        //minLp + 2;//
         int maxLpLevel = Math.min(MathUtils.pruningLevel(tree, 0.05, minProb), (int) (tree.maxDepth()-1 - Math.ceil(Math.log(p.originalSz)/Math.log(2))));
-
-        //Thats the Lp level that is closer to the root
-        int minLp =  MathUtils.pruningLevel(tree, 0.99, minProb);
 
 
         double bestCost = Double.POSITIVE_INFINITY;
@@ -108,7 +110,7 @@ public class CostFunctionMaxProb implements CostFunction {
 //        final int maxLevel = tree.maxDepth() - 1;   // levels are 0..maxLevel
 //        final int r        = probs.length;
 //
-//        // --- Horizontal (Lp) stays as you have it ---
+//        //  Horizontal (Lp)
 //        double betaLp       = tree.getMembershipFpRate(Lp);
 //        double H_lp         = MathUtils.expectedProbesPerNode(probs, keySeq, betaLp, width, Lp);
 //        double parentsVisited = 1 << Lp;            // nodes we probe at Lp
@@ -269,7 +271,7 @@ public class CostFunctionMaxProb implements CostFunction {
 //        double parentsVisited = 1 << Lp;   // S(Lp): nodes probed at base level
 //        double total = 0.0;
 //
-//        // ---------- Base level: unconditional masses ----------
+//        //  Base level: unconditional masses
 //        {
 //            final int b   = width >> Lp;
 //            final int ell = Math.min(r, b);
@@ -291,7 +293,7 @@ public class CostFunctionMaxProb implements CostFunction {
 //            }
 //        }
 //
-//        // ---------- Deeper levels: conditional masses ----------
+//        //  Deeper levels: conditional masses
 //        for (int L = Lp + 1; L <= Ldesc; L++) {
 //            if (!MathUtils.childCanHost(width, L - 1, r)) break;
 //
@@ -340,7 +342,7 @@ public class CostFunctionMaxProb implements CostFunction {
         HfPair(double H, double F) { this.H = H; this.F = F; }
     }
 
-    // Inclusion–exclusion when #distincts small; otherwise Bonferroni-2 (quadratic) fallback.
+    // Inclusion–exclusion when #distincts small; otherwise Bonferroni-2 (quadratic) fallback ---> faster but way off.
     private static HfPair hfInsideNodeIEorB2(double[] pPerPos, int[] keySeq, int ell, int b, double beta) {
         if (ell <= 0) return new HfPair(0.0, 1.0);
         if (ell == 1) {
@@ -439,9 +441,10 @@ public class CostFunctionMaxProb implements CostFunction {
 
         final int width = tree.baseIntervalSize();
         final int r     = keySeq.length;
-        final int Ldesc = deepestVisitedLevel(width, r);
+        final int Ldesc = deepestVisitedLevel(width, r); //Lp+2; //
 
-        // ---- Horizontal cost at Lp (UNCONDITIONAL, exact per-position q) ----
+
+        //  Horizontal cost at Lp (UNCONDITIONAL, exact per-position q)
         double betaLp      = tree.getMembershipFpRate(Lp);
         double[] qUncondLp = qUncondAtLevel(probs, width, Lp, betaLp);   // q_i(Lp)
         double H_lp        = expectedProbesFromQ(qUncondLp, keySeq, width, Lp);
@@ -498,12 +501,12 @@ public class CostFunctionMaxProb implements CostFunction {
 //        final int maxLevel = tree.maxDepth() - 1;       // valid levels: 0..maxLevel
 //        final int r        = probs.length;
 //
-//        // --- Horizontal at Lp (use β specific to Lp) ---
+//        //  Horizontal at Lp (use β specific to Lp)
 //        double betaLp = tree.getMembershipFpRate(Lp);
 //        double H_lp   = MathUtils.expectedProbesPerNode(probs, keySeq, betaLp, width, Lp);
 //        double C_hor  = bloomProbeCost * H_lp * (1 << Lp);
 //
-//        // --- Vertical: unconditional branching ---
+//        //  Vertical: unconditional branching
 //        double parents = 1 << Lp;   // nodes processed at Lp (already paid by C_hor)
 //        double C_vert  = 0.0;
 //

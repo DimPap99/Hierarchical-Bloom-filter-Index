@@ -9,7 +9,7 @@ public final class  MathUtils {
         throw new AssertionError("MathUtils must not be instantiated");
     }
 
-    /** h(b) = 1 - (1-p)^block, with block = W / 2^L */
+    // h(b) = 1 - (1-p)^block, with block = W / 2^L */
     public static double h_b(int width, int lvl, double prob){
         int blockLen = width >> lvl;                 // W / 2^L
         return 1.0 - Math.pow(1.0 - prob, blockLen);
@@ -21,7 +21,7 @@ public final class  MathUtils {
     }
 
 
-    /** q = h + beta*(1-h) — Bloom YES prob for one symbol at level L */
+    // q = h + beta*(1-h) — Bloom YES prob for one symbol at level L */
     public static double q_yes(double prob, int width, int lvl, double bfFp){
         double h = h_b(width, lvl, prob);
         return h + bfFp * (1.0 - h);

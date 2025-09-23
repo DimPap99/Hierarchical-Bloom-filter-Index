@@ -1,6 +1,6 @@
 package utilities;
 
-/** Convenience wrapper for a {@link RingBuffer} specialised to characters. */
+
 public final class CharRingBuffer extends RingBuffer<Character> {
 
     public CharRingBuffer(int k) {
@@ -10,12 +10,12 @@ public final class CharRingBuffer extends RingBuffer<Character> {
     public boolean isFilled(){
         return super.isFilled();
     }
-    /** Push one character from the stream. */
+    // Push one character from the stream.
     public void append(char c) {
         super.append(c);
     }
 
-    /** Current window as a plain Java String (length ≤ k). */
+    // Current window as a plain String (length ≤ k).
     public String view() {
         if (isEmpty()) return "";
 

@@ -13,10 +13,7 @@ import java.util.regex.Pattern;
  *  • insert(String s)  – append characters/strings to the internal buffer
  *  • report(String regex) – return start positions (0-based) of every match
  *
- * NOTE:  This is not meant for massive data sets; it is a correctness-first,
- *         minimum-code way to run experiments with regex patterns.
- *         For large inputs you will run into GC / memory pressure because the
- *         entire text lives in RAM, and every query scans it linearly.
+
  */
 public class RegexIndex implements IPMIndexing {
 
@@ -34,11 +31,6 @@ public class RegexIndex implements IPMIndexing {
         return false;
     }
 
-    /**
-     * Find all (possibly overlapping) occurrences of {@code regex} in the text.
-     * Returns the list of 0-based start offsets, matching the behaviour expected
-     * by the existing Experiment code.
-     */
     @Override
     public ArrayList<Integer> report(search.Pattern regex) {
         ArrayList<Integer> positions = new ArrayList<>();

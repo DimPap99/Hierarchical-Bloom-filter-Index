@@ -17,10 +17,14 @@ public final class HbiStats {
     private PatternResult latestPatternResult;
     private boolean collectStats;
     private boolean experimentMode;
+    private long totalQueryTimeNanos;
+    private long totalLpTimeNanos;
+    private long queryCount;
 
     public HbiStats(boolean collectStats, boolean experimentMode) {
         this.collectStats = collectStats;
         this.experimentMode = experimentMode;
+        resetTiming();
     }
 
     public boolean isCollecting() {
@@ -32,6 +36,7 @@ public final class HbiStats {
         if (!collectStats) {
             lpLevels.clear();
             alphas.clear();
+            resetTiming();
         }
     }
 
@@ -69,5 +74,53 @@ public final class HbiStats {
 
     public void setLatestPatternResult(PatternResult latestPatternResult) {
         this.latestPatternResult = latestPatternResult;
+    }
+
+    public void recordQueryTiming(long queryTimeNanos, long lpTimeNanos) {
+        if (!collectStats) {
+            return;
+        }
+        totalQueryTimeNanos += queryTimeNanos;
+        totalLpTimeNanos += lpTimeNanos;
+        queryCount++;
+    }
+
+    public double averageQueryTimeMillis() {
+        if (queryCount == 0) {
+            return 0.0;
+        }
+        return (totalQueryTimeNanos / 1_000_000.0) / queryCount;
+    }
+
+    public double averageLpTimeMillis() {
+        if (queryCount == 0) {
+            return 0.0;
+        }
+        return (totalLpTimeNanos / 1_000_000.0) / queryCount;
+    }
+
+    public double lpShareOfQuery() {
+        if (totalQueryTimeNanos == 0) {
+            return 0.0;
+        }
+        return (double) totalLpTimeNanos / totalQueryTimeNanos;
+    }
+
+    public long totalQueryCount() {
+        return queryCount;
+    }
+
+    public long totalQueryTimeNanos() {
+        return totalQueryTimeNanos;
+    }
+
+    public long totalLpTimeNanos() {
+        return totalLpTimeNanos;
+    }
+
+    private void resetTiming() {
+        totalQueryTimeNanos = 0L;
+        totalLpTimeNanos = 0L;
+        queryCount = 0L;
     }
 }

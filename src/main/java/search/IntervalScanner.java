@@ -18,7 +18,7 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
         this.searchAlgorithm = searchAlgorithm;
         this.positionOffset = positionOffset;
     }
-    /** Seeds the stack with initial level(s) if needed */
+    // Seeds the stack with initial level(s) if needed
     public void seedStack(Deque<Frame> stack) {
         this.stack = stack;
     }

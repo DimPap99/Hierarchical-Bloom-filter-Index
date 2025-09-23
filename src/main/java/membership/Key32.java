@@ -3,9 +3,9 @@ package membership;
 /**
  * Dynamically sized 32-bit composite key.
  *
- *  ┌──────────┬────────────────┬────────────┐
+ *
  *  │  level   │   interval     │   char     │
- *  └──────────┴────────────────┴────────────┘
+ *
  *     lvBits        ivBits        chBits
  *
  *  Bits are allocated as:
@@ -52,7 +52,6 @@ public final class Key32 implements IntKey {
     @Override public int  interval(int key) { return (key >>> IV_SHIFT) & IV_MASK; }
     @Override public char ch(int key)       { return (char) (key & CH_MASK); }
 
-    /* Optional: expose layout parameters */
     public int charBits() { return CH_BITS; }
     public int intervalBits() { return IV_BITS; }
     public int levelBits() { return LV_BITS; }

@@ -5,7 +5,7 @@ import java.util.List;
 
 public class AlphabetMapGen<K> {
 
-    /** Maps each n-gram (as a String) to a unique, dense id. */
+    // Maps each n-gram (as a String) to a unique, dense id.
     public final HashMap<String,Integer> alphabetMap = new HashMap<>();
 
     private final int nGram;          // length of the n-gram
@@ -21,17 +21,14 @@ public class AlphabetMapGen<K> {
         buildMap();                   // populate alphabetMap eagerly
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  Generator                                                         */
-    /* ------------------------------------------------------------------ */
 
-    /** Recursively builds all n-grams and puts them into {@code alphabetMap}. */
+    // Recursively builds all n-grams and puts them into  alphabetMap}.
     private void buildMap() {
         StringBuilder sb = new StringBuilder(nGram);
         dfs(0, sb);
     }
 
-    /** depth-first Cartesian product */
+    // depth-first Cartesian product
     private void dfs(int depth, StringBuilder sb) {
         if (depth == nGram) {                     // full length reached
             alphabetMap.put(sb.toString(), nextId++);

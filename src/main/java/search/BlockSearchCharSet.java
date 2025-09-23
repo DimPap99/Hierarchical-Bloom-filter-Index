@@ -85,8 +85,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
             }
         }
 
-        // No mismatches among enabled positions; some early positions may be untested.
-        // consumed = confirmed prefix length; complete = true; testedFirst may be false.
+
         return new Probe(countStartConsecutiveMatches(matchedArr), true, testedFirst);
     }
 

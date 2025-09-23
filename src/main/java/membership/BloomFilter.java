@@ -65,7 +65,7 @@ public class BloomFilter implements Membership {
     }
 
     private void initSeeds() {
-        //Use only 2hf for Kirsch and Mitzenmacher Optimization
+        //Use only 2hf for Kirsch and Mitzenmacher Optimization -> instead of hashes use a running sum
         this.seeds = new int[2];
         HashSet<Integer> seedHashset = new HashSet<Integer>();
         int seedsFound = 0;
@@ -79,7 +79,7 @@ public class BloomFilter implements Membership {
             }
         }
     }
-    /* small helper: int → little-endian bytes */
+    // int → little-endian bytes
     private void intToLE(int v, byte[] buf) {
         buf[0] = (byte)  v;
         buf[1] = (byte) (v >>> 8);
@@ -97,6 +97,8 @@ public class BloomFilter implements Membership {
         buf[6] = (byte) (v >>> 48);
         buf[7] = (byte) (v >>> 56);
     }
+
+    //bit-mixing hash finalizer from Sebastiano Vigna (SplitMix64)
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -112,12 +114,12 @@ public class BloomFilter implements Membership {
         return Math.pow(rho, k);
     }
 
-    // (optional) keep the design target around for logging
+    // keep the design target around for logging
     public double getDesignFpRate() {
         return p;
     }
 
-    // (optional) estimate distinct inserts so far
+    // estimate distinct inserts so far
     public long estimateDistinct() {
         double rho = (double) filter.cardinality() / m;
         if (rho <= 0) return 0;
@@ -143,9 +145,7 @@ public class BloomFilter implements Membership {
 //        }
 //    }
 //
-//    /* ================================================================== */
-//    /*  CONTAINS (int key)                                                */
-//    /* ================================================================== */
+
 //    public boolean contains(long key) {
 //
 //        longToLE(key, leByteArr);   // reuse same buffer

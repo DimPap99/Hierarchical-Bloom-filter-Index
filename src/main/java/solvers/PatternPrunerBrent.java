@@ -60,7 +60,6 @@ public final class PatternPrunerBrent {
                 throw new IllegalStateException("failed to bracket root (upper > 1e12)");
         }
 
-        // solve!  maxEval = 100 is plenty (Brent typically converges in <10)
         return solver.solve(100, G, lower, upper);
     }
 

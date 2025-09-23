@@ -1,4 +1,5 @@
 import PMIndex.HBI;
+import PMIndex.HbiStats;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 import estimators.CostFunctionMaxProb;
@@ -29,18 +30,17 @@ public class HBIDatasetBenchmark {
 
 
     private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
-    private static final int TREE_LEN     = 1 << 20;
+    private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 74;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 5;        // set to 0 for a dry run
     private static int NGRAMS = 4;
-    private static String queryDir = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/";
+    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static int NUMQUERIES = 135;
     public static void main(String[] args) throws IOException {
 
         List<String> queryFiles = new ArrayList<>();
-        File dir = new File(queryDir + "zipf21_1");
-        File[] directoryListing = dir.listFiles();
+
         List<List<?>> rows =  new ArrayList<>();
         List<?> header = List.of("nGram", "runAvgMs", "insertAvgMs", "avgQueryLength", "index");
         rows.add(header);
@@ -49,17 +49,19 @@ public class HBIDatasetBenchmark {
         double ipmTotalMs = 0;
         double ipmTotalMsInsert = 0;
         double avgQueryLength = 0;
-        if(directoryListing != null) {
 
-            for (File file : directoryListing) {
 
-                System.out.println("Running queries for " + file.toString());
-                for (int n = 1; n <= 2; n++) {
+                System.out.println("Running queries for " + QUERY_FILE);
+                for (int n = 2; n <= 2; n++) {
                     double hbiTotalMs = 0;
                     ipmTotalMs = 0;
                     double hbiTotalMsInsert = 0;
                     ipmTotalMsInsert = 0;
                     double avgLp = 0;
+                    double lpShareSum = 0;
+                    double avgQueryTimeSum = 0;
+                    double avgLpTimeSum = 0;
+                    int statsSamples = 0;
                     NGRAMS = n;
                     System.out.println("N-gram: " + NGRAMS);
                     System.out.println("Window Size: " + WINDOW_LEN);
@@ -76,10 +78,10 @@ public class HBIDatasetBenchmark {
                         hbi.stats().setCollecting(false);
                         hbi.stats().setExperimentMode(false);
 
-                        Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
+                        Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
 
                         IPMIndexing ipm = new RegexIndex();
-                        Experiment.run(DATA_FILE, file.toString(), ipm, 1, false, false);
+                        Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
 //                        avgLp = hbi.stats().lpLevels().stream()
 //                                .mapToDouble(a -> a)
 //                                .sum() / hbi.stats().lpLevels().size();
@@ -94,12 +96,19 @@ public class HBIDatasetBenchmark {
 
                         HBI hbi = newHbi(0.99);
 
-                        hbi.stats().setCollecting(true);
-                        runResult = Experiment.run(DATA_FILE, file.toString(), hbi, NGRAMS, false, false);
+                        HbiStats stats = hbi.stats();
+                        stats.setCollecting(true);
+                        runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
                         hbiTotalMs += runResult.totalRunTimeMs();
                         hbiTotalMsInsert += runResult.totalInsertTimeMs();
+                        if (stats.totalQueryCount() > 0) {
+                            lpShareSum += stats.lpShareOfQuery();
+                            avgQueryTimeSum += stats.averageQueryTimeMillis();
+                            avgLpTimeSum += stats.averageLpTimeMillis();
+                            statsSamples++;
+                        }
                         IPMIndexing ipm = new RegexIndex();
-                        runResult = Experiment.run(DATA_FILE, file.toString(), ipm, 1, false, false);
+                        runResult = Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
                         ipmTotalMs += runResult.totalRunTimeMs();
                         ipmTotalMsInsert += runResult.totalInsertTimeMs();
                         avgQueryLength = runResult.avgQuerySize();
@@ -108,6 +117,11 @@ public class HBIDatasetBenchmark {
                     if (RUNS > 0) {
                         System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
                         System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+                        if (statsSamples > 0) {
+                            System.out.printf("HBI avg query time per pattern (ms): %.3f%n", avgQueryTimeSum / statsSamples);
+                            System.out.printf("HBI avg LP computation time per pattern (ms): %.3f%n", avgLpTimeSum / statsSamples);
+                            System.out.printf("HBI LP time share of query (%%): %.2f%n", (lpShareSum / statsSamples) * 100.0);
+                        }
                         System.out.println("Avg LP: " + avgLp);
                         System.out.println("Avg Alpha: " + avgAlpha);
 
@@ -116,17 +130,17 @@ public class HBIDatasetBenchmark {
                         System.out.println("\n");
 
                     }
-                    rows.add(List.of(n, hbiTotalMs / RUNS,  hbiTotalMsInsert / RUNS, avgQueryLength, "hbi"));
+//                    rows.add(List.of(n, hbiTotalMs / RUNS,  hbiTotalMsInsert / RUNS, avgQueryLength, "hbi"));
 
                 }
-                rows.add(List.of(1, ipmTotalMs / RUNS,  ipmTotalMsInsert / RUNS, avgQueryLength, "regex"));
+//                rows.add(List.of(1, ipmTotalMs / RUNS,  ipmTotalMsInsert / RUNS, avgQueryLength, "regex"));
 
             }
 
 
-        }
-        CsvUtil.writeRows(Path.of("zipf21cf_set.csv"), rows);
-    }
+
+//        CsvUtil.writeRows(Path.of("pg2701_arb.csv"), rows);
+
 
     // Helper that builds a fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
