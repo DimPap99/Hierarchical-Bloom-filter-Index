@@ -349,9 +349,10 @@ public class CostFunctionMaxProb implements CostFunction {
         final int Ldesc = deepestVisitedLevel(width, r);
 
         double total = 0.0;
-
+        double betaL = 0;//tree.getMembershipFpRate(Lp);
+        double betaPrev;
         // ---------- Base level Lp: UNCONDITIONAL IE from probs ----------
-        HF nsLp = HF_uncond_pos(width, Lp, keySeq, probs); // no Bloom => β=0 inside helper
+        HF nsLp = HF_uncond_pos_beta(width, Lp, keySeq, probs, betaL); // no Bloom => β=0 inside helper
         double nodes = (1 << Lp);
         total += nsLp.H * nodes;
 
@@ -365,11 +366,13 @@ public class CostFunctionMaxProb implements CostFunction {
         for (int L = Lp + 1; L <= Ldesc; L++) {
             if (!MathUtils.childCanHost(width, L - 1, r)) break;
 
+            betaL = 0f;//tree.getMembershipFpRate(Lp);
+            betaPrev = 0f;//tree.getMembershipFpRate(Lp - 1);
             // Your existing conditional YES per position (β=0)
-            double[] qCondL = qCondChildGivenParent(probs, width, L, /*betaPrev=*/0.0, /*betaL=*/0.0);
+            double[] qCondL = qCondChildGivenParent(probs, width, L, betaPrev, betaL);
 
             // IE inside node using effective per-slot masses derived from qCond
-            HF ns = HF_cond_from_q_pos(width, L, keySeq, qCondL);
+            HF ns = HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, betaL);
             total += ns.H * nodes;
 
             if (L < Ldesc) {
@@ -382,45 +385,44 @@ public class CostFunctionMaxProb implements CostFunction {
     }
 
     // Result container
+    // Result container
     public static final class HF {
         public final double H;  // expected probes in this node
         public final double F;  // all-YES prob for distincts that fit this node
         public HF(double H, double F) { this.H = H; this.F = F; }
     }
 
-    // Base level: unconditional IE from probs[] aligned to keySeq[]
-    public static HF HF_uncond_pos(int width, int level, int[] keySeq, double[] probs) {
+    // ---------- Base level: unconditional IE with Bloom (βL) ----------
+    public static HF HF_uncond_pos_beta(int width, int level,
+                                        int[] keySeq, double[] probs, double betaL) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
 
-        // first occurrences among first ell probes (0-based positions)
         java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell * 2);
         java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
         for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
         final int M = first.size();
         if (M == 0) return new HF(1.0, 1.0);
 
-        // per-slot masses for those distincts (by POSITION)
-        double[] p = new double[M];
+        double[] p = new double[M];                        // per-slot p_i by POSITION
         for (int m = 0; m < M; m++) p[m] = clamp01(probs[first.get(m)]);
 
-        // prefix all-YES via collapsed IE
         double[] Fm = new double[M];
-        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_pos(p, m, bL);
+        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_beta(p, m, bL, betaL);
 
-        // multiplicities: k_{m+1} - k_m with sentinel k_{M+1} = ell
         double H = 1.0;
         for (int m = 0; m < M; m++) {
-            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1); // 0-based
-            int mult = next - first.get(m);                         // = k_{m+1} - k_m
+            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1);  // 0-based
+            int mult = next - first.get(m);                          // k_{m+1} - k_m
             H += mult * Fm[m];
         }
         return new HF(H, Fm[M - 1]);
     }
 
-    // Deeper levels: conditional IE from qCond[] (YES|parent passed), aligned to keySeq[]
-    public static HF HF_cond_from_q_pos(int width, int level, int[] keySeq, double[] qCond) {
+    // ---------- Deeper levels: conditional IE from qCond[] with Bloom (βL) ----------
+    public static HF HF_cond_from_q_pos_beta(int width, int level,
+                                             int[] keySeq, double[] qCond, double betaL) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
@@ -431,16 +433,19 @@ public class CostFunctionMaxProb implements CostFunction {
         final int M = first.size();
         if (M == 0) return new HF(1.0, 1.0);
 
-        // map qCond -> effective per-slot mass at this level: q = 1 - (1-p)^b  =>  p = 1 - (1-q)^(1/b)
+        final double omb = 1.0 - betaL;
+
+        // qCond -> presence g (strip FPs) -> per-slot mass pEff
         double[] pEff = new double[M];
         for (int m = 0; m < M; m++) {
             double q = clamp01(qCond[first.get(m)]);
-            double p = 1.0 - Math.pow(1.0 - q, 1.0 / Math.max(1, bL));
+            double g = (omb > 0.0) ? clamp01((q - betaL) / omb) : 1.0;   // presence prob in child
+            double p = 1.0 - Math.pow(1.0 - g, 1.0 / Math.max(1, bL));   // per-slot mass
             pEff[m] = clamp01(p);
         }
 
         double[] Fm = new double[M];
-        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_pos(pEff, m, bL);
+        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_beta(pEff, m, bL, betaL);
 
         double H = 1.0;
         for (int m = 0; m < M; m++) {
@@ -451,29 +456,24 @@ public class CostFunctionMaxProb implements CostFunction {
         return new HF(H, Fm[M - 1]);
     }
 
-    // Collapsed IE for first m distincts (β=0)
-    private static double IE_prefix_collapsed_pos(double[] pFirstOccur, int m, int bL) {
+    // ---------- Collapsed IE with Bloom (β) for first m distincts ----------
+    private static double IE_prefix_collapsed_beta(double[] pFirstOccur, int m, int bL, double betaL) {
         final int subsets = 1 << m;
+        final double omb = 1.0 - betaL;
         double F = 0.0;
         for (int mask = 0; mask < subsets; mask++) {
-            int bits = Integer.bitCount(mask);
+            int bits = Integer.bitCount(mask);      // |U|
             double sumP = 0.0;
             for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) sumP += pFirstOccur[i];
-            double base  = clamp01(1.0 - sumP);
-            double coeff = ((bits & 1) == 0) ? 1.0 : -1.0;
+            double base  = clamp01(1.0 - sumP);     // Pr(no symbol from U in a slot)
+            double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
             F += coeff * Math.pow(base, bL);
         }
         return clamp01(F);
     }
 
+    private static double clamp01(double x) { return (x <= 0.0) ? 0.0 : (x >= 1.0) ? 1.0 : x; }
 
-
-
-    private static double clamp01(double x) {
-        if (x < 0.0) return 0.0;
-        if (x > 1.0) return 1.0;
-        return x;
-    }
 
 //    public double costAtLevel(ImplicitTree<?> tree,
 //                              double[] probs,
