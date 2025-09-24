@@ -4,7 +4,7 @@ package search;
 public final class Probe {
     private final int  consumed;
     private final boolean complete;
-    private final boolean testedFirst; // NEW
+    private final boolean testedFirst;
 
     public Probe(int consumed, boolean complete) {
         this(consumed, complete, true); // preserve old ctor semantics

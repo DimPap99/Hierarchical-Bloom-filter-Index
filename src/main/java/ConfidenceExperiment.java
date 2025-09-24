@@ -6,6 +6,7 @@ import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
 import membership.Membership;
+import membership.MockMembership;
 import search.*;
 import utilities.*;
 
@@ -19,23 +20,22 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/unique_substrings_pg2701_500.txt";
-
-    private static final int TextSize = 20;
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_21_experiment.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform21/unique_substrings_uniform21_20_100.txt";
+    private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
-    private static final double FP_RATE   = 0.001;
+    private static final double FP_RATE   = 0.0;
     private static final boolean LINEBREAK_DATASET = false;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(500)/Math.log(2)));
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(20)/Math.log(2)));
 
 
     // N-grams for this experiment
     private static int NGRAMS = 1;
 
-    private static int ALPHABET = 89;
+    private static int ALPHABET = 74;
 
     /** Per-pattern row for (optional) CSV dump. */
     private record PatternRow(
@@ -435,7 +435,7 @@ public class ConfidenceExperiment {
     // Helper: fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = MockMembership::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
         Verifier v = new VerifierLinearLeafProbe();
         return new HBI(

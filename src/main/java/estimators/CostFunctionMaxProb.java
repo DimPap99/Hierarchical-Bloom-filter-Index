@@ -332,156 +332,141 @@ public class CostFunctionMaxProb implements CostFunction {
 //        return total;
 //    }
 
-    /* ====================== helpers ====================== */
-
-    private static final int IE_CAP = 50; // cap exact IE to keep runtime sane for M>IE_CAP
-
-    private static final class HfPair {
-        final double H;  // expected probes inside one node
-        final double F;  // node pass prob for all distincts that fit (branching)
-        HfPair(double H, double F) { this.H = H; this.F = F; }
-    }
-
-    // Inclusion–exclusion when #distincts small; otherwise Bonferroni-2 (quadratic) fallback ---> faster but way off.
-    private static HfPair hfInsideNodeIEorB2(double[] pPerPos, int[] keySeq, int ell, int b, double beta) {
-        if (ell <= 0) return new HfPair(0.0, 1.0);
-        if (ell == 1) {
-            int[] pos = firstOccurrencePositionsUpTo(keySeq, 1);
-            double F1 = (pos.length == 0)
-                    ? 1.0
-                    : IE_pass_prefix(new double[]{ clamp01(pPerPos[pos[0]]) }, 1, b, beta);
-            return new HfPair(1.0, F1);
-        }
-
-        // First occurrences (0-based) within this node
-        int[] firstPos = firstOccurrencePositionsUpTo(keySeq, ell);
-        int M = firstPos.length;
-        if (M == 0) return new HfPair(ell, 1.0); // all duplicates within ell
-
-        double[] pU = new double[M];
-        for (int m = 0; m < M; m++) pU[m] = clamp01(pPerPos[firstPos[m]]);
-
-        // Precompute F_m at m=1..M
-        double[] Fm = new double[M + 1];
-        if (M <= IE_CAP) {
-            for (int m = 1; m <= M; m++) Fm[m] = IE_pass_prefix(pU, m, b, beta);
-        } else {
-            // Bonferroni-2 prefix with O(m^2) update
-            final double omb = 1.0 - beta;
-            double[] s1 = new double[M + 1]; // Σ (1 - p_i)^b
-            double[] s2 = new double[M + 1]; // Σ_{i<j} (1 - p_i - p_j)^b
-            for (int m = 1; m <= M; m++) {
-                double pi = pU[m - 1];
-                s1[m] = s1[m - 1] + Math.pow(1.0 - pi, b);
-                double add2 = 0.0;
-                for (int j = 0; j < m - 1; j++) {
-                    double base = 1.0 - (pi + pU[j]);
-                    if (base < 0.0) base = 0.0;
-                    add2 += Math.pow(base, b);
-                }
-                s2[m] = s2[m - 1] + add2;
-                double F = 1.0 - omb * s1[m] + (omb * omb) * s2[m];
-                if (F < 0.0) F = 0.0; else if (F > 1.0) F = 1.0;
-                Fm[m] = F;
-            }
-        }
-
-        // Tail H from the same F_m: H = 1 + sum over segments between first occurrences of F_m
-        double H = 1.0;
-        for (int m = 1; m <= M; m++) {
-            int k_m    = firstPos[m - 1] + 1;                // 1-based index of m-th distinct
-            int k_next = (m < M) ? (firstPos[m] + 1) : (ell + 1);
-            int segLen = Math.max(0, Math.min(ell, k_next) - k_m); // #extra probes while m fixed
-            if (segLen > 0) H += segLen * Fm[m];
-        }
-
-        return new HfPair(H, Fm[M]);
-    }
-
-    // Exact inclusion–exclusion for first m distincts (O(2^m))
-    private static double IE_pass_prefix(double[] pU, int m, int b, double beta) {
-        final int subsets = 1 << m;
-        final double omb = 1.0 - beta;
-        double F = 0.0;
-        for (int mask = 0; mask < subsets; mask++) {
-            int t = Integer.bitCount(mask);
-            double sumP = 0.0;
-            if (t != 0) {
-                for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) sumP += pU[i];
-            }
-            double base = 1.0 - sumP;
-            if (base < 0.0) base = 0.0; else if (base > 1.0) base = 1.0;
-            double term = (((t & 1) == 0) ? +1.0 : -1.0) * Math.pow(omb, t) * Math.pow(base, b);
-            F += term;
-        }
-        if (F < 0.0) F = 0.0; else if (F > 1.0) F = 1.0;
-        return F;
-    }
-
-    // 0-based indices of first occurrences among the first 'ell' symbols
-    private static int[] firstOccurrencePositionsUpTo(int[] keySeq, int ell) {
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
-        java.util.ArrayList<Integer> pos = new java.util.ArrayList<>();
-        for (int i = 0; i < ell; i++) if (seen.add(keySeq[i])) pos.add(i);
-        int[] out = new int[pos.size()];
-        for (int i = 0; i < pos.size(); i++) out[i] = pos.get(i);
-        return out;
-    }
-
+    // ====== return type ======
 
 
 
     @Override
     public double costAtLevel(ImplicitTree<?> tree,
-                              double[] probs,   // probs[i] = p_i (per-position)
-                              int[]    keySeq,  // keySeq[i] = symbol at position i
+                              double[] probs,   // per-position per-slot masses p_i, aligned 1-1 with keySeq
+                              int[]    keySeq,  // symbols in probe order
                               int      Lp,
                               double   _unusedBloomFp,
                               int      _unusedStopLp) {
 
         final int width = tree.baseIntervalSize();
         final int r     = keySeq.length;
-        final int Ldesc = deepestVisitedLevel(width, r); //Lp+2; //
+        final int Ldesc = deepestVisitedLevel(width, r);
 
+        double total = 0.0;
 
-        //  Horizontal cost at Lp (UNCONDITIONAL, exact per-position q)
-        double betaLp      = tree.getMembershipFpRate(Lp);
-        double[] qUncondLp = qUncondAtLevel(probs, width, Lp, betaLp);   // q_i(Lp)
-        double H_lp        = expectedProbesFromQ(qUncondLp, keySeq, width, Lp);
-        double parentsVisited = 1 << Lp;
-        double C_hor          = H_lp * parentsVisited;
+        // ---------- Base level Lp: UNCONDITIONAL IE from probs ----------
+        HF nsLp = HF_uncond_pos(width, Lp, keySeq, probs); // no Bloom => β=0 inside helper
+        double nodes = (1 << Lp);
+        total += nsLp.H * nodes;
 
-        // We'll carry the per-position CONDITIONAL array down the tree.
-        double[] qCondPrev = qUncondLp;
-        double C_vert = 0.0;
+        if (Lp >= Ldesc) return total;
 
+        // Children that reach Lp+1 come only from parents that passed at Lp
+        nodes = 2.0 * nodes * nsLp.F;
+        if (nodes <= 0.0) return total;
+
+        // ---------- Deeper levels: CONDITIONAL IE using qCond (child | parent passed) ----------
         for (int L = Lp + 1; L <= Ldesc; L++) {
-            // We reach level L iff children of (L-1) can still host the full pattern (i.e., b_L >= r).
             if (!MathUtils.childCanHost(width, L - 1, r)) break;
 
-            // Branching: parents that pass at (L-1). Use the SAME q-array to form the pass prob.
-            double FcondPrev     = productFirstOccurrences(qCondPrev, keySeq, width, L - 1);
-            double parentsPassed = parentsVisited * FcondPrev;
-            if (parentsPassed <= 0.0) break; // early exit if nothing passes
+            // Your existing conditional YES per position (β=0)
+            double[] qCondL = qCondChildGivenParent(probs, width, L, /*betaPrev=*/0.0, /*betaL=*/0.0);
 
-            double nodesVisitedL = 2.0 * parentsPassed;
+            // IE inside node using effective per-slot masses derived from qCond
+            HF ns = HF_cond_from_q_pos(width, L, keySeq, qCondL);
+            total += ns.H * nodes;
 
-            // Build child-level conditional q_i given the parent level
-            double betaPrev = tree.getMembershipFpRate(L - 1);
-            double betaL    = tree.getMembershipFpRate(L);
-            double[] qCondL = qCondChildGivenParent(probs, width, L, betaPrev, betaL);
-
-            // Expected probes at this level
-            double H_L = expectedProbesFromQ(qCondL, keySeq, width, L);
-            C_vert += H_L * nodesVisitedL;
-
-            // Advance to next level
-            parentsVisited = nodesVisitedL;
-            qCondPrev      = qCondL;
+            if (L < Ldesc) {
+                nodes = 2.0 * nodes * ns.F;   // only passing parents spawn children
+                if (nodes <= 0.0) break;
+            }
         }
 
-        return C_hor + C_vert;
+        return total;
     }
+
+    // Result container
+    public static final class HF {
+        public final double H;  // expected probes in this node
+        public final double F;  // all-YES prob for distincts that fit this node
+        public HF(double H, double F) { this.H = H; this.F = F; }
+    }
+
+    // Base level: unconditional IE from probs[] aligned to keySeq[]
+    public static HF HF_uncond_pos(int width, int level, int[] keySeq, double[] probs) {
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        if (ell <= 0) return new HF(0.0, 1.0);
+
+        // first occurrences among first ell probes (0-based positions)
+        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell * 2);
+        java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
+        for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
+        final int M = first.size();
+        if (M == 0) return new HF(1.0, 1.0);
+
+        // per-slot masses for those distincts (by POSITION)
+        double[] p = new double[M];
+        for (int m = 0; m < M; m++) p[m] = clamp01(probs[first.get(m)]);
+
+        // prefix all-YES via collapsed IE
+        double[] Fm = new double[M];
+        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_pos(p, m, bL);
+
+        // multiplicities: k_{m+1} - k_m with sentinel k_{M+1} = ell
+        double H = 1.0;
+        for (int m = 0; m < M; m++) {
+            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1); // 0-based
+            int mult = next - first.get(m);                         // = k_{m+1} - k_m
+            H += mult * Fm[m];
+        }
+        return new HF(H, Fm[M - 1]);
+    }
+
+    // Deeper levels: conditional IE from qCond[] (YES|parent passed), aligned to keySeq[]
+    public static HF HF_cond_from_q_pos(int width, int level, int[] keySeq, double[] qCond) {
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        if (ell <= 0) return new HF(0.0, 1.0);
+
+        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell * 2);
+        java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
+        for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
+        final int M = first.size();
+        if (M == 0) return new HF(1.0, 1.0);
+
+        // map qCond -> effective per-slot mass at this level: q = 1 - (1-p)^b  =>  p = 1 - (1-q)^(1/b)
+        double[] pEff = new double[M];
+        for (int m = 0; m < M; m++) {
+            double q = clamp01(qCond[first.get(m)]);
+            double p = 1.0 - Math.pow(1.0 - q, 1.0 / Math.max(1, bL));
+            pEff[m] = clamp01(p);
+        }
+
+        double[] Fm = new double[M];
+        for (int m = 1; m <= M; m++) Fm[m - 1] = IE_prefix_collapsed_pos(pEff, m, bL);
+
+        double H = 1.0;
+        for (int m = 0; m < M; m++) {
+            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1);
+            int mult = next - first.get(m);
+            H += mult * Fm[m];
+        }
+        return new HF(H, Fm[M - 1]);
+    }
+
+    // Collapsed IE for first m distincts (β=0)
+    private static double IE_prefix_collapsed_pos(double[] pFirstOccur, int m, int bL) {
+        final int subsets = 1 << m;
+        double F = 0.0;
+        for (int mask = 0; mask < subsets; mask++) {
+            int bits = Integer.bitCount(mask);
+            double sumP = 0.0;
+            for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) sumP += pFirstOccur[i];
+            double base  = clamp01(1.0 - sumP);
+            double coeff = ((bits & 1) == 0) ? 1.0 : -1.0;
+            F += coeff * Math.pow(base, bL);
+        }
+        return clamp01(F);
+    }
+
+
 
 
     private static double clamp01(double x) {

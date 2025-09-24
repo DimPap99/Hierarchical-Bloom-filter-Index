@@ -19,7 +19,7 @@ public class BlockSearch implements SearchAlgorithm{
         Probe probe = probe(tree,
                 f.level(),             // unchanged helper signature
                 f.intervalIdx(),
-                p.effectiveNgramArr, currentIntervalSize, p.nGram, p.originalSz);
+                p.nGramToInt, currentIntervalSize, p.nGram, p.originalSz);
         this.currentOffset = positionOffset;
 
         if (probe.consumed() == 0) {
@@ -59,7 +59,7 @@ public class BlockSearch implements SearchAlgorithm{
             key =  tree.codec.pack(level, interval, pattern[i]);
 
             if (!tree.contains(level, key)) {
-                return new Probe(matches*nGramSz, false);          // first mismatch at i
+                return new Probe(matches, false);          // first mismatch at i
             }
             matches+=1;
             if(matches == effectiveLookupRange){

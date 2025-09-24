@@ -92,13 +92,13 @@ public final class ImplicitTree< M extends Membership> {
         Frame rightFrame = new Frame(nextLevel, rightChild);
         int maxDepth = this.maxDepth();
         //add right child
-        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+        //if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(rightFrame);
-        }
+        //}
         //add left child
-        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
+        //if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(leftFrame);
-        }
+        //}
     }
 
 
@@ -111,13 +111,13 @@ public final class ImplicitTree< M extends Membership> {
         Frame rightFrame = new Frame(nextLevel, rightChild);
         int maxDepth = this.maxDepth();
         //add right child
-        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+        //if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
             children.add(rightFrame);
-        }
+        //}
         //add left child
-        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
+        //if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
             children.add(leftFrame);
-        }
+        //}
         return children;
     }
 

@@ -58,8 +58,8 @@ public final class HbiConfiguration {
         if (alphabetSize <= 0) {
             throw new IllegalArgumentException("alphabetSize must be positive");
         }
-        if (fpRate <= 0.0 || fpRate >= 1.0) {
-            throw new IllegalArgumentException("fpRate must be in (0,1)");
+        if (fpRate < 0.0 || fpRate >= 1.0) {
+            throw new IllegalArgumentException("fpRate must be in [0,1)");
         }
         if (confidence <= 0.0 || confidence >= 1.0) {
             throw new IllegalArgumentException("confidence must be in (0,1)");

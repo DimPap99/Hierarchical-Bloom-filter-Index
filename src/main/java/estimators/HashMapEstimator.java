@@ -16,13 +16,14 @@ public class HashMapEstimator implements Estimator {
 
     @Override
     public void init(int totalRecords) {
-        this.totalRecords = totalRecords;
+        this.totalRecords = 0;
         this.frequencies = new HashMap<>();
     }
 
     @Override
     public void insert(int key) {
         frequencies.merge(key, 1, Integer::sum);
+        totalRecords+=1;
     }
 
     @Override
@@ -34,9 +35,9 @@ public class HashMapEstimator implements Estimator {
     }
     @Override
     public double[] estimateALl(Pattern p){
-        double[] result = new double[p.effectiveNgramArr.length];
-        for(int i = 0; i < p.effectiveNgramArr.length; i++){
-            result[i] = this.estimate(p.effectiveNgramArr[i]);
+        double[] result = new double[p.nGramToInt.length];
+        for(int i = 0; i < p.nGramToInt.length; i++){
+            result[i] = this.estimate(p.nGramToInt[i]);
         }
         return result;
     }
