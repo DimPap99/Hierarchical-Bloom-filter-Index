@@ -20,16 +20,16 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_19_experiment.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform19/unique_substrings_uniform19_20_100.txt";
-    private static final int TextSize = 19;
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_21_experiment.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform21/unique_substrings_uniform21_10_300.txt";
+    private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.0;
     private static final boolean LINEBREAK_DATASET = false;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(20)/Math.log(2)));
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
 
     // N-grams for this experiment

@@ -384,6 +384,59 @@ public class CostFunctionMaxProb implements CostFunction {
         return total;
     }
 
+
+    public double costAtLevel_biased(ImplicitTree<?> tree,
+                              double[] probs,   // probs[i] = p_i (per-position)
+                              int[]    keySeq,  // keySeq[i] = symbol at position i
+                              int      Lp,
+                              double   _unusedBloomFp,
+                              int      _unusedStopLp) {
+
+        final int width = tree.baseIntervalSize();
+        final int r     = keySeq.length;
+        final int Ldesc = deepestVisitedLevel(width, r); //Lp+2; //
+
+
+        //  Horizontal cost at Lp (UNCONDITIONAL, exact per-position q)
+        double betaLp      = tree.getMembershipFpRate(Lp);
+        double[] qUncondLp = qUncondAtLevel(probs, width, Lp, betaLp);   // q_i(Lp)
+        double H_lp        = expectedProbesFromQ(qUncondLp, keySeq, width, Lp);
+        double parentsVisited = 1 << Lp;
+        double C_hor          = H_lp * parentsVisited;
+
+        // We'll carry the per-position CONDITIONAL array down the tree.
+        double[] qCondPrev = qUncondLp;
+        double C_vert = 0.0;
+
+        for (int L = Lp + 1; L <= Ldesc; L++) {
+            // We reach level L iff children of (L-1) can still host the full pattern (i.e., b_L >= r).
+            if (!MathUtils.childCanHost(width, L - 1, r)) break;
+
+            // Branching: parents that pass at (L-1). Use the SAME q-array to form the pass prob.
+            double FcondPrev     = productFirstOccurrences(qCondPrev, keySeq, width, L - 1);
+            double parentsPassed = parentsVisited * FcondPrev;
+            if (parentsPassed <= 0.0) break; // early exit if nothing passes
+
+            double nodesVisitedL = 2.0 * parentsPassed;
+
+            // Build child-level conditional q_i given the parent level
+            double betaPrev = tree.getMembershipFpRate(L - 1);
+            double betaL    = tree.getMembershipFpRate(L);
+            double[] qCondL = qCondChildGivenParent(probs, width, L, betaPrev, betaL);
+
+            // Expected probes at this level
+            double H_L = expectedProbesFromQ(qCondL, keySeq, width, L);
+            C_vert += H_L * nodesVisitedL;
+
+            // Advance to next level
+            parentsVisited = nodesVisitedL;
+            qCondPrev      = qCondL;
+        }
+
+        return C_hor + C_vert;
+    }
+
+
     // Result container
     // Result container
     public static final class HF {
