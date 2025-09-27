@@ -20,8 +20,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_21_experiment.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform21/unique_substrings_uniform21_10_300.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
@@ -35,7 +35,7 @@ public class ConfidenceExperiment {
     // N-grams for this experiment
     private static int NGRAMS = 1;
 
-    private static int ALPHABET = 74;
+    private static int ALPHABET = 90;
 
     /** Per-pattern row for (optional) CSV dump. */
     private record PatternRow(

@@ -43,6 +43,7 @@ public final class HBI implements IPMIndexing {
     private final Supplier<PruningPlan> pruningPlanFac;
     private final Verifier verifier;
     private final CostFunction cf;
+    private boolean builtModel = false;
     private final double conf;
 
     private final ArrayList<ImplicitTree<Membership>> trees = new ArrayList<>();
@@ -53,9 +54,11 @@ public final class HBI implements IPMIndexing {
     private int bcCostEstimIter = DEFAULT_BC_COST_ESTIM_ITER;
     private int lcCostEstimIter = DEFAULT_LC_COST_ESTIM_ITER;
 
+
     private double bfCost = 97;
     private double leafCost = 26;
     private int lpOverride;
+    public NgramModel.Builder modelBuilder;
     private final int maxActiveTrees;
 
     public HBI(HbiConfiguration config) {
@@ -75,6 +78,7 @@ public final class HBI implements IPMIndexing {
         this.alphabetMap = new AlphabetMapper<>(alphabetSize);
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
+        this.modelBuilder = new NgramModel.Builder(89, 2);
     }
 
     public HBI(SearchAlgorithm algo,
@@ -133,6 +137,7 @@ public final class HBI implements IPMIndexing {
     @Override
     public void insert(String c) {
         int intC = alphabetMap.insert(c);
+        this.modelBuilder.observeSymbol(intC);
         indexedItemsCounter++;
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
@@ -163,6 +168,12 @@ public final class HBI implements IPMIndexing {
 
     @Override
     public ArrayList<Integer> report(Pattern pat) {
+
+        if(!this.builtModel) {
+//            this.modelBuilder.Sigma
+            cf.setModel(this.modelBuilder.build());
+
+        };
         ArrayList<Integer> results = new ArrayList<>();
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
@@ -198,7 +209,7 @@ public final class HBI implements IPMIndexing {
                 lp = this.lpOverride;
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
-                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.001, m);
+                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.0, m);
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26);
             } else {
                 lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99);

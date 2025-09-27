@@ -14,10 +14,11 @@ public class Experiment {
         RingBuffer<Character> window = new CharRingBuffer(Ngram);
         long insertDuration = 0L;
         ArrayList<String> queries = new ArrayList<>();
-
+        int totalSymbols = 0;
         try (DatasetReader reader = new DatasetReader(inputFilePath, queriesFilePath, true)) {
             for (char cChar : reader) {
                 window.append(cChar);
+                totalSymbols++;
 
                 /* Only once we have k chars -> emit the N-gram */
                 if (window.isFilled()) {
@@ -26,7 +27,7 @@ public class Experiment {
             }
 
             insertDuration = System.currentTimeMillis() - startTime;
-
+            double avgMsPerSymbol = insertDuration / (double) totalSymbols;
             reader.setQueryMode();
             StringBuilder currentQuery = new StringBuilder();
             for (char ch : reader) {

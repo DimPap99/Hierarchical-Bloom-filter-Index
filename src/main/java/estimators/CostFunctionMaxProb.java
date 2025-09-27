@@ -1,14 +1,13 @@
 package estimators;
 
-import membership.Membership;
+import PMIndex.NgramModel;
+import org.apache.commons.math3.special.Beta;
 import org.apache.commons.math3.util.Pair;
 import search.Pattern;
 import tree.ImplicitTree;
 import utilities.MathUtils;
 
 import java.util.Arrays;
-
-import static utilities.MathUtils.q_yes;
 
 public class CostFunctionMaxProb implements CostFunction {
 
@@ -17,6 +16,7 @@ public class CostFunctionMaxProb implements CostFunction {
     double leafSearchCost = 1;
 
     double predictedBloomProbeCost = 0;
+    public NgramModel.Model bigramModel;
 
     public double alpha;
     public CostFunctionMaxProb() {
@@ -334,10 +334,408 @@ public class CostFunctionMaxProb implements CostFunction {
 
     // ====== return type ======
 
+//    private static double[] adjustWithBigram(int[] keySeq, double[] probs,
+//                                             double[] pi, double[][] T) {
+//        double[] out = Arrays.copyOf(probs, probs.length);
+//        for (int i = 1; i < keySeq.length; i++) {
+//            int u = keySeq[i - 1], v = keySeq[i];
+//            double piv = pi[v];
+//            double tuv = T[u][v];   // both in [0,1]; row of T[u][*] sums to 1 if seen
+//            if (piv > 0.0) {
+//                double p = out[i] * (tuv / piv);
+//                out[i] = (p < 0.0) ? 0.0 : (p > 1.0) ? 1.0 : p;
+//            } else {
+//                // no global mass for v → keep current mass (or set to 0.0 if you prefer)
+//                out[i] = 0.0;
+//            }
+//        }
+//        return out;
+//    }
+
+    private static double[] adjustWithNgram(int[] keySeq, double[] probs,
+                                            PMIndex.NgramModel.Model M) {
+        double[] out = java.util.Arrays.copyOf(probs, probs.length);
+        for (int i = 0; i < keySeq.length; i++) {
+            double pi_v  = M.pi(keySeq[i]);             // unigram π[v]
+            double pcond = M.P_cond(keySeq, i);         // backoff P(v | context up to order-1)
+            if (pi_v > 0.0) {
+                double p = out[i] * (pcond / pi_v);     // likelihood-ratio reweight
+                out[i] = (p < 0.0) ? 0.0 : (p > 1.0) ? 1.0 : p;
+            } else {
+                // if unigram never seen, no mass for v anywhere → zero it
+                out[i] = 0.0;
+            }
+        }
+        return out;
+    }
+    // ===== Markov (order-1) model derived from your NgramModel =====
+    private double[] PI = null;          // π[v]
+    private double[][] T = null;         // T[u][v], row-stochastic
+    private int SIGMA = 0;
+
+    private void ensureMarkovFromModel() {
+
+        if (this.bigramModel == null || this.PI != null) return;
+
+        this.SIGMA = bigramModel.sigma;
+        this.PI = new double[SIGMA];
+        for (int v = 0; v < SIGMA; v++) this.PI[v] = bigramModel.pi(v);
+
+        this.T = new double[SIGMA][SIGMA];
+        // ctxMaps.get(0) holds bigram counts: prevSym -> (nextSym -> count)
+        java.util.Map<Long, java.util.Map<Integer, Long>> M1 = bigramModel.ctxMaps.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : bigramModel.ctxMaps.get(0);
+
+        for (int u = 0; u < SIGMA; u++) {
+            long rowSum = 0L;
+            java.util.Map<Integer, Long> row = M1.get((long)u);
+            if (row != null) {
+                for (long c : row.values()) rowSum += c;
+            }
+            if (rowSum > 0L) {
+                for (java.util.Map.Entry<Integer, Long> e : row.entrySet()) {
+                    int v = e.getKey();
+                    this.T[u][v] = (double)e.getValue() / (double)rowSum;
+                }
+            } else {
+                // If a row is unseen but π[u]>0, fall back to unigram (exact backoff in your model)
+                double Z = 0.0;
+                for (int v = 0; v < SIGMA; v++) Z += this.PI[v];
+                if (Z <= 0.0) Z = 1.0;
+                for (int v = 0; v < SIGMA; v++) this.T[u][v] = this.PI[v] / Z;
+            }
+        }
+    }
 
 
-    @Override
-    public double costAtLevel(ImplicitTree<?> tree,
+
+
+    //  base term: Pr(no-U)
+    private static double noU_iid(double sumP, int bL) {
+        sumP = Math.max(0.0, Math.min(1.0, sumP));
+        return Math.pow(1.0 - sumP, bL);
+    }
+    private static double noU_DM(double sumP, int bL, double kappa) {
+        if (!Double.isFinite(kappa) || kappa > 1e15) return noU_iid(sumP, bL);
+        sumP = Math.max(0.0, Math.min(1.0, sumP));
+        if (sumP == 0.0) return 1.0;
+        if (sumP == 1.0) return 0.0;
+        double a = kappa * (1.0 - sumP);
+        double b = kappa * sumP;
+        return Math.exp(Beta.logBeta(a + bL, b) - Beta.logBeta(a, b));
+    }
+
+    //  Fm (unconditional) with optional Bloom
+    private static double[] Fm_uncond_iid_or_DM(int bL, int[] firstIdx, double[] pByPos, double betaL, double kappa) {
+        final int M = firstIdx.length;
+        double[] Fm = new double[M];
+        final double omb = 1.0 - betaL;
+
+        // cumulative subset sums need the p's by first-occurrence order
+        double[] pFO = new double[M];
+        for (int m = 0; m < M; m++) pFO[m] = Math.max(0.0, Math.min(1.0, pByPos[firstIdx[m]]));
+
+        for (int m = 1; m <= M; m++) {
+            final int subsets = 1 << m;
+            double F = 0.0;
+            for (int mask = 0; mask < subsets; mask++) {
+                int bits = Integer.bitCount(mask);
+                if (bits == 0) { F += 1.0; continue; }
+                double sumP = 0.0;
+                for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) sumP += pFO[i];
+                double noU = Double.isFinite(kappa) && kappa <= 1e15
+                        ? noU_DM(sumP, bL, kappa)
+                        : noU_iid(sumP, bL);
+                double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
+                F += coeff * noU;
+            }
+            Fm[m - 1] = Math.max(0.0, Math.min(1.0, F));
+        }
+        return Fm;
+    }
+
+    //  H from an array of Fm (unconditional or conditional)
+    private static double H_from_Fm(int ell, int[] firstIdx, double[] Fm) {
+        final int M = firstIdx.length;
+        if (M == 0) return 1.0;
+        double H = 1.0;
+        for (int m = 0; m < M; m++) {
+            int next = (m + 1 < M) ? firstIdx[m + 1] : (ell - 1);
+            int mult = next - firstIdx[m];        // #duplicate steps until next first occurrence
+            H += mult * Fm[m];
+        }
+        return H;
+    }
+
+    //  utilities
+    private static int[] firstOccurrencePositions(int[] keySeq, int ell) {
+        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell*2);
+        java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
+        for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
+        int[] out = new int[first.size()];
+        for (int i = 0; i < out.length; i++) out[i] = first.get(i);
+        return out;
+    }
+    // Exact Markov (order-1) "no-U-in-block" probability with stationary start:
+// P(no U in b) = π_notU * (T00^U)^(b-1)
+    private double noU_block_markov(int b, int[] U_syms) {
+        if (b <= 0) return 0.0;
+        // mark subset U
+        boolean[] inU = new boolean[SIGMA];
+        for (int s : U_syms) if (s >= 0 && s < SIGMA) inU[s] = true;
+
+        double pi_notU = 0.0;
+        double numer = 0.0; // sum_{a notin U} π[a] * sum_{b notin U} T[a][b]
+        for (int a = 0; a < SIGMA; a++) {
+            if (inU[a]) continue;
+            double rowStay = 0.0;
+            for (int bsym = 0; bsym < SIGMA; bsym++) if (!inU[bsym]) rowStay += T[a][bsym];
+            pi_notU += PI[a];
+            numer   += PI[a] * rowStay;
+        }
+        if (pi_notU <= 0.0) return 0.0; // U covers all mass → "no U" impossible unless b=0
+        double T00 = numer / pi_notU;
+        // guard numerical drift
+        if (T00 < 0.0) T00 = 0.0; else if (T00 > 1.0) T00 = 1.0;
+        return pi_notU * Math.pow(T00, Math.max(0, b - 1));
+    }
+    // Markov collapsed IE for first m distincts at level "level" (block size bL)
+    private double Fm_markov_beta(int width, int level, int[] keySeq, int[] firstIdx, int m, double betaL) {
+        final int bL = width >> level;
+        if (m <= 0) return 1.0;
+
+        // gather the first m distinct symbol IDs
+        int[] sym = new int[m];
+        for (int k = 0; k < m; k++) sym[k] = keySeq[firstIdx[k]];
+
+        final int subsets = 1 << m;
+        final double omb = 1.0 - betaL;
+
+        double F = 0.0;
+        // U = ∅ term: P(no ∅ in block) = 1 by definition
+        F += 1.0;
+
+        // all non-empty subsets
+        for (int mask = 1; mask < subsets; mask++) {
+            int bits = Integer.bitCount(mask);
+            // build U
+            int[] U = new int[bits];
+            for (int i = 0, t = 0; i < m; i++) if ((mask & (1 << i)) != 0) U[t++] = sym[i];
+
+            double PnoU = noU_block_markov(bL, U);
+            double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
+            F += coeff * PnoU;
+        }
+        // clamp
+        if (F < 0.0) F = 0.0; else if (F > 1.0) F = 1.0;
+        return F;
+    }
+    private double[] Fm_uncond_markov(int width, int level, int[] keySeq, int ell, double betaL) {
+        int[] firstIdx = firstOccurrencePositions(keySeq, ell);
+        int M = firstIdx.length;
+        double[] Fm = new double[M];
+        for (int m = 1; m <= M; m++) {
+            Fm[m-1] = Fm_markov_beta(width, level, keySeq, firstIdx, m, betaL);
+        }
+        return Fm;
+    }
+
+    private static double H_from_Fm_by_positions(int[] keySeq, int ell, int[] firstIdx, double[] Fm) {
+        final int M = firstIdx.length;
+        if (ell <= 0) return 0.0;
+        if (M == 0)  return 1.0;
+
+        double H = 1.0;
+        int m = 0, nextK = firstIdx[0];
+        for (int t = 0; t <= ell - 2; t++) {
+            while (m < M && t >= nextK) {
+                m++;
+                nextK = (m < M ? firstIdx[m] : ell);
+            }
+            H += (m == 0) ? 1.0 : Fm[m - 1];
+        }
+        return H;
+    }
+    // ===== Performance toggles =====
+    private static final boolean USE_MATRIX_NOHIT = false;  // false => fast scalar path
+    private static final int MAX_MATRIX_IE_ORDER  = 10;     // if matrix path on, only use up to m<=10; else fallback to scalar
+    // Scalar Markov "no-U" (fast): P(no U in b) ≈ π_{¬U} * θ_U^(b-1), θ_U is avg stay prob within ¬U
+    // ---- derived from π and T; used by conditional joint ----
+    private boolean derivedReady = false;
+    private double PI_SUM = 0.0;
+    private double[] colSum = null;          // colSum[b] = Σ_a π[a] T[a,b]
+    private double[][] PTcol = null;         // PTcol[b][a] = π[a] T[a,b]
+
+    private void ensureDerived() {
+        if (derivedReady) return;
+        ensureMarkovFromModel(); // you already have this
+
+        PI_SUM = 0.0;
+        for (int a = 0; a < SIGMA; a++) PI_SUM += PI[a];
+
+        colSum = new double[SIGMA];
+        PTcol  = new double[SIGMA][SIGMA];
+        for (int b = 0; b < SIGMA; b++) {
+            double s = 0.0;
+            for (int a = 0; a < SIGMA; a++) {
+                double v = PI[a] * T[a][b];
+                PTcol[b][a] = v;
+                s += v;
+            }
+            colSum[b] = s;
+        }
+    }
+    // Small container for set statistics
+    private static final class SetStats {
+        double pi_notS;    // π(Σ \ S)
+        double thetaS;     // avg stay prob inside Σ \ S
+        double[] w_to_b;   // for each b in current m-set: Σ_{a∉S} π[a] T[a,b]
+    }
+
+    // sym[t] = symbol id for the t-th first-distinct (0..m-1)
+    private SetStats statsForSet(int mask, int m, int[] sym, boolean needW) {
+        ensureDerived();
+
+        // π(Σ \ S)
+        double sumPiS = 0.0;
+        for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) sumPiS += PI[sym[i]];
+        double pi_notS = PI_SUM - sumPiS;
+        if (pi_notS <= 0.0) {
+            SetStats out = new SetStats();
+            out.pi_notS = 0.0; out.thetaS = 0.0; out.w_to_b = needW ? new double[m] : null;
+            return out;
+        }
+
+        // Σ_{b∈S} colSum[b]  and  Σ_{a∈S}Σ_{b∈S} π[a]T[a,b]
+        double sumCol_b_in_S = 0.0;
+        double sumPT_S_to_S  = 0.0;
+        for (int i = 0; i < m; i++) if ((mask & (1 << i)) != 0) {
+            int bSym = sym[i];
+            sumCol_b_in_S += colSum[bSym];
+            for (int j = 0; j < m; j++) if ((mask & (1 << j)) != 0) {
+                int aSym = sym[j];
+                sumPT_S_to_S += PTcol[bSym][aSym];
+            }
+        }
+        // exit mass from allowed to S:
+        double sumExitToS = sumCol_b_in_S - sumPT_S_to_S;  // Σ_{a∉S}π[a] Σ_{b∈S}T[a,b]
+        double thetaS = 1.0 - (sumExitToS / pi_notS);
+        if (thetaS < 0.0) thetaS = 0.0; else if (thetaS > 1.0) thetaS = 1.0;
+
+        double[] w_to_b = null;
+        if (needW) {
+            w_to_b = new double[m];
+            for (int t = 0; t < m; t++) {
+                int bSym = sym[t];
+                double sumPT_S_to_b = 0.0;
+                for (int j = 0; j < m; j++) if ((mask & (1 << j)) != 0) {
+                    int aSym = sym[j];
+                    sumPT_S_to_b += PTcol[bSym][aSym];
+                }
+                double w = colSum[bSym] - sumPT_S_to_b; // Σ_{a∉S} π[a]T[a,b]
+                w_to_b[t] = (w < 0.0) ? 0.0 : w;
+            }
+        }
+
+        SetStats out = new SetStats();
+        out.pi_notS = pi_notS;
+        out.thetaS  = thetaS;
+        out.w_to_b  = w_to_b;
+        return out;
+    }
+    // Joint IE using scalar Markov collapse (no matrices).
+// Returns Gm[0..M-1] for child level L; bC = width>>L, bP = width>>(L-1).
+    private double[] Gm_joint_markov_scalar(int width, int level, int[] keySeq,
+                                            int ellChild, double betaChild, double betaParent) {
+        ensureDerived();
+
+        final int bC  = width >> level;
+        final int bP  = width >> (level - 1);
+        int[] firstIdxChild = firstOccurrencePositions(keySeq, ellChild);
+        int M = firstIdxChild.length;
+        double[] Gm = new double[M];
+
+        final double ombC = 1.0 - betaChild;
+        final double ombP = 1.0 - betaParent;
+
+        int[] sym = new int[M];
+        for (int m = 0; m < M; m++) sym[m] = keySeq[firstIdxChild[m]];
+
+        for (int m = 1; m <= M; m++) {
+            final int limit = 1 << m;
+
+            // Precompute V-side weights: w(V) = (-1)^{|V|} * (1-βP)^{|V|} * θ_V^{bP-1}
+            double[] wV = new double[limit];
+            double VsumTheta = 0.0;
+            for (int vMask = 0; vMask < limit; vMask++) {
+                int bitsV = Integer.bitCount(vMask);
+                SetStats SV = statsForSet(vMask, m, sym, /*needW=*/false);
+                double thetaPow = (bP <= 1) ? 1.0 : Math.pow(SV.thetaS, bP - 1);
+                double w = ((bitsV & 1) == 0 ? 1.0 : -1.0) * Math.pow(ombP, bitsV) * thetaPow;
+                wV[vMask] = w;
+                VsumTheta += w;
+            }
+            // Γ[t] = Σ_{V : t∈V} w(V)
+            double[] Gamma = new double[m];
+            for (int vMask = 0; vMask < limit; vMask++) {
+                double w = wV[vMask];
+                if (w == 0.0) continue;
+                for (int t = 0; t < m; t++) if ((vMask & (1 << t)) != 0) Gamma[t] += w;
+            }
+
+            // U-side sum: α_U * [ (π_{¬U} θ_U^{bC-1}) * VsumTheta  -  θ_U^{bC-1} * (Σ_b w_U[b] Γ[b] / π_{¬U}) ]
+            double G = 0.0;
+            for (int uMask = 0; uMask < limit; uMask++) {
+                int bitsU = Integer.bitCount(uMask);
+                SetStats SU = statsForSet(uMask, m, sym, /*needW=*/true);
+                if (SU.pi_notS <= 0.0) continue;
+
+                double thetaU_pow = (bC <= 1) ? 1.0 : Math.pow(SU.thetaS, bC - 1);
+                if (thetaU_pow == 0.0) continue;
+
+                double alphaU = ((bitsU & 1) == 0 ? 1.0 : -1.0) * Math.pow(ombC, bitsU);
+
+                double term1 = alphaU * (SU.pi_notS * thetaU_pow) * VsumTheta;
+
+                double S2 = 0.0; // Σ_b w_U[b]*Γ[b]
+                for (int t = 0; t < m; t++) S2 += SU.w_to_b[t] * Gamma[t];
+                double term2 = alphaU * thetaU_pow * (S2 / SU.pi_notS);
+
+                G += (term1 - term2);
+            }
+            Gm[m - 1] = clamp01(G);
+        }
+        return Gm;
+    }
+
+    private double noU_block_markov_scalar(int b, int[] U_syms) {
+        if (b <= 0) return 0.0;
+        boolean[] inU = new boolean[SIGMA];
+        for (int s : U_syms) if (s >= 0 && s < SIGMA) inU[s] = true;
+
+        double pi_notU = 0.0, numerStay = 0.0;
+        for (int a = 0; a < SIGMA; a++) {
+            if (inU[a]) continue;
+            double rowStay = 0.0;
+            for (int bsym = 0; bsym < SIGMA; bsym++) if (!inU[bsym]) rowStay += T[a][bsym];
+            pi_notU   += PI[a];
+            numerStay += PI[a] * rowStay;
+        }
+        if (pi_notU <= 0.0) return 0.0;
+        double theta = numerStay / pi_notU;
+        if (theta < 0.0) theta = 0.0; else if (theta > 1.0) theta = 1.0;
+        return pi_notU * Math.pow(theta, Math.max(0, b - 1));
+    }
+
+
+    // ===================== EXACT COST (β=0 uses exact ratio) =====================
+// For larger m, we fall back to the ratio (fast and still good).
+    private static final int JOINT_M_CAP = 12;
+
+
+
+    public double costAtLevel_unbiased_for_synth(ImplicitTree<?> tree,
                               double[] probs,   // per-position per-slot masses p_i, aligned 1-1 with keySeq
                               int[]    keySeq,  // symbols in probe order
                               int      Lp,
@@ -351,7 +749,7 @@ public class CostFunctionMaxProb implements CostFunction {
         double total = 0.0;
         double betaL = 0;//tree.getMembershipFpRate(Lp);
         double betaPrev;
-        // ---------- Base level Lp: UNCONDITIONAL IE from probs ----------
+        //  Base level Lp: UNCONDITIONAL IE from probs
         HF nsLp = HF_uncond_pos_beta(width, Lp, keySeq, probs, betaL); // no Bloom => β=0 inside helper
         double nodes = (1 << Lp);
         total += nsLp.H * nodes;
@@ -362,7 +760,7 @@ public class CostFunctionMaxProb implements CostFunction {
         nodes = 2.0 * nodes * nsLp.F;
         if (nodes <= 0.0) return total;
 
-        // ---------- Deeper levels: CONDITIONAL IE using qCond (child | parent passed) ----------
+        //  Deeper levels: CONDITIONAL IE using qCond (child | parent passed)
         for (int L = Lp + 1; L <= Ldesc; L++) {
             if (!MathUtils.childCanHost(width, L - 1, r)) break;
 
@@ -382,6 +780,146 @@ public class CostFunctionMaxProb implements CostFunction {
         }
 
         return total;
+    }
+    // derived from (π, T) to support fast singleton presence
+    private boolean singletonReady = false;
+
+    private void ensureSingleton() {
+        if (singletonReady) return;
+        ensureMarkovFromModel();
+        colSum = new double[SIGMA];
+        for (int s = 0; s < SIGMA; s++) {
+            double cs = 0.0;
+            for (int a = 0; a < SIGMA; a++) cs += PI[a] * T[a][s];
+            colSum[s] = cs;
+        }
+        singletonReady = true;
+    }
+
+    // h(b,s) = 1 - π(Σ\{s}) * θ^{b-1},  with θ = 1 - (Σ_{a≠s} π[a]T[a,s]) / π(Σ\{s})
+    private double hSingletonMarkov(int b, int sym) {
+        ensureSingleton();
+        if (b <= 0) return 0.0;
+        double pi_s   = PI[sym];
+        double pi_not = 1.0 - pi_s;
+        if (pi_not <= 0.0) return 1.0; // degenerate: everything is s
+        double exitToS = colSum[sym] - (pi_s * T[sym][sym]); // Σ_a π[a]T[a,s] - π[s]T[s,s]
+        double theta   = 1.0 - (exitToS / pi_not);           // avg stay in complement
+        if (theta < 0.0) theta = 0.0; else if (theta > 1.0) theta = 1.0;
+        double noS     = pi_not * Math.pow(theta, Math.max(0, b - 1));
+        double h       = 1.0 - noS;
+        return (h < 0.0) ? 0.0 : (h > 1.0) ? 1.0 : h;
+    }
+
+
+    // Unconditional YES per position at level L using Markov singleton presence
+    private double[] qUncondAtLevel_Markov(int width, int level, int[] keySeq, double betaL) {
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        double[] q = new double[ell];
+        final double omb = 1.0 - betaL;
+        for (int i = 0; i < ell; i++) {
+            int s = keySeq[i];
+            double h = hSingletonMarkov(bL, s);
+            q[i] = clamp01(betaL + omb * h);
+        }
+        return q;
+    }
+
+    // Conditional YES per position at child L given parent (L-1) YES, Markov singleton
+    private double[] qCondChildGivenParent_Markov(int width, int level, int[] keySeq,
+                                                  double betaPrev, double betaL) {
+        final int bPrev = width >> (level - 1);
+        final int bL    = width >> level;
+        final int ell   = Math.min(keySeq.length, bL);
+        double[] q = new double[ell];
+
+        for (int i = 0; i < ell; i++) {
+            int s = keySeq[i];
+            double hPrev = hSingletonMarkov(bPrev, s);
+            double hL    = hSingletonMarkov(bL,   s);
+
+            double numer = hL + betaL * (hPrev - hL) + betaL * betaPrev * (1.0 - hPrev);
+            double denom = betaPrev + (1.0 - betaPrev) * hPrev;
+            double qc    = (denom > 0.0) ? (numer / denom) : 1.0; // if parent YES impossible we wouldn't be here
+            q[i] = clamp01(qc);
+        }
+        return q;
+    }
+
+    @Override
+    public double costAtLevel(ImplicitTree<?> tree,
+                              double[] probs,   // NOT used by Markov; kept for API
+                              int[]    keySeq,
+                              int      Lp,
+                              double   _unused,
+                              int      _unused2) {
+
+        ensureMarkovFromModel();              // build π and T once
+
+        final int width = tree.baseIntervalSize();
+        final int r     = keySeq.length;
+        final int Ldesc = deepestVisitedLevel(width, r);
+
+        double total = 0.0;
+
+        // ----- Base level Lp: keep your Markov-IE unconditional -----
+        final int bLp  = width >> Lp;
+        final int ellP = Math.min(r, bLp);
+        if (ellP <= 0) return 0.0;
+
+        final int[] firstLp = firstOccurrencePositions(keySeq, ellP);
+        final double betaLp = tree.getMembershipFpRate(Lp);
+
+// unconditional β-aware F_m at Lp (Markov IE)
+        double[] FmLp = Fm_uncond_markov(width, Lp, keySeq, ellP, betaLp);
+        double HLp    = H_from_Fm_by_positions(keySeq, ellP, firstLp, FmLp);
+        double parentsVisited = (1 << Lp);
+        total += HLp * parentsVisited;
+
+        if (Lp >= Ldesc) return total;
+
+        //  Deeper levels: TRUE conditional-on-parent-pass (Markov q’s)
+        double[] qPrev = qUncondAtLevel_Markov(width, Lp, keySeq, betaLp);
+
+        for (int L = Lp + 1; L <= Ldesc; L++) {
+            if (!utilities.MathUtils.childCanHost(width, L - 1, r)) break;
+
+            // parents that actually pass at (L-1): all-first-occurrence YES using qPrev
+            double FpassParent = productFirstOccurrences(qPrev, keySeq, width, L - 1);
+            double nodesAtL    = 2.0 * parentsVisited * FpassParent;
+            if (nodesAtL <= 0.0) break;
+
+            double betaPrev = tree.getMembershipFpRate(L - 1);
+            double betaL    = tree.getMembershipFpRate(L);
+
+            // child per-position YES given parent YES (Markov, β-aware)
+            double[] qCondL = qCondChildGivenParent_Markov(width, L, keySeq, betaPrev, betaL);
+
+            // per-node expected probes at level L (uses your q-tail-sum)
+            double HL = expectedProbesFromQ(qCondL, keySeq, width, L);
+            total += HL * nodesAtL;
+
+            // advance
+            parentsVisited = nodesAtL;
+            qPrev          = qCondL;
+        }
+
+        return total;
+
+    }
+
+
+
+
+    @Override
+    public void setModel(NgramModel.Model bigramModel) {
+        this.bigramModel = bigramModel;
+    }
+
+    @Override
+    public NgramModel.Model getBigramModel() {
+        return this.bigramModel;
     }
 
 
@@ -445,7 +983,7 @@ public class CostFunctionMaxProb implements CostFunction {
         public HF(double H, double F) { this.H = H; this.F = F; }
     }
 
-    // ---------- Base level: unconditional IE with Bloom (βL) ----------
+    //  Base level: unconditional IE with Bloom (βL)
     public static HF HF_uncond_pos_beta(int width, int level,
                                         int[] keySeq, double[] probs, double betaL) {
         final int bL  = width >> level;
@@ -473,7 +1011,7 @@ public class CostFunctionMaxProb implements CostFunction {
         return new HF(H, Fm[M - 1]);
     }
 
-    // ---------- Deeper levels: conditional IE from qCond[] with Bloom (βL) ----------
+    //  Deeper levels: conditional IE from qCond[] with Bloom (βL)
     public static HF HF_cond_from_q_pos_beta(int width, int level,
                                              int[] keySeq, double[] qCond, double betaL) {
         final int bL  = width >> level;
@@ -509,7 +1047,7 @@ public class CostFunctionMaxProb implements CostFunction {
         return new HF(H, Fm[M - 1]);
     }
 
-    // ---------- Collapsed IE with Bloom (β) for first m distincts ----------
+    //  Collapsed IE with Bloom (β) for first m distincts
     private static double IE_prefix_collapsed_beta(double[] pFirstOccur, int m, int bL, double betaL) {
         final int subsets = 1 << m;
         final double omb = 1.0 - betaL;

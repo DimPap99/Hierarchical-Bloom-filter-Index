@@ -1,9 +1,8 @@
 package estimators;
 
-import org.apache.commons.math3.util.Pair;
+import PMIndex.NgramModel;
 import search.Pattern;
 import tree.ImplicitTree;
-import utilities.MathUtils;
 
 import java.util.Arrays;
 
@@ -32,6 +31,27 @@ public class CostFunctionSetConf  implements CostFunction {
     public double costAtLevel(ImplicitTree<?> tree, double[] probs, int[] keySeq, int Lp, double bloomFp, int stopLp) {
         return 0;
     }
+
+    @Override
+    public void setModel(NgramModel.Model bigramModel) {
+
+    }
+
+    @Override
+    public NgramModel.Model getBigramModel() {
+        return null;
+    }
+
+//    @Override
+//    public void setModel(NgramModel.Model bigramModel) {
+//
+//    }
+
+//    @Override
+//    public NgramModel.Model getBigramModel() {
+//        return null;
+//    }
+
 }
 
 

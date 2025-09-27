@@ -14,15 +14,15 @@ public class AlphabetMapper <T>{
     int capacity;
     public AlphabetMapper(int capacity) {
         this.nextId = 0;
-        if(capacity > 0){
+//        if(capacity > 0){
             this.capacity = capacity;
             //pre assign enough space to hashmap so that we avoid resizes
-            int internalCapacity = Math.max(16, (int) Math.ceil(capacity / loadFactor));
-            this.wordToId = new HashMap<>(internalCapacity, loadFactor);
-//            this.idToWord = new HashMap<>(internalCapacity, loadFactor);
-        }else{
-            throw new IllegalArgumentException("Negative or zero capacity");
-        }
+//            int internalCapacity = Math.max(16, (int) Math.ceil(capacity / loadFactor));
+            this.wordToId = new HashMap<>();
+////            this.idToWord = new HashMap<>(internalCapacity, loadFactor);
+//        }else{
+//            throw new IllegalArgumentException("Negative or zero capacity");
+//        }
     }
 
     public int insert(T item){
