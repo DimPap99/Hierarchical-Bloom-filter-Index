@@ -373,41 +373,79 @@ public class CostFunctionMaxProb implements CostFunction {
     private double[][] T = null;         // T[u][v], row-stochastic
     private int SIGMA = 0;
 
-    private void ensureMarkovFromModel() {
+    // in class CostFunctionMaxProb
+    private boolean loggedChainStats = false;
 
-        if (this.bigramModel == null || this.PI != null) return;
+    private void ensureMarkovFromModel() {
+        if (this.bigramModel == null) return;
+        if (this.PI != null && this.T != null) {
+            // already built; you can still log once if not yet logged
+            if (!loggedChainStats) logChainStats();
+            return;
+        }
 
         this.SIGMA = bigramModel.sigma;
+
+        // π
         this.PI = new double[SIGMA];
         for (int v = 0; v < SIGMA; v++) this.PI[v] = bigramModel.pi(v);
 
+        // T
         this.T = new double[SIGMA][SIGMA];
-        // ctxMaps.get(0) holds bigram counts: prevSym -> (nextSym -> count)
         java.util.Map<Long, java.util.Map<Integer, Long>> M1 = bigramModel.ctxMaps.isEmpty()
                 ? java.util.Collections.emptyMap()
                 : bigramModel.ctxMaps.get(0);
 
+        int fallbackRows = 0;
         for (int u = 0; u < SIGMA; u++) {
             long rowSum = 0L;
-            java.util.Map<Integer, Long> row = M1.get((long)u);
-            if (row != null) {
-                for (long c : row.values()) rowSum += c;
-            }
+            java.util.Map<Integer, Long> row = (M1 == null) ? null : M1.get((long)u);
+            if (row != null) for (long c : row.values()) rowSum += c;
+
             if (rowSum > 0L) {
-                for (java.util.Map.Entry<Integer, Long> e : row.entrySet()) {
+                for (java.util.Map.Entry<Integer, Long> e :
+                        (row == null ? java.util.Collections.<java.util.Map.Entry<Integer, Long>>emptySet() : row.entrySet())) {
                     int v = e.getKey();
                     this.T[u][v] = (double)e.getValue() / (double)rowSum;
                 }
             } else {
-                // If a row is unseen but π[u]>0, fall back to unigram (exact backoff in your model)
+                // unseen row -> fall back to unigram row
+                fallbackRows++;
                 double Z = 0.0;
                 for (int v = 0; v < SIGMA; v++) Z += this.PI[v];
                 if (Z <= 0.0) Z = 1.0;
                 for (int v = 0; v < SIGMA; v++) this.T[u][v] = this.PI[v] / Z;
             }
         }
+
+        // log once
+        logChainStats(fallbackRows);
     }
 
+    private void logChainStats() {
+        logChainStats(-1);
+    }
+    private void logChainStats(int fallbackRows) {
+        if (loggedChainStats) return;
+
+        double sumPi = 0.0, maxRowErr = 0.0, minPi = Double.POSITIVE_INFINITY, maxPi = 0.0;
+        for (int a = 0; a < SIGMA; a++) {
+            sumPi += PI[a];
+            minPi = Math.min(minPi, PI[a]);
+            maxPi = Math.max(maxPi, PI[a]);
+            double rowsum = 0.0;
+            for (int b = 0; b < SIGMA; b++) rowsum += T[a][b];
+            maxRowErr = Math.max(maxRowErr, Math.abs(rowsum - 1.0));
+        }
+        if (fallbackRows < 0) {
+            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  PI[min=%.3g,max=%.3g]%n",
+                    sumPi, maxRowErr, SIGMA, minPi, maxPi);
+        } else {
+            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  fallbackRows=%d  PI[min=%.3g,max=%.3g]%n",
+                    sumPi, maxRowErr, SIGMA, fallbackRows, minPi, maxPi);
+        }
+        loggedChainStats = true;
+    }
 
 
 

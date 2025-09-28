@@ -78,7 +78,7 @@ public final class HBI implements IPMIndexing {
         this.alphabetMap = new AlphabetMapper<>(alphabetSize);
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
-        this.modelBuilder = new NgramModel.Builder(89, 2);
+        this.modelBuilder = new NgramModel.Builder(75, 2);
     }
 
     public HBI(SearchAlgorithm algo,

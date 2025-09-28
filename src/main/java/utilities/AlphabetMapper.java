@@ -31,7 +31,7 @@ public class AlphabetMapper <T>{
         if(id == -1){
             id = nextId;
             this.nextId++;
-            if(id >= this.capacity){ throw new IllegalStateException("Exceeded capacity.");}
+//            if(id >= this.capacity){ throw new IllegalStateException("Exceeded capacity.");}
             wordToId.put(item, id);
 //            idToWord.put(id, item);
         }
