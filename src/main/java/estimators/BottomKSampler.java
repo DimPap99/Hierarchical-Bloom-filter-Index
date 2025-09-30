@@ -9,38 +9,39 @@ public final class BottomKSampler {
     private final int k;
     private final long prioritySeed;
 
-    /** Max-heap by unsigned priority; root holds the largest priority among the kept k. */
+    // Max-heap by unsigned priority (largest at root = current threshold)
     private final PriorityQueue<Entry> heap;
+    // Keys currently in the heap (uniqueness guard)
+    private final HashSet<Integer> inHeap;
 
-    /** Optional distinctness guard (to ignore duplicates); can remove if keys are known distinct. */
-    private final HashSet<Integer> seen;
-
-    public BottomKSampler(int k, long seed, boolean deduplicate) {
+    public BottomKSampler(int k, long seed) {
         if (k <= 0) throw new IllegalArgumentException("k must be > 0");
         this.k = k;
         this.prioritySeed = seed;
-        this.heap = new PriorityQueue<>(k, Entry.BY_UNSIGNED_PRIORITY_DESC); // max-heap
-        this.seen = deduplicate ? new HashSet<>(k * 4) : null;
+        this.heap = new PriorityQueue<>(k, Entry.BY_UNSIGNED_PRIORITY_DESC);
+        this.inHeap = new HashSet<>(k * 2);
     }
 
-    /** Offer a key from the stream (distinct keys ideally). */
+    /** Offer one key occurrence; ensures each key appears at most once in the kept set. */
     public void offer(int key) {
-        if (seen != null) {
-            if (!seen.add(key)) return; // duplicate key → skip
-        }
+        if (inHeap.contains(key)) return; // already represented; duplicates do nothing
+
         long p = priorityOf(key);
+
         if (heap.size() < k) {
             heap.add(new Entry(key, p));
+            inHeap.add(key);
             return;
         }
-        Entry worst = heap.peek(); // largest priority among the kept k
+        Entry worst = heap.peek();
         if (unsignedLessThan(p, worst.priority)) {
             heap.poll();
+            inHeap.remove(worst.key);
             heap.add(new Entry(key, p));
+            inHeap.add(key);
         }
     }
 
-    /** Return the current sample keys (size ≤ k). */
     public int[] sampleKeys() {
         int n = heap.size();
         int[] out = new int[n];

@@ -8,14 +8,14 @@ import java.io.IOException;
 import java.util.*;
 
 /**
- * MPQEstimator = Partitioned Min-Hash Quantile sampler.
+ * HOPS = Hash-Partitioned Order-Statistic Sketch.
  *
  * Maintains B buckets. For each bucket, stores the key with the smallest
  * independent "priority" (a deterministic 64-bit pseudo-uniform value).
  * This class ONLY maintains the sample of keys; it does NOT count frequencies.
  *
  * Typical use:
- *   MPQEstimator mpq = new MPQEstimator(256);  // 256 buckets
+ *   HOPS mpq = new HOPS(256);  // 256 buckets
  *   for (int key : stream) {
  *       mpq.offer(key); // O(1)
  *   }
@@ -32,7 +32,7 @@ import java.util.*;
  * - If the same key appears again, its priority is identical; no churn.
  * - Mergeability: per-bucket minima are trivially mergeable (see mergeFrom).
  */
-public final class MPQEstimator {
+public final class HOPS {
 
     /** Number of hash buckets (partitions). */
     private final int bucketNum;
@@ -63,21 +63,21 @@ public final class MPQEstimator {
     /**
      * Create with a given number of buckets. Seeds are random.
      */
-    public MPQEstimator(int bucketNum) {
+    public HOPS(int bucketNum) {
         this(bucketNum, 0 /*effectiveSigma unused*/, new Random());
     }
 
     /**
      * Create with a given number of buckets and RNG for seeds.
      */
-    public MPQEstimator(int bucketNum, int effectiveSigma, Random rng) {
+    public HOPS(int bucketNum, int effectiveSigma, Random rng) {
         this(bucketNum, effectiveSigma, rng.nextLong(), rng.nextLong());
     }
 
     /**
      * Create with explicit seeds (fully deterministic).
      */
-    public MPQEstimator(int bucketNum, int effectiveSigma, long bucketSeed, long prioritySeed) {
+    public HOPS(int bucketNum, int effectiveSigma, long bucketSeed, long prioritySeed) {
         if (bucketNum <= 0) throw new IllegalArgumentException("bucketNum must be > 0");
         this.bucketNum = bucketNum;
         this.effectiveSigma = Math.max(0, effectiveSigma);
@@ -168,11 +168,11 @@ public final class MPQEstimator {
     // Mergeability
 
     /**
-     * Merge another MPQEstimator into this one IN-PLACE.
+     * Merge another HOPS into this one IN-PLACE.
      * Requires the SAME bucket count and SAME seeds (bucket & priority).
      * For each bucket, keep the representative with the smaller priority.
      */
-    public void mergeFrom(MPQEstimator other) {
+    public void mergeFrom(HOPS other) {
         Objects.requireNonNull(other, "other");
         if (this.bucketNum != other.bucketNum) {
             throw new IllegalArgumentException("bucketNum mismatch");
@@ -287,7 +287,7 @@ public final class MPQEstimator {
         // Build MPQ (deterministic seeds derived from 'seed')
         long bucketSeed = mix64(seed ^ 0x1234abcd5678ef00L);
         long prioSeed   = mix64(seed ^ 0xf00dbabe42aa1357L);
-        MPQEstimator mpq = new MPQEstimator(buckets, /*effectiveSigma*/ 0, bucketSeed, prioSeed);
+        HOPS mpq = new HOPS(buckets, /*effectiveSigma*/ 0, bucketSeed, prioSeed);
 
         // Exact frequencies
         HashMap<Integer, Integer> freq = new HashMap<>(Math.max(16, alphabetSize * 2));
@@ -381,7 +381,8 @@ public final class MPQEstimator {
 
 
     /** Run one MPQ-vs-truth quantile experiment and print a compact report. */
-    private static void runExperiment(
+    /** Run one MPQ-vs-BottomK-vs-Truth quantile experiment and (optionally) print a report. */
+    private static TrialResult runExperiment(
             long streamLen,            // total items
             int alphabetSize,          // keys in {0..alphabetSize-1}
             int buckets,               // MPQ buckets B (also used as k for Bottom-k)
@@ -389,18 +390,21 @@ public final class MPQEstimator {
             double zipfS,              // Zipf exponent if ZIPF
             double p,                  // target quantile in (0,1], e.g., 0.01
             long seed,                 // RNG seed
-            double delta               // DKW confidence (1-delta)
+            double delta,              // DKW confidence (1-delta)
+            boolean verbose            // whether to print per-trial details
     ) {
-        System.out.println("=== MPQ & BottomK p-quantile experiment ===");
-        System.out.printf("N=%d, alphabet=%d, B=%d, dist=%s, s=%.3f, p=%.5f, seed=%d, delta=%.3f%n",
-                streamLen, alphabetSize, buckets, dist, zipfS, p, seed, delta);
-
         if (!(p > 0.0 && p <= 1.0)) {
             throw new IllegalArgumentException("p must be in (0,1]");
         }
 
+        if (verbose) {
+            System.out.println("=== MPQ & BottomK p-quantile experiment ===");
+            System.out.printf("N=%d, alphabet=%d, B=%d, dist=%s, s=%.3f, p=%.5f, seed=%d, delta=%.3f%n",
+                    streamLen, alphabetSize, buckets, dist, zipfS, p, seed, delta);
+        }
+
         // ---------------------------
-        // Build stream once
+        // Build stream once (shared)
         // ---------------------------
         Random rng = new Random(seed);
         double[] zipfCdf = (dist == Dist.ZIPF) ? buildZipfCdf(alphabetSize, zipfS) : null;
@@ -422,8 +426,8 @@ public final class MPQEstimator {
         int[] truthSorted = sortedCounts(freq);
         long tTruthMs = System.currentTimeMillis() - t0;
 
-        int Sactive = freq.size();                // distinct keys that actually appeared
-        double lambda = (double) Sactive / buckets; // occupancy ratio for MPQ
+        int Sactive = freq.size();                 // distinct keys that actually appeared
+        double lambda = (double) Sactive / buckets;
 
         // True p-quantile (value)
         int xTrue = valueAtQuantile(truthSorted, p);
@@ -433,22 +437,21 @@ public final class MPQEstimator {
         // ---------------------------
         long bucketSeed = mix64(seed ^ 0x1234abcd5678ef00L);
         long prioSeed   = mix64(seed ^ 0xf00dbabe42aa1357L);
-        MPQEstimator mpq = new MPQEstimator(buckets, /*effectiveSigma*/ 0, bucketSeed, prioSeed);
+        HOPS mpq = new HOPS(buckets, /*effectiveSigma*/ 0, bucketSeed, prioSeed);
 
         long t1 = System.currentTimeMillis();
         for (int key : stream) {
             mpq.insert(key);  // O(1)
         }
         int[] repsMPQ = mpq.getRepresentatives();
-        int nbMPQ = repsMPQ.length;               // sample size for MPQ
+        int nbMPQ = repsMPQ.length;
         int[] sampleCountsMPQ = new int[nbMPQ];
         for (int i = 0; i < nbMPQ; i++) {
-            sampleCountsMPQ[i] = freq.getOrDefault(repsMPQ[i], 0); // exact count
+            sampleCountsMPQ[i] = freq.getOrDefault(repsMPQ[i], 0);
         }
         Arrays.sort(sampleCountsMPQ);
         long tMPQMs = System.currentTimeMillis() - t1;
 
-        // MPQ quantile estimate and DKW band
         int xMPQ = valueAtQuantile(sampleCountsMPQ, p);
         double epsMPQ = dkwRankEpsilon(nbMPQ, delta);
         double pLoMPQ = Math.max(0.0, p - epsMPQ);
@@ -460,16 +463,14 @@ public final class MPQEstimator {
         // ---------------------------
         // Bottom-k sampler (k = buckets)
         // ---------------------------
-        // Using deduplicate=false to match "explicit representation" cost model (every occurrence tests),
-        // but duplicates do not affect membership because priority is per distinct key.
-        BottomKSampler bk = new BottomKSampler(/*k=*/buckets, /*seed=*/seed ^ 0x5eed5eedL, /*deduplicate=*/false);
+        BottomKSampler bk = new BottomKSampler(/*k=*/buckets, /*seed=*/seed ^ 0x5eed5eedL);
 
         long t2 = System.currentTimeMillis();
         for (int key : stream) {
-            bk.offer(key);  // O(1) test; O(log k) only on replacement
+            bk.offer(key);  // O(1) test; O(log k) on replacement
         }
         int[] repsBK = bk.sampleKeys();
-        int nbBK = repsBK.length;                 // actual bottom-k size (<= k, e.g., if Sactive < k)
+        int nbBK = repsBK.length;
         int[] sampleCountsBK = new int[nbBK];
         for (int i = 0; i < nbBK; i++) {
             sampleCountsBK[i] = freq.getOrDefault(repsBK[i], 0);
@@ -477,7 +478,6 @@ public final class MPQEstimator {
         Arrays.sort(sampleCountsBK);
         long tBKMs = System.currentTimeMillis() - t2;
 
-        // Bottom-k quantile estimate and DKW band
         int xBK = valueAtQuantile(sampleCountsBK, p);
         double epsBK = dkwRankEpsilon(nbBK, delta);
         double pLoBK = Math.max(0.0, p - epsBK);
@@ -486,55 +486,39 @@ public final class MPQEstimator {
         int xHiBK = valueAtQuantile(truthSorted, pHiBK);
         boolean bkInside = (xBK >= xLoBK && xBK <= xHiBK);
 
-        // ---------------------------
-        // Print report
-        // ---------------------------
-        System.out.printf("Active distinct S=%d, lambda=S/B=%.3f%n", Sactive, lambda);
-        System.out.printf("Truth build time: %d ms   MPQ time: %d ms   Bottom-k time: %d ms%n",
-                tTruthMs, tMPQMs, tBKMs);
+        // Optional per-trial prints
+        if (verbose) {
+            System.out.printf("Active distinct S=%d, lambda=S/B=%.3f%n", Sactive, lambda);
+            System.out.printf("Truth build time: %d ms   MPQ time: %d ms   Bottom-k time: %d ms%n",
+                    tTruthMs, tMPQMs, tBKMs);
 
-        // Truth
-        System.out.printf("True  p-quantile x_p      = %d%n", xTrue);
+            System.out.printf("True  p-quantile x_p      = %d%n", xTrue);
 
-        // MPQ block
-        System.out.printf("MPQ   sample size nb      = %d%n", nbMPQ);
-        System.out.printf("MPQ   p-quantile \\hat{x}_p = %d   (value error = %.3f%%)%n",
-                xMPQ, 100.0 * percentError(xMPQ, xTrue));
-        System.out.printf("MPQ   DKW eps(nb=%d, delta=%.3f) = %.5f  ⇒ rank band [%.5f, %.5f]%n",
-                nbMPQ, delta, epsMPQ, pLoMPQ, pHiMPQ);
-        System.out.printf("MPQ   DKW → value band (truth)   = [%d, %d] ; %s%n",
-                xLoMPQ, xHiMPQ, mpqInside ? "INSIDE" : "OUTSIDE");
+            System.out.printf("MPQ   sample size nb      = %d%n", nbMPQ);
+            System.out.printf("MPQ   p-quantile \\hat{x}_p = %d   (value err = %.3f%%)%n",
+                    xMPQ, 100.0 * percentError(xMPQ, xTrue));
+            System.out.printf("MPQ   DKW eps(nb=%d, delta=%.3f) = %.5f  ⇒ rank band [%.5f, %.5f]%n",
+                    nbMPQ, delta, epsMPQ, pLoMPQ, pHiMPQ);
+            System.out.printf("MPQ   DKW → value band (truth)   = [%d, %d] ; %s%n",
+                    xLoMPQ, xHiMPQ, mpqInside ? "INSIDE" : "OUTSIDE");
 
-        // Bottom-k block
-        System.out.printf("BK    sample size nb      = %d%n", nbBK);
-        System.out.printf("BK    p-quantile \\hat{x}_p = %d   (value error = %.3f%%)%n",
-                xBK, 100.0 * percentError(xBK, xTrue));
-        System.out.printf("BK    DKW eps(nb=%d, delta=%.3f) = %.5f  ⇒ rank band [%.5f, %.5f]%n",
-                nbBK, delta, epsBK, pLoBK, pHiBK);
-        System.out.printf("BK    DKW → value band (truth)   = [%d, %d] ; %s%n",
-                xLoBK, xHiBK, bkInside ? "INSIDE" : "OUTSIDE");
+            System.out.printf("BK    sample size nb      = %d%n", nbBK);
+            System.out.printf("BK    p-quantile \\hat{x}_p = %d   (value err = %.3f%%)%n",
+                    xBK, 100.0 * percentError(xBK, xTrue));
+            System.out.printf("BK    DKW eps(nb=%d, delta=%.3f) = %.5f  ⇒ rank band [%.5f, %.5f]%n",
+                    nbBK, delta, epsBK, pLoBK, pHiBK);
+            System.out.printf("BK    DKW → value band (truth)   = [%d, %d] ; %s%n",
+                    xLoBK, xHiBK, bkInside ? "INSIDE" : "OUTSIDE");
+        }
 
-        // Optional sanity: minimum case for both
-        int xTrueMin   = truthSorted[0];
-        int xMPQMin    = (nbMPQ > 0) ? sampleCountsMPQ[0] : Integer.MAX_VALUE;
-        int xBKMin     = (nbBK  > 0) ? sampleCountsBK[0]  : Integer.MAX_VALUE;
-
-        double pMinHatMPQ = (nbMPQ > 0) ? 1.0 / nbMPQ : 1.0;
-        double epsMinMPQ  = dkwRankEpsilon(nbMPQ, delta);
-        int xMinLoMPQ     = valueAtQuantile(truthSorted, Math.max(0.0, pMinHatMPQ - epsMinMPQ));
-        int xMinHiMPQ     = valueAtQuantile(truthSorted, Math.min(1.0, pMinHatMPQ + epsMinMPQ));
-        boolean mpqMinInside = (xMPQMin >= xMinLoMPQ && xMPQMin <= xMinHiMPQ);
-
-        double pMinHatBK = (nbBK > 0) ? 1.0 / nbBK : 1.0;
-        double epsMinBK  = dkwRankEpsilon(nbBK, delta);
-        int xMinLoBK     = valueAtQuantile(truthSorted, Math.max(0.0, pMinHatBK - epsMinBK));
-        int xMinHiBK     = valueAtQuantile(truthSorted, Math.min(1.0, pMinHatBK + epsMinBK));
-        boolean bkMinInside = (xBKMin >= xMinLoBK && xBKMin <= xMinHiBK);
-
-        System.out.printf("Sanity (min): true=%d | MPQ=%d in [%d,%d] → %s | BK=%d in [%d,%d] → %s%n",
-                xTrueMin,
-                xMPQMin, xMinLoMPQ, xMinHiMPQ, mpqMinInside ? "INSIDE" : "OUTSIDE",
-                xBKMin,  xMinLoBK,  xMinHiBK,  bkMinInside  ? "INSIDE" : "OUTSIDE");
+        return new TrialResult(
+                Sactive, nbMPQ, nbBK, lambda,
+                xTrue, xMPQ, xBK,
+                percentError(xMPQ, xTrue), percentError(xBK, xTrue),
+                epsMPQ, pLoMPQ, pHiMPQ, xLoMPQ, xHiMPQ, mpqInside,
+                epsBK, pLoBK, pHiBK, xLoBK, xHiBK, bkInside,
+                tTruthMs, tMPQMs, tBKMs
+        );
     }
 
     /** Percent error: |est - truth| / max(1, truth). */
@@ -621,31 +605,153 @@ public final class MPQEstimator {
         return dist.sample() - 1;
     }
 
+    /** Immutable result for one trial. */
+    private static final class TrialResult {
+        // Size & occupancy
+        final int Sactive;
+        final int nbMPQ;
+        final int nbBK;
+        final double lambda;
+
+        // Truth and estimates
+        final int xTrue;
+        final int xMPQ;
+        final int xBK;
+
+        // Percent value errors (|est - truth| / max(1, truth))
+        final double pctErrMPQ;
+        final double pctErrBK;
+
+        // DKW parameters and value bands
+        final double epsMPQ, pLoMPQ, pHiMPQ;
+        final int xLoMPQ, xHiMPQ;
+        final boolean mpqInside;
+
+        final double epsBK, pLoBK, pHiBK;
+        final int xLoBK, xHiBK;
+        final boolean bkInside;
+
+        // Timings (milliseconds)
+        final long tTruthMs, tMPQMs, tBKMs;
+
+        TrialResult(
+                int Sactive, int nbMPQ, int nbBK, double lambda,
+                int xTrue, int xMPQ, int xBK,
+                double pctErrMPQ, double pctErrBK,
+                double epsMPQ, double pLoMPQ, double pHiMPQ, int xLoMPQ, int xHiMPQ, boolean mpqInside,
+                double epsBK, double pLoBK, double pHiBK, int xLoBK, int xHiBK, boolean bkInside,
+                long tTruthMs, long tMPQMs, long tBKMs) {
+            this.Sactive = Sactive;
+            this.nbMPQ = nbMPQ;
+            this.nbBK = nbBK;
+            this.lambda = lambda;
+            this.xTrue = xTrue;
+            this.xMPQ = xMPQ;
+            this.xBK = xBK;
+            this.pctErrMPQ = pctErrMPQ;
+            this.pctErrBK = pctErrBK;
+            this.epsMPQ = epsMPQ;
+            this.pLoMPQ = pLoMPQ;
+            this.pHiMPQ = pHiMPQ;
+            this.xLoMPQ = xLoMPQ;
+            this.xHiMPQ = xHiMPQ;
+            this.mpqInside = mpqInside;
+            this.epsBK = epsBK;
+            this.pLoBK = pLoBK;
+            this.pHiBK = pHiBK;
+            this.xLoBK = xLoBK;
+            this.xHiBK = xHiBK;
+            this.bkInside = bkInside;
+            this.tTruthMs = tTruthMs;
+            this.tMPQMs = tMPQMs;
+            this.tBKMs = tBKMs;
+        }
+    }
+    /** Print averages over many trials. */
+    private static void summarize(List<TrialResult> rs, double p, double delta) {
+        int T = rs.size();
+        if (T == 0) return;
+
+        double avgS = 0, avgLam = 0;
+        double avgNbMPQ = 0, avgNbBK = 0;
+        double avgErrMPQ = 0, avgErrBK = 0;
+        double insideMPQ = 0, insideBK = 0;
+        double avgTruthMs = 0, avgMPQMs = 0, avgBKMs = 0;
+
+        for (TrialResult r : rs) {
+            avgS += r.Sactive;
+            avgLam += r.lambda;
+            avgNbMPQ += r.nbMPQ;
+            avgNbBK += r.nbBK;
+            avgErrMPQ += r.pctErrMPQ;
+            avgErrBK += r.pctErrBK;
+            insideMPQ += r.mpqInside ? 1 : 0;
+            insideBK += r.bkInside ? 1 : 0;
+            avgTruthMs += r.tTruthMs;
+            avgMPQMs += r.tMPQMs;
+            avgBKMs += r.tBKMs;
+        }
+
+        avgS /= T; avgLam /= T;
+        avgNbMPQ /= T; avgNbBK /= T;
+        avgErrMPQ = 100.0 * (avgErrMPQ / T);
+        avgErrBK  = 100.0 * (avgErrBK  / T);
+        double rateMPQ = 100.0 * insideMPQ / T;
+        double rateBK  = 100.0 * insideBK  / T;
+        avgTruthMs /= T; avgMPQMs /= T; avgBKMs /= T;
+
+        System.out.println("\n=== Aggregate over " + T + " trials ===");
+        System.out.printf("Avg Sactive = %.1f, Avg lambda=S/B = %.3f%n", avgS, avgLam);
+        System.out.printf("Avg sample sizes: MPQ nb=%.1f, BK nb=%.1f%n", avgNbMPQ, avgNbBK);
+        System.out.printf("Avg value error: MPQ=%.3f%%, BK=%.3f%%%n", avgErrMPQ, avgErrBK);
+        System.out.printf("Fraction inside DKW band (p=%.5f, delta=%.3f): MPQ=%.1f%%, BK=%.1f%%%n",
+                p, delta, rateMPQ, rateBK);
+        System.out.printf("Avg times (ms): Truth=%.1f, MPQ=%.1f, Bottom-k=%.1f%n",
+                avgTruthMs, avgMPQMs, avgBKMs);
+    }
 
 
     public static void main(String[] args) throws IOException {
         // Defaults (override via args)
-        long   N      = 1_000_000L; // stream length
-        int    A      = 5000;     // alphabet size (effective Σ)
-        int    B      = 512;        // MPQ buckets
-        Dist   dist   = Dist.UNIFORM; // or Dist.ZIPF
-        double s      = 1.0;        // Zipf exponent if ZIPF
-        double p      = 0.01;       // target quantile (e.g., 1%)
-        long   seed   = 123456789L; // RNG seed
-        double delta  = 0.05;       // DKW (1 - delta) confidence
+        long N = 20_000_000L;  // stream length
+        int A = 20000;         // alphabet size
+        int B = 16;           // MPQ buckets (also k for Bottom-k)
+        Dist dist = Dist.ZIPF; // or Dist.ZIPF
+        double s = 0.5;          // Zipf exponent if ZIPF
+        double p = 0.01;         // target quantile (e.g., 1%)
+        long seed = 123456789L;   // base RNG seed
+        double delta = 0.05;         // DKW (1 - delta) confidence
+        int trials = 10;            // number of independent trials to average
+        boolean verbose = false;      // per-trial prints
 
-        // CLI: N A B dist s p seed delta
-        // Example: 1000000 10000 256 UNIFORM 1.0 0.01 42 0.05
-        if (args.length >= 1) N     = Long.parseLong(args[0]);
-        if (args.length >= 2) A     = Integer.parseInt(args[1]);
-        if (args.length >= 3) B     = Integer.parseInt(args[2]);
-        if (args.length >= 4) dist  = Dist.valueOf(args[3].toUpperCase());
-        if (args.length >= 5) s     = Double.parseDouble(args[4]);
-        if (args.length >= 6) p     = Double.parseDouble(args[5]);
-        if (args.length >= 7) seed  = Long.parseLong(args[6]);
+        // CLI: N A B dist s p seed delta trials verbose
+        // Example: 1000000 10000 256 UNIFORM 1.0 0.01 42 0.05 10 true
+        if (args.length >= 1) N = Long.parseLong(args[0]);
+        if (args.length >= 2) A = Integer.parseInt(args[1]);
+        if (args.length >= 3) B = Integer.parseInt(args[2]);
+        if (args.length >= 4) dist = Dist.valueOf(args[3].toUpperCase());
+        if (args.length >= 5) s = Double.parseDouble(args[4]);
+        if (args.length >= 6) p = Double.parseDouble(args[5]);
+        if (args.length >= 7) seed = Long.parseLong(args[6]);
         if (args.length >= 8) delta = Double.parseDouble(args[7]);
+        if (args.length >= 9) trials = Integer.parseInt(args[8]);
+        if (args.length >= 10) verbose = Boolean.parseBoolean(args[9]);
 
-        runExperiment(N, A, B, dist, s, p, seed, delta);
+        for (int alphabet = 5000; alphabet <= A; alphabet *= 2) {
+            for (int buckets = B; buckets <= 256; buckets *= 2) {
+                List<TrialResult> results = new ArrayList<>(trials);
+
+                trials = 10;
+
+                for (int i = 0; i < trials; i++) {
+                    long trialSeed = mix64(seed + i * 0x9E3779B97F4A7C15L); // good spacing
+                    TrialResult r = runExperiment(N, alphabet, buckets, dist, s, p, trialSeed, delta, false);
+                    results.add(r);
+                }
+                summarize(results, p, delta);
+
+            }
+        }
     }
 
 }
