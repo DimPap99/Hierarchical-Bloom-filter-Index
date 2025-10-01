@@ -162,7 +162,7 @@ public class HBIDatasetBenchmark {
                 estFactory,
                 memFactory,
                 prFactory,
-                v, new CostFunctionMaxProb(), conf);
+                v, new CostFunctionMaxProb(), conf, NGRAMS);
     }
 
 

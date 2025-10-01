@@ -38,11 +38,12 @@ public final class ImplicitTree< M extends Membership> {
     /** Global position of the last appended character.  Starts at –1. */
     private long endPos = -1;
     public int id = 0;
+
     public ImplicitTree(TreeLayout layout,
                         IntFunction<M> filterFactory,
                         LongKey codec, Estimator est) {
         this.layout   = layout;
-        this.levels   = new LevelDirectory<>(layout.levels(), filterFactory);
+        this.levels   = new LevelDirectory<>(layout, filterFactory);
         this.buffer   = new StreamBuffer();
         this.codec    = codec;
         this.capacity = layout.intervalSize(0);
@@ -61,7 +62,7 @@ public final class ImplicitTree< M extends Membership> {
         endPos = globalPos;
         indexedItemsCounter++;
 
-        for (int level = 0; level < layout.levels(); level++) {
+        for (int level = layout.getEffectiveRootLevel(); level < layout.getEffectiveLeafLevel(); level++) {
             int span       = layout.intervalSize(level);
             int intervalId = (int) (indexedItemsCounter / span);      // LOCAL id
             long key       = codec.pack(level, intervalId, c);
@@ -83,6 +84,29 @@ public final class ImplicitTree< M extends Membership> {
     public int leftChild(int idx) { return layout.leftChild(idx); }
     public int rightChild(int idx){ return layout.rightChild(idx); }
     public int maxDepth(){return layout.levels();}
+    public int effectiveDepth(){
+        return layout.getEffectiveLeafLevel();
+    }
+    // ---- Expose per-level membership and level-count (read-only) ----
+    public M filterAtLevel(int level) { return levels.filter(level); }
+
+    public int totalFilters(){return  levels.depth();}
+    public void dropFiltersUpToLp(int lp){
+
+        int effectiveroot = this.effectiveRoot();
+        while(lp != 0){
+            this.levels.dropFilter(0);
+            effectiveroot++;
+            lp--;
+        }
+        this.layout.setEffectiveLeafLevel(effectiveroot);
+
+    }
+    public int levelCount() { return levels.depth(); }
+
+    public int effectiveRoot(){
+        return layout.getEffectiveRootLevel();
+    }
     public void generateChildren(Frame currentFrame, Deque<Frame> framesStack, int positionOffset, int workingTreeIdx){
         int rightChild = this.rightChild(currentFrame.intervalIdx());
         int leftChild = this.leftChild(currentFrame.intervalIdx());
@@ -92,13 +116,13 @@ public final class ImplicitTree< M extends Membership> {
         Frame rightFrame = new Frame(nextLevel, rightChild);
         int maxDepth = this.maxDepth();
         //add right child
-        //if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(rightFrame);
-        //}
+        }
         //add left child
-        //if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
+        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(leftFrame);
-        //}
+        }
     }
 
 

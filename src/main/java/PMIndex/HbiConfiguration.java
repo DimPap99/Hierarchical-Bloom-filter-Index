@@ -29,6 +29,8 @@ public final class HbiConfiguration {
     private final boolean experimentMode;
     private final boolean collectStats;
 
+    private int nGram;
+
     private HbiConfiguration(Builder builder) {
         this.searchAlgorithm = Objects.requireNonNull(builder.searchAlgorithm, "searchAlgorithm");
         this.windowLength = builder.windowLength;
@@ -43,6 +45,7 @@ public final class HbiConfiguration {
         this.confidence = builder.confidence;
         this.experimentMode = builder.experimentMode;
         this.collectStats = builder.collectStats;
+        this.nGram = builder.nGram;
         validate();
     }
 
@@ -78,6 +81,7 @@ public final class HbiConfiguration {
     public CostFunction costFunction() { return costFunction; }
     public double confidence() { return confidence; }
     public boolean experimentMode() { return experimentMode; }
+    public int nGram(){return nGram;}
     public boolean collectStats() { return collectStats; }
 
     public static final class Builder {
@@ -94,6 +98,8 @@ public final class HbiConfiguration {
         private double confidence;
         private boolean experimentMode = true;
         private boolean collectStats;
+
+        private int nGram;
 
         private Builder() {
         }
@@ -155,6 +161,11 @@ public final class HbiConfiguration {
 
         public Builder experimentMode(boolean experimentMode) {
             this.experimentMode = experimentMode;
+            return this;
+        }
+
+        public Builder nGram(int nGram) {
+            this.nGram = nGram;
             return this;
         }
 

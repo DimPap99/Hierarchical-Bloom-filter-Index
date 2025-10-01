@@ -16,10 +16,11 @@ public final class LevelDirectory<M extends Membership> {
 
     private final List<M> levelFilters;
 
-    public LevelDirectory(int depth,
+    public LevelDirectory(TreeLayout layout,
                           IntFunction<M> factory) {
-        this.levelFilters = new ArrayList<>(depth);
-        for (int l = 0; l < depth; l++) {
+        int totalLevels = layout.getEffectiveLeafLevel() - layout.getEffectiveRootLevel();
+        this.levelFilters = new ArrayList<>(totalLevels);
+        for (int l = layout.getEffectiveRootLevel(); l < layout.getEffectiveLeafLevel(); l++) {
             levelFilters.add(factory.apply(l));
         }
     }
@@ -33,6 +34,10 @@ public final class LevelDirectory<M extends Membership> {
     }
 
     public M filter(int level) { return levelFilters.get(level); }
+
+    public void dropFilter(int idx){
+        levelFilters.remove(idx);
+    }
 
     public int depth() { return levelFilters.size(); }
 
