@@ -13,9 +13,10 @@ public class Experiment {
         long startTime = System.currentTimeMillis();
         RingBuffer<Character> window = new CharRingBuffer(Ngram);
         long insertDuration = 0L;
+        long insertionCount = 0L;
         ArrayList<String> queries = new ArrayList<>();
         int totalSymbols = 0;
-        try (DatasetReader reader = new DatasetReader(inputFilePath, queriesFilePath, true)) {
+        try (DatasetReader reader = new DatasetReader(inputFilePath, queriesFilePath, false)) {
             for (char cChar : reader) {
                 window.append(cChar);
                 totalSymbols++;
@@ -23,11 +24,12 @@ public class Experiment {
                 /* Only once we have k chars -> emit the N-gram */
                 if (window.isFilled()) {
                     index.insert(window.snapshot().toString());   // the whole k-gram
+                    insertionCount++;
                 }
             }
 
             insertDuration = System.currentTimeMillis() - startTime;
-            double avgMsPerSymbol = insertDuration / (double) totalSymbols;
+            double avgMsPerSymbol = totalSymbols == 0 ? 0.0 : insertDuration / (double) totalSymbols;
             reader.setQueryMode();
             StringBuilder currentQuery = new StringBuilder();
             for (char ch : reader) {
@@ -84,6 +86,8 @@ public class Experiment {
             System.out.println("Querying duration: " +  queryDuration + " ms");
 
         }
-        return new ExperimentRunResult(queryDuration,insertDuration, queryResultsList, avgQueryLength);
+        double avgInsertMsPerSymbol = insertionCount == 0 ? 0.0 : (insertDuration / (double) insertionCount);
+        double avgQueryLoadMs = (double) queryDuration; // single load
+        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs);
     }
 }

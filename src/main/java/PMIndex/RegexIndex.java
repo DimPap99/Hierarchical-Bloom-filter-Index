@@ -19,11 +19,39 @@ public class RegexIndex implements IPMIndexing {
 
     // Growable buffer that accumulates the original file contents
     private final StringBuilder text = new StringBuilder();
+    // Threshold at which the internal buffer expires (clears). If set to
+    // Integer.MAX_VALUE, it effectively never expires automatically.
+    private final int lengthAttribute;
+
+    /**
+     * Create a RegexIndex with no practical auto-expiration threshold.
+     * Existing call sites continue to work without changes.
+     */
+    public RegexIndex() {
+        this(Integer.MAX_VALUE);
+    }
+
+    /**
+     * Create a RegexIndex that automatically expires (clears) its internal
+     * buffer once the accumulated text length reaches the provided threshold.
+     *
+     * @param lengthAttribute positive length threshold for auto-expire
+     * @throws IllegalArgumentException if {@code lengthAttribute <= 0}
+     */
+    public RegexIndex(int lengthAttribute) {
+        if (lengthAttribute <= 0) {
+            throw new IllegalArgumentException("lengthAttribute must be positive");
+        }
+        this.lengthAttribute = lengthAttribute;
+    }
 
     /** Append one or more characters to the indexed text. */
     @Override
     public void insert(String  s) {
         text.append(s);
+        if (text.length() >= lengthAttribute) {
+            expire();
+        }
     }
 
     @Override
@@ -46,13 +74,19 @@ public class RegexIndex implements IPMIndexing {
         while (matcher.find()) {
             positions.add(matcher.start());
         }
-
+//        for (int i = 0; i < positions.size(); i++) {
+//            String s = text.substring(positions.get(i), positions.get(i) + regex.patternTxt.length());
+//
+//            System.out.println("Pattern: " + regex.patternTxt + " Matched with: "  + s);
+//
+//        }
         return positions;
     }
 
+
     @Override
     public void expire() {
-
+        text.setLength(0);
     }
 
 
@@ -73,5 +107,10 @@ public class RegexIndex implements IPMIndexing {
     @Override
     public PatternResult getLatestStats() {
         return null;
+    }
+
+    @Override
+    public int getTokenId(String key) {
+        return -2;
     }
 }

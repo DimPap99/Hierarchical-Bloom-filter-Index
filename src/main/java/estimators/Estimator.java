@@ -9,4 +9,6 @@ public interface Estimator {
 
     public double[] estimateALl(Pattern p);
 
+    public double getMin();
+
 }

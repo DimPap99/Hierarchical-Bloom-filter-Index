@@ -7,9 +7,9 @@ import java.util.HashMap;
 public class HashMapEstimator implements Estimator {
 
     public HashMap<Integer, Integer> frequencies;
-
+    private int minKey = -1;
     public double totalRecords=0;
-    //TODO: Preallocate space on the hashmap to make it faster.
+
     public HashMapEstimator(int totalRecords){
         this.init(totalRecords);
     }
@@ -42,7 +42,18 @@ public class HashMapEstimator implements Estimator {
         return result;
     }
 
+    @Override
+    public double getMin() {
 
+
+        int min = 999999999;
+        for( int k : this.frequencies.keySet()){
+            if(this.frequencies.get(k)<min){ min = k;}
+        }
+        this.minKey = min;
+
+        return min/this.estimate(min);
+    }
 
 
 }

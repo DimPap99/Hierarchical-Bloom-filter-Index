@@ -772,8 +772,9 @@ public class CostFunctionMaxProb implements CostFunction {
     private static final int JOINT_M_CAP = 12;
 
 
-
-    public double costAtLevel_unbiased_for_synth(ImplicitTree<?> tree,
+    @Override
+    //synth unb
+    public double costAtLevel(ImplicitTree<?> tree,
                               double[] probs,   // per-position per-slot masses p_i, aligned 1-1 with keySeq
                               int[]    keySeq,  // symbols in probe order
                               int      Lp,
@@ -885,8 +886,8 @@ public class CostFunctionMaxProb implements CostFunction {
         return q;
     }
 
-    @Override
-    public double costAtLevel(ImplicitTree<?> tree,
+//    @Override
+    public double costAtLevel_markov(ImplicitTree<?> tree,
                               double[] probs,   // NOT used by Markov; kept for API
                               int[]    keySeq,
                               int      Lp,
@@ -901,51 +902,55 @@ public class CostFunctionMaxProb implements CostFunction {
 
         double total = 0.0;
 
-        // ----- Base level Lp: keep your Markov-IE unconditional -----
+        // ---------- Base level Lp: Markov IE (unconditional) ----------
         final int bLp  = width >> Lp;
         final int ellP = Math.min(r, bLp);
         if (ellP <= 0) return 0.0;
 
-        final int[] firstLp = firstOccurrencePositions(keySeq, ellP);
         final double betaLp = tree.getMembershipFpRate(Lp);
 
-// unconditional β-aware F_m at Lp (Markov IE)
+        // IE over first-occurrences at Lp using Markov "no-U" (unconditional)
         double[] FmLp = Fm_uncond_markov(width, Lp, keySeq, ellP, betaLp);
+        int[] firstLp = firstOccurrencePositions(keySeq, ellP);
         double HLp    = H_from_Fm_by_positions(keySeq, ellP, firstLp, FmLp);
-        double parentsVisited = (1 << Lp);
-        total += HLp * parentsVisited;
+        double F_prev_all = (FmLp.length == 0 ? 1.0 : FmLp[FmLp.length - 1]);  // IE all-YES at Lp
+
+        double parentsVisited = (1 << Lp);          // expected nodes processed at Lp
+        total += HLp * parentsVisited;              // (× bloomProbeCost if you want time units)
 
         if (Lp >= Ldesc) return total;
 
-        //  Deeper levels: TRUE conditional-on-parent-pass (Markov q’s)
-        double[] qPrev = qUncondAtLevel_Markov(width, Lp, keySeq, betaLp);
+//        double[] qPrev = qUncondAtLevel_Markov(width, Lp, keySeq, betaLp);
 
+        // ---------- Deeper levels: true conditional q (Markov), IE inside node ----------
         for (int L = Lp + 1; L <= Ldesc; L++) {
             if (!utilities.MathUtils.childCanHost(width, L - 1, r)) break;
 
-            // parents that actually pass at (L-1): all-first-occurrence YES using qPrev
-            double FpassParent = productFirstOccurrences(qPrev, keySeq, width, L - 1);
-            double nodesAtL    = 2.0 * parentsVisited * FpassParent;
+            // expected nodes to visit at level L come from IE all-pass at parent:
+            double nodesAtL = 2.0 * parentsVisited * F_prev_all;
             if (nodesAtL <= 0.0) break;
 
             double betaPrev = tree.getMembershipFpRate(L - 1);
             double betaL    = tree.getMembershipFpRate(L);
 
-            // child per-position YES given parent YES (Markov, β-aware)
+            // per-position YES at child given parent YES (Markov, β-aware)
             double[] qCondL = qCondChildGivenParent_Markov(width, L, keySeq, betaPrev, betaL);
 
-            // per-node expected probes at level L (uses your q-tail-sum)
-            double HL = expectedProbesFromQ(qCondL, keySeq, width, L);
-            total += HL * nodesAtL;
+            // IE inside child from conditional q's via strip→peff→IE (IID surjection inside node)
+            HF ns = HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, betaL);
 
-            // advance
+            double HL = ns.H;           // expected probes per visited node at this level
+            total += HL * nodesAtL;     // (× bloomProbeCost if you want time units)
+
+            // advance to next level using IE all-YES from this node
             parentsVisited = nodesAtL;
-            qPrev          = qCondL;
+            F_prev_all     = ns.F;      // carry IE all-pass forward (NOT product of q's)
+//            qPrev          = qCondL;
         }
 
         return total;
-
     }
+
 
 
 

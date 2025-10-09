@@ -121,8 +121,8 @@ public class ConfidenceExperiment {
             hbi.setLpOverride(run);
             hbi.resetAlphabetMap(ALPHABET);
             hbi.stats().setCollecting(true);
-
-            ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
+//            RegexIndex ipm = new RegexIndex();
+            ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, true, true);
 
             // --- Summarize this run ---
             RunStats stats = summarizeRun(run, result, patternRows, true, patternAccuracy);
@@ -449,7 +449,8 @@ public class ConfidenceExperiment {
                 prFactory,
                 v,
                 new CostFunctionMaxProb(),
-                conf
+                conf,
+                NGRAMS
         );
     }
 }

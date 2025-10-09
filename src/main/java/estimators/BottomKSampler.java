@@ -50,7 +50,7 @@ public final class BottomKSampler {
         return out;
     }
 
-    /** Current threshold τ (unsigned). New keys must have priority < τ to enter; Long.MAX_VALUE if not full. */
+    /** Current threshold t unsinged. New keys must have priority < t to enter; Long.MAX_VALUE if not full. */
     public long thresholdUnsigned() {
         if (heap.size() < k) return Long.MAX_VALUE;
         return heap.peek().priority;

@@ -44,6 +44,11 @@ public class HashMapEstimatorSol implements Estimator {
         return result;
     }
 
+    @Override
+    public double getMin() {
+        return 0;
+    }
+
 //    public double nodeWith_Conf(double confidence, double prob){
 //
 //        return Math.log(1 - confidence) / Math.log(1 - prob);

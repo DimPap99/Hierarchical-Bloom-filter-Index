@@ -22,16 +22,16 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         int treeBaseInterval     = tree.baseIntervalSize();
         int intervalEndIdx       = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval - 1;
 
-        // **Only** skip when we truly saw a NO at the first symbol.
+        // Only skip when we truly saw a NO at the first symbol.
         if (probe.consumed() == 0 && probe.testedFirst()) {
             this.currentOffset = intervalEndIdx + 1;
             return null;
         }
 
-        // If we didn't test first symbol but have no NO yet → treat as “complete so far”
+        // If we didn't test first symbol but have no NO yet -> treat as “complete so far”
         boolean noDefinitiveNo = probe.complete() || !probe.testedFirst();
 
-        if (noDefinitiveNo && childrenIntervalSize >= p.text.length) {
+        if (noDefinitiveNo && childrenIntervalSize >= p.size) {
             tree.generateChildren(f, stack, positionOffset, tree.id);
             return null;
         }
@@ -76,7 +76,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                     for (int j = 0; j < i; j++) {
                         key = tree.codec.pack(level, interval, pattern[j]);
                         matchedArr[j] = tree.contains(level, key);
-                        if (j == 0) testedFirst = true;       // NEW: we tested index 0 here
+                        if (j == 0) testedFirst = true;
                         if (!matchedArr[j]) break;             // stop at first NO in prefix
                     }
                     return new Probe(countStartConsecutiveMatches(matchedArr), false, testedFirst);

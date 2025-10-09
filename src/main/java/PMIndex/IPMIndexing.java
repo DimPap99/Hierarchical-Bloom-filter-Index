@@ -1,6 +1,7 @@
 package PMIndex;
 
 import search.Pattern;
+import utilities.AlphabetMapper;
 import utilities.PatternResult;
 
 import java.util.ArrayList;
@@ -18,4 +19,7 @@ public interface IPMIndexing {
     ArrayList<Long> getAvgTimes(Pattern pat);
 
     PatternResult getLatestStats();
+
+
+    int getTokenId(String key);
 }

@@ -14,7 +14,7 @@ package membership;
  */
 public final class Key64 implements LongKey {
 
-    /* -------------------- immutable layout -------------------------- */
+    /*  immutable layout  */
     int LV_BITS, IV_BITS, CH_BITS;
     long IV_MASK, CH_MASK;
     int  IV_SHIFT, LV_SHIFT;
@@ -26,7 +26,6 @@ public final class Key64 implements LongKey {
 
     /**
      * @param maxLevel     deepest level d you must support (≥0)
-     * @param minCharBits  minimum bits you need for the character (typically 8 or 16)
      */
     public Key64(int maxLevel, int alphabet) {
         if (maxLevel < 0)                       throw new IllegalArgumentException("maxLevel < 0");
@@ -49,6 +48,18 @@ public final class Key64 implements LongKey {
         IV_SHIFT = CH_BITS;
         LV_SHIFT = CH_BITS + IV_BITS;
 
+    }
+
+    public static int getMaxPossibleChar(int maxLevel){
+
+        int lvlbits = bitsNeeded(maxLevel - 1);         // store the depth number
+        //NEW instead of max level : maxLevel-1 because we discarded the last level to keep the actual stream
+        int intervalbits = maxLevel-1;                     // need up to 2^d intervals
+
+        int charbits = 64 - lvlbits - intervalbits;       // remaining bits
+
+        int maxInt = (int) Math.pow(2, lvlbits);
+        return maxInt;
     }
 
 
