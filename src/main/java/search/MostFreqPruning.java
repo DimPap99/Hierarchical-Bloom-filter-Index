@@ -27,7 +27,7 @@ public class MostFreqPruning implements  PruningPlan {
     }
 
     @Override
-        public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, double confidence ) {
+        public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, double confidence, boolean strides ) {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
 //
 //        double b_a;
@@ -43,7 +43,9 @@ public class MostFreqPruning implements  PruningPlan {
 //        }
 //
 //        int    lp   = MathUtils.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
-        double[] pp = tree.estimator.estimateALl(pattern);
+        int[] arr;
+
+        double[] pp = tree.estimator.estimateALl(pattern, strides);
         double pMax = Arrays.stream(pp).min().getAsDouble();
         int lp = pruningLevel(tree, 0.99, pMax);
         prunedLevels.add(lp);

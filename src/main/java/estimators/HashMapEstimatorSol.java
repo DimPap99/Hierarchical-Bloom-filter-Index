@@ -36,7 +36,7 @@ public class HashMapEstimatorSol implements Estimator {
         return 0;
     }
     @Override
-    public double[] estimateALl(Pattern p){
+    public double[] estimateALl(Pattern p, boolean strides){
         double[] result = new double[p.nGramToInt.length];
         for(int i = 0; i < p.nGramToInt.length; i++){
             result[i] = this.estimate(p.nGramToInt[i]);

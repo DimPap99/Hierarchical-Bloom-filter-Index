@@ -7,7 +7,7 @@ public interface Estimator {
     public void insert(int key);
     public double estimate(int key);
 
-    public double[] estimateALl(Pattern p);
+    public double[] estimateALl(Pattern p, boolean strides);
 
     public double getMin();
 

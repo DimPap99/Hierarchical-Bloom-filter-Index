@@ -52,12 +52,12 @@ public class CostFunctionMaxProb implements CostFunction {
 
 
     @Override
-    public int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost) {   // measured lc (ns)
+    public int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost, boolean strides) {   // measured lc (ns)
         if (bfCost > 0) this.bloomProbeCost = bfCost;
         if (leafCost > 0) this.leafSearchCost = leafCost;
 
         // Per-symbol probabilities for the pattern from the estimator
-        final double[] probs = tree.estimator.estimateALl(p);
+        final double[] probs = tree.estimator.estimateALl(p, strides);
         final int width      = tree.baseIntervalSize();
         final int maxDepth   = tree.maxDepth();
         final int r          = probs.length;
@@ -81,8 +81,12 @@ public class CostFunctionMaxProb implements CostFunction {
 
         // Evaluate cost for each candidate Lp (no α sweep needed)
         for (int Lp = minLp; Lp <= maxLpLevel; Lp++) {
-
-            double cost = costAtLevel(tree, probs, p.effectiveNgramArr, Lp, tree.getMembershipFpRate(Lp), maxDepth);
+            double cost;
+            if(strides){
+                cost = costAtLevel(tree, probs, p.effectiveNgramArr, Lp, tree.getMembershipFpRate(Lp), maxDepth);
+            }else{
+                cost = costAtLevel(tree, probs, p.nGramToInt, Lp, tree.getMembershipFpRate(Lp), maxDepth);
+            }
             if (cost < bestCost) {
                 bestCost = cost;
                 bestLp   = Lp;

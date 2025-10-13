@@ -35,6 +35,7 @@ public final class HBI implements IPMIndexing {
     private final HbiConfiguration config;
 
     private int nGram = 1;
+    public boolean strides = false;
     private final HbiStats stats;
 
     private final int windowLength;
@@ -216,26 +217,26 @@ public final class HBI implements IPMIndexing {
             tree.pruningPlan = this.pruningPlanFac.get();
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
             Deque<Frame> stack = new ArrayDeque<>();
-            double[] pp = tree.estimator.estimateALl(pat);
-            double pMax = Arrays.stream(pp).min().getAsDouble();
+//            double[] pp = tree.estimator.estimateALl(pat, strides);
+//            double pMax = Arrays.stream(pp).min().getAsDouble();
             long lpStart = System.nanoTime();
             ArrayList<Integer> lps = null;
 //            lp = Collections.min(lps);
             totalLpTimeNanos += System.nanoTime() - lpStart;
               //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
-
-            if (stats.isExperimentMode()) {
-                pp = tree.estimator.estimateALl(pat);
-                pMax = Arrays.stream(pp).min().getAsDouble();
-                lp = this.lpOverride;
-                arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
-                int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
-                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.0, m);
-                lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26);
-            } else {
-                lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99);
+//
+//            if (stats.isExperimentMode()) {
+//                pp = tree.estimator.estimateALl(pat, this.strides);
+//                pMax = Arrays.stream(pp).min().getAsDouble();
+//                lp = this.lpOverride;
+//                arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
+//                int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
+//                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.0, m);
+//                lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
+//            } else {
+                lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
 //                lp = lpCf;
-            }
+//            }
 
             pat.charStartLp = lps;
 
@@ -266,18 +267,18 @@ public final class HBI implements IPMIndexing {
 //            }
 
         }
-        long queryDuration = System.nanoTime() - queryStartNanos;
-        stats.recordQueryTiming(queryDuration, totalLpTimeNanos);
-        if (stats.isExperimentMode()) {
-
-            int leafProbes = this.verifier.getLeafProbes();
-            int bfprobes = this.getAllprobes();
-            int actualCost = bfprobes;
-//            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
-
-            this.verifier.reset();
-            stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
-        }
+        //long queryDuration = System.nanoTime() - queryStartNanos;
+        //stats.recordQueryTiming(queryDuration, totalLpTimeNanos);
+//        if (stats.isExperimentMode()) {
+//
+//            int leafProbes = this.verifier.getLeafProbes();
+//            int bfprobes = this.getAllprobes();
+//            int actualCost = bfprobes;
+////            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
+//
+//            this.verifier.reset();
+//            stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
+//        }
 
         return results;
     }

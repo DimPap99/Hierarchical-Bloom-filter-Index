@@ -94,6 +94,16 @@ public final class  MathUtils {
         }
         return Math.max(0.0, Math.min(1.0, f));
     }
+    /** Empirical CDF of a value x from an ascending array a: fraction of entries ≤ x. */
+    private static double empiricalCdfLE(int[] a, int x) {
+        if (a.length == 0) return 1.0;
+        int lo = 0, hi = a.length; // search first index > x
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (a[mid] <= x) lo = mid + 1; else hi = mid;
+        }
+        return lo / (double) a.length;
+    }
 
 
     // Can the children of level L still host a pattern of length r? */

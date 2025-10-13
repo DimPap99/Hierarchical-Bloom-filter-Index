@@ -6,7 +6,7 @@ import tree.ImplicitTree;
 
 public interface CostFunction {
 
-    int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost);
+    int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost, boolean strides);
 
     double getAlpha();
 
