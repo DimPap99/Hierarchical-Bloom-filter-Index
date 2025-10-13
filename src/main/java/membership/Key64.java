@@ -16,6 +16,7 @@ package membership;
  *   - level(key) always returns 0
  *   - levelBits() returns 0
  */
+
 public final class Key64 implements LongKey {
 
     // immutable layout

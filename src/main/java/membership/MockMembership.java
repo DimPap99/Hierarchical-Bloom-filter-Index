@@ -24,6 +24,16 @@ public class MockMembership implements Membership{
     }
 
     @Override
+    public void insert(long[] key) {
+
+    }
+
+    @Override
+    public boolean contains(long[] key) {
+        return false;
+    }
+
+    @Override
     public double getFpRate() {
         return 0;
     }

@@ -18,6 +18,7 @@ import search.Verifier;
 import tree.ImplicitTree;
 import tree.TreeLayout;
 import utilities.AlphabetMapper;
+import utilities.MemUtil;
 import utilities.PatternResult;
 import utilities.StringKeyMapper;
 
@@ -166,7 +167,9 @@ public final class HBI implements IPMIndexing {
             lastTree.estimator.insert(intC);
             lastTree.append(intC, indexedItemsCounter);
         }
-        if (trees.getLast().indexedItemsCounter + (trees.size() - 2) * this.treeLength > this.windowLength) {
+
+        if (trees.getLast().indexedItemsCounter + (trees.size() - 1) * this.treeLength > this.windowLength) {
+
             this.expire();
         }
     }

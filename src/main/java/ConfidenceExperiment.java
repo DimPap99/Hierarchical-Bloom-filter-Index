@@ -119,7 +119,7 @@ public class ConfidenceExperiment {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
             hbi.setLpOverride(run);
-            hbi.resetAlphabetMap(ALPHABET);
+//            hbi.resetAlphabetMap(ALPHABET);
             hbi.stats().setCollecting(true);
 //            RegexIndex ipm = new RegexIndex();
             ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, true, true);

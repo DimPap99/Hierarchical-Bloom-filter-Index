@@ -30,6 +30,7 @@ public class Experiment {
 
             insertDuration = System.currentTimeMillis() - startTime;
             double avgMsPerSymbol = totalSymbols == 0 ? 0.0 : insertDuration / (double) totalSymbols;
+            System.out.println("Avg Insertion Time: " + avgMsPerSymbol);
             reader.setQueryMode();
             StringBuilder currentQuery = new StringBuilder();
             for (char ch : reader) {

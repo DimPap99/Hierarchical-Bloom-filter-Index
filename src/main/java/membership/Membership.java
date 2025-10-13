@@ -5,5 +5,8 @@ public interface Membership {
     void insert(long key);
     boolean contains(long key);
 
+    void insert(long[] key);
+    boolean contains(long[] key);
+
     double getFpRate();
 }
