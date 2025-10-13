@@ -33,7 +33,7 @@ public class HBIDatasetBenchmark {
     private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 74;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 10;        // set to 0 for a dry run
+    private static final int RUNS         = 1;        // set to 0 for a dry run
     private static int NGRAMS = 2;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static int NUMQUERIES = 135;
@@ -72,24 +72,24 @@ public class HBIDatasetBenchmark {
                     System.out.println("\n");
                     double avgAlpha = 0;
                     /* JIT warm-up so HotSpot reaches steady state */
-                    for (int i = 0; i < 2; i++) {
-                        HBI hbi = newHbi(0.999);
-
-                        hbi.stats().setCollecting(false);
-                        hbi.stats().setExperimentMode(false);
-
-                        Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
-
-                        IPMIndexing ipm = new RegexIndex();
-                        Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-//                        avgLp = hbi.stats().lpLevels().stream()
-//                                .mapToDouble(a -> a)
-//                                .sum() / hbi.stats().lpLevels().size();
-//                        avgAlpha = hbi.stats().alphas().stream()
-//                                .mapToDouble(a -> a)
-//                                .sum() / hbi.stats().alphas().size();
-
-                    }
+//                    for (int i = 0; i < 2; i++) {
+//                        HBI hbi = newHbi(0.999);
+//
+//                        hbi.stats().setCollecting(false);
+//                        hbi.stats().setExperimentMode(false);
+//
+//                        Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+//
+//                        IPMIndexing ipm = new RegexIndex();
+//                        Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
+////                        avgLp = hbi.stats().lpLevels().stream()
+////                                .mapToDouble(a -> a)
+////                                .sum() / hbi.stats().lpLevels().size();
+////                        avgAlpha = hbi.stats().alphas().stream()
+////                                .mapToDouble(a -> a)
+////                                .sum() / hbi.stats().alphas().size();
+//
+//                    }
 
                     ArrayList<Long> timings;
                     for (int i = 0; i < RUNS; i++) {

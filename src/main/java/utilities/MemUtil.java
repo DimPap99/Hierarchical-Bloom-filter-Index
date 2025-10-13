@@ -62,9 +62,7 @@ public class MemUtil {
             long treesBytes = org.openjdk.jol.info.GraphLayout.parseInstance(hbi.trees).totalSize();
 
             // 2) AlphabetMapper
-            long alphabetBytes = (hbi.alphabetMap != null)
-                    ? org.openjdk.jol.info.GraphLayout.parseInstance(hbi.alphabetMap).totalSize()
-                    : 0L;
+            long alphabetBytes = 0;
 
             // 3) Estimators (the ones that perform insertions)
             long estimatorsBytes = 0L;
@@ -200,9 +198,7 @@ public class MemUtil {
         }
 
         // ---- AlphabetMapper measured with a small JOL traversal ----
-        long alphabetBytes = (hbi.alphabetMap != null)
-                ? GraphLayout.parseInstance(hbi.alphabetMap).totalSize()
-                : 0L;
+        long alphabetBytes = 0L;
 
         // ---- Estimators measured with a small JOL traversal ----
         long estimatorsBytes = 0L;
@@ -400,9 +396,7 @@ public class MemUtil {
         }
 
         // Exact with JOL: AlphabetMapper and Estimators (both small graphs)
-        long alphabetBytes = (hbi.alphabetMap != null)
-                ? GraphLayout.parseInstance(hbi.alphabetMap).totalSize()
-                : 0L;
+        long alphabetBytes = 0L;
 
         long estimatorsBytes = 0L;
         if (!hbi.trees.isEmpty()) {

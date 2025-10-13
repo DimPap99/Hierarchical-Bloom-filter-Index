@@ -19,6 +19,7 @@ import tree.ImplicitTree;
 import tree.TreeLayout;
 import utilities.AlphabetMapper;
 import utilities.PatternResult;
+import utilities.StringKeyMapper;
 
 import java.util.*;
 import java.util.function.IntFunction;
@@ -54,7 +55,7 @@ public final class HBI implements IPMIndexing {
 
     public final ArrayList<ImplicitTree<Membership>> trees = new ArrayList<>();
 
-    public AlphabetMapper<String> alphabetMap;
+    public StringKeyMapper keyMapper;
     private long indexedItemsCounter = -1;
 
     private int bcCostEstimIter = DEFAULT_BC_COST_ESTIM_ITER;
@@ -67,7 +68,8 @@ public final class HBI implements IPMIndexing {
     public NgramModel.Builder modelBuilder;
     public boolean memoryPolicy = false;
     private final int maxActiveTrees;
-
+    private final HashSet<String> strhs = new HashSet<>();
+    private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
     public HBI(HbiConfiguration config) {
         this.config = Objects.requireNonNull(config, "config");
         this.stats = new HbiStats(config.collectStats(), config.experimentMode());
@@ -82,9 +84,8 @@ public final class HBI implements IPMIndexing {
         this.verifier = config.verifier();
         this.cf = config.costFunction();
         this.conf = config.confidence();
-        this.alphabetMap = new AlphabetMapper<>(alphabetSize);
+        this.keyMapper = new StringKeyMapper(this.alphabetSize, 0.0001);
         this.nGram = config.nGram();
-
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
         //this.modelBuilder = new NgramModel.Builder(89*89, 2);
@@ -122,13 +123,13 @@ public final class HBI implements IPMIndexing {
         return stats;
     }
 
-    public void setAlphabetMap(AlphabetMapper<String> alphabetMap) {
-        this.alphabetMap = Objects.requireNonNull(alphabetMap, "alphabetMap");
-    }
+//    public void setAlphabetMap(AlphabetMapper<String> alphabetMap) {
+//        this.alphabetMap = Objects.requireNonNull(alphabetMap, "alphabetMap");
+//    }
 
-    public void resetAlphabetMap(int capacity) {
-        this.alphabetMap = new AlphabetMapper<>(capacity);
-    }
+//    public void resetAlphabetMap(int capacity) {
+//        this.alphabetMap = new AlphabetMapper<>(capacity);
+//    }
 
     public void setLpOverride(int lp) {
         this.lpOverride = lp;
@@ -147,7 +148,9 @@ public final class HBI implements IPMIndexing {
     /** Stream a single character into the index. */
     @Override
     public void insert(String c) {
-        int intC = alphabetMap.insert(c);
+        int intC = keyMapper.mapToInt(c);
+//        this.strhs.add(c);
+//        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
 //        this.modelBuilder.observeSymbol(intC);
         indexedItemsCounter++;
@@ -158,7 +161,7 @@ public final class HBI implements IPMIndexing {
             fresh.estimator.insert(intC);
             fresh.append(intC, indexedItemsCounter);
             trees.add(fresh);
-            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
+//            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
         } else {
             lastTree.estimator.insert(intC);
             lastTree.append(intC, indexedItemsCounter);
@@ -200,7 +203,7 @@ public final class HBI implements IPMIndexing {
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
-            int ngToInt = this.alphabetMap.getId(pat.nGramArr[nIdx]);
+            int ngToInt = this.keyMapper.mapToInt(pat.nGramArr[nIdx]);
             pat.nGramToInt[nIdx] = ngToInt;
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = ngToInt;
         }
@@ -316,7 +319,7 @@ public final class HBI implements IPMIndexing {
 
     @Override
     public int getTokenId(String key) {
-        return alphabetMap.getId(key);
+        return this.keyMapper.mapToInt(key);
     }
 
     public long getAvgLeafCost(Pattern pat) {
