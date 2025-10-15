@@ -10,7 +10,6 @@ import java.util.function.IntFunction;
 
 /**
  * Owns one {@link Membership} structure per tree level.
- * Generic type {@code K} is the packed-key representation
  */
 public final class LevelDirectory<M extends Membership> {
 

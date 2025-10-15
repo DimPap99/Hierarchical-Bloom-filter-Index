@@ -5,9 +5,9 @@ import java.util.ArrayList;
 import membership.Membership;
 import org.apache.commons.math3.util.Pair;
 import tree.ImplicitTree;
+import tree.StreamBuffer;
 
-/** Verifier that performs "leaf" probing exhaustively over a range. Testing all possible alignment of the pattern
-    until all possible */
+
 public class VerifierLinearLeafProbe implements Verifier {
 
     public VerifierLinearLeafProbe() {}   // static utility
@@ -28,7 +28,7 @@ public class VerifierLinearLeafProbe implements Verifier {
         MatchResult result;
 
         /* current working tree – will be reloaded whenever we cross a boundary */
-        ImplicitTree workingTree = trees.get(currentTreeIdx);
+//        ImplicitTree workingTree = trees.get(currentTreeIdx);
 
         while (leafStartIdx <= stopPos) {
 
@@ -40,7 +40,7 @@ public class VerifierLinearLeafProbe implements Verifier {
                     return new Pair<>(matches, leafStartIdx);
                 }
                 currentTreeIdx = treeIdx;
-                workingTree    = trees.get(currentTreeIdx);
+//                workingTree    = trees.get(currentTreeIdx);
             }
 
             /* ---------- 2. run the naive verifier  */
@@ -78,10 +78,13 @@ public class VerifierLinearLeafProbe implements Verifier {
         final int spanShift = Integer.numberOfTrailingZeros(span);   // log₂(span)
         final int m         = pat.length;
 
-        /* ---------- quick global bound check - */
-        /* Highest usable absolute position in the *whole* stream */
-        int globalLastPos = (trees.size() - 1) * span
-                + trees.get(trees.size() - 1).buffer.data.size() - 1;
+        // quick global bound check
+        // Highest usable absolute position in the whole stream
+        int globalLastPos = -1;
+        if (!trees.isEmpty()) {
+            ImplicitTree<Membership> lastTree = trees.get(trees.size() - 1);
+            globalLastPos = (trees.size() - 1) * span + lastTree.buffer.lastIndex();
+        }
 
         if (leafStartIdx + m - 1 > globalLastPos)
             return new MatchResult(false, globalLastPos);
@@ -89,7 +92,8 @@ public class VerifierLinearLeafProbe implements Verifier {
         //  initialise current tree
         int workingTreeIdx  = currentTreeIdx;
         ImplicitTree tree   = trees.get(workingTreeIdx);
-        ArrayList<Integer> sb    = tree.buffer.data;                 // convenience ref
+        StreamBuffer buffer = tree.buffer;
+        int bufferLength    = buffer.length();
         // main loop
         for (int i = 0; i < m; i++) {
             int leafIdx  = leafStartIdx + i;
@@ -102,19 +106,20 @@ public class VerifierLinearLeafProbe implements Verifier {
 
                 workingTreeIdx = treeIdx;
                 tree           = trees.get(treeIdx);
-                sb             = tree.buffer.data;              // update ref
+                buffer         = tree.buffer;
+                bufferLength   = buffer.length();
             }
 
             // local offset inside this tree’s stream
             int localPos = leafIdx & (span - 1);
 
             // bounds-check (last tree may be shorter than span)
-            if (localPos >= sb.size())
+            if (localPos >= bufferLength)
                 return new MatchResult(false, leafIdx - 1);
 
             // actual character comparison
             this.leafProbesCounter++;
-            if (sb.get(localPos) != pat[i]) {
+            if (buffer.get(localPos) != pat[i]) {
                 int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
                 return new MatchResult(false, failPos);
             }

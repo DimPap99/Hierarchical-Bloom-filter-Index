@@ -3,6 +3,7 @@ package utilities;
 import PMIndex.HBI;
 import org.openjdk.jol.info.GraphLayout;
 import org.openjdk.jol.vm.VM;
+import tree.StreamBuffer;
 
 public class MemUtil {
 
@@ -106,37 +107,6 @@ public class MemUtil {
 
 
 
-    /**
-     * FAST (approximate) memory report in four lines:
-     *   1) Total (approx) = Trees + AlphabetMapper + Estimators
-     *   2) Trees (approx, excludes estimators; payload optional and approximated)
-     *   3) AlphabetMapper (measured with a small JOL traversal)
-     *   4) Estimators (measured with a small JOL traversal)
-     *
-     * Definitions (explained):
-     * - Retained size: total bytes of heap objects reachable from a root. Here we avoid
-     *   a full traversal for trees and instead compute an approximation from the known layout.
-     * - Bloom filter size model:
-     *      m_bits  = ceil( -(n * ln(p)) / (ln(2)^2) ), where n = nodes * min(Σ, interval)
-     *      words   = ceil(m_bits / 64)
-     *      bitset_bytes ≈ 16 (long[] header) + 8 * words
-     *      bloom_obj_overhead ≈ 64 bytes (BloomFilter fields) + 24 bytes (BitSet shell) + 16 bytes (int[2] seeds) + 16 bytes (byte[8])
-     *   These constants are ballpark values on a 64-bit Java Virtual Machine (JVM) with compressed ordinary object pointers.
-     * - StreamBuffer payload (optional and approximate): we do NOT walk each Integer.
-     *   We model it as:
-     *      refs_array  ≈ 16 (Object[] header) + ref_size * size
-     *      integers    ≈ size * approxIntegerBytes   (each Integer object + alignment)
-     *   By default, we assume ref_size = VM.current().oopSize() (usually 4) and approxIntegerBytes = 16.
-     *
-     * IMPORTANT:
-     * - hbi is designed to be QUICK, not exact. It will typically be within a reasonable factor of a full JOL walk,
-     *   and it completely avoids the "hang" you saw on large windows.
-     * - You do NOT need Serviceability Agent (SA). If you see JOL warnings, run with:
-     *     -Djdk.attach.allowAttachSelf=true  -XX:+EnableDynamicAgentLoading  -Djol.skipSA=true
-     *
-     * @return four lines: Total (approx) / Trees (approx) / AlphabetMapper (JOL) / Estimators (JOL)
-     * @return four lines: Total (approx) / Trees (approx) / AlphabetMapper (JOL) / Estimators (JOL)
-     */
 
     public String fastMemoryEstimate(boolean includePayloadApprox, int approxIntegerBytes, HBI hbi) {
         final double LN2 = Math.log(2.0);
@@ -147,14 +117,16 @@ public class MemUtil {
         final int BITSET_OBJ_OVERHEAD      = 24;  // shell object fields (BitSet itself)
         final int LONG_ARRAY_HDR           = 16;  // long[] header
         final int BLOOM_FILTER_OBJ_OVERHEAD= 64;  // BloomFilter fields (n,m,k,p,seeds refs, temp arrays, etc.)
-        final int AL_LIST_OBJ_OVERHEAD     = 24;  // ArrayList object header/fields (for levelFilters and StreamBuffer)
+        final int AL_LIST_OBJ_OVERHEAD     = 24;  // ArrayList object header/fields (for levelFilters)
         final int OBJ_ARRAY_HDR            = 16;  // Object[] header
+        final int STREAM_BUFFER_OBJ_OVERHEAD = 24; // StreamBuffer object shell
+        final int INT_ARRAY_HDR            = 16;  // int[] header
 
         long treesBytes = 0L;
 
         // Sum across trees
         for (tree.ImplicitTree<membership.Membership> t : hbi.trees) {
-            // ---- Bloom filters per level (constructed exactly like your factory) ----
+            //  Bloom filters per level (constructed exactly like your factory)
             int levels = t.effectiveDepth();                     // total levels in hbi tree
             int root = t.effectiveRoot();
             for (int level = root; level < levels; level++) {
@@ -174,33 +146,27 @@ public class MemUtil {
                 treesBytes += bfBytes;
             }
 
-            // ---- LevelDirectory (list of per-level filters) ----
+            //  LevelDirectory (list of per-level filters)
             long levelDirRefs = alignUp(AL_LIST_OBJ_OVERHEAD, ALIGN)
                     + alignUp(OBJ_ARRAY_HDR + (long) levels * REF, ALIGN);
             treesBytes += levelDirRefs;
 
-            // ---- Codec + small objects (very small; lumped into a constant per tree) ----
+            //  Codec + small objects (very small; lumped into a constant per tree)
             final int SMALLS = 128;  // Key64, TreeLayout, a few small fields
             treesBytes += SMALLS;
 
-            // ---- StreamBuffer (exclude heavy payload unless requested) ----
+            //  StreamBuffer (backed by int[])
             int size = t.buffer.length();  // number of symbols in hbi tree buffer
-            // Reference array (Object[]) to hold Integer refs
-            long refsArray = alignUp(OBJ_ARRAY_HDR + (long) size * REF, ALIGN)
-                    + alignUp(AL_LIST_OBJ_OVERHEAD, ALIGN);   // ArrayList shell
-            treesBytes += refsArray;
-
-            if (includePayloadApprox && size > 0) {
-                // Each Integer object (very rough) — default ~16 bytes with compressed OOPs
-                long integers = (long) size * approxIntegerBytes;
-                treesBytes += integers;
-            }
+            long bufferShell = alignUp(STREAM_BUFFER_OBJ_OVERHEAD, ALIGN);
+            long payloadBytes = includePayloadApprox ? (long) size * Integer.BYTES : 0L;
+            long arrayBytes = alignUp(INT_ARRAY_HDR + payloadBytes, ALIGN);
+            treesBytes += bufferShell + arrayBytes;
         }
 
-        // ---- AlphabetMapper measured with a small JOL traversal ----
+        //  AlphabetMapper measured with a small JOL traversal
         long alphabetBytes = 0L;
 
-        // ---- Estimators measured with a small JOL traversal ----
+        //  Estimators measured with a small JOL traversal
         long estimatorsBytes = 0L;
         if (!hbi.trees.isEmpty()) {
             java.util.ArrayList<Object> roots = new java.util.ArrayList<>(hbi.trees.size());
@@ -257,54 +223,6 @@ public class MemUtil {
         return 8;
     }
 
-    /* ===== Reflection helpers to hide StreamBuffer payloads during JOL ===== */
-
-    private static final class ArrayListSnapshot {
-        final Object[] elementData;
-        final int size;
-        ArrayListSnapshot(Object[] elementData, int size) { this.elementData = elementData; this.size = size; }
-    }
-
-    private static java.lang.reflect.Field AL_ELEMENT_DATA;
-    private static java.lang.reflect.Field AL_SIZE;
-
-    private static void ensureArrayListFields() {
-        if (AL_ELEMENT_DATA != null) return;
-        try {
-            AL_ELEMENT_DATA = java.util.ArrayList.class.getDeclaredField("elementData");
-            AL_SIZE         = java.util.ArrayList.class.getDeclaredField("size");
-            AL_ELEMENT_DATA.setAccessible(true);
-            AL_SIZE.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            throw new RuntimeException("ArrayList internals not found; add --add-opens=java.base/java.util=ALL-UNNAMED", e);
-        }
-    }
-
-    /** Swap out the internal array and size so the list appears empty to JOL (O(1), no copying). */
-    private static ArrayListSnapshot stealAndEmptyArrayList(java.util.ArrayList<?> list) {
-        ensureArrayListFields();
-        try {
-            Object[] current = (Object[]) AL_ELEMENT_DATA.get(list);
-            int size = (int) AL_SIZE.get(list);
-            AL_ELEMENT_DATA.set(list, new Object[0]);
-            AL_SIZE.set(list, 0);
-            return new ArrayListSnapshot(current, size);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Failed to swap ArrayList internals; add --add-opens=java.base/java.util=ALL-UNNAMED", e);
-        }
-    }
-
-    /** Restore a list that was emptied by stealAndEmptyArrayList. */
-    private static void restoreArrayList(java.util.ArrayList<?> list, ArrayListSnapshot snapshot) {
-        if (snapshot == null) return;
-        ensureArrayListFields();
-        try {
-            AL_ELEMENT_DATA.set(list, snapshot.elementData);
-            AL_SIZE.set(list, snapshot.size);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException("Failed to restore ArrayList internals", e);
-        }
-    }
     /**
      * EXACT with Java Object Layout (JOL): sum of all membership filters across all trees.
      * hbi is fast because the number of objects is O(number of levels), not O(window size).
@@ -334,10 +252,10 @@ public class MemUtil {
             t.estimator = null;
         }
 
-        // Empty each buffer's ArrayList in O(1)
-        java.util.ArrayList<ArrayListSnapshot> snaps = new java.util.ArrayList<>(hbi.trees.size());
+        // Temporarily detach each buffer's payload (O(1))
+        java.util.ArrayList<StreamBuffer.Snapshot> snaps = new java.util.ArrayList<>(hbi.trees.size());
         for (tree.ImplicitTree<membership.Membership> t : hbi.trees) {
-            snaps.add(stealAndEmptyArrayList(t.buffer.data));
+            snaps.add(t.buffer.detach());
         }
 
         try {
@@ -345,7 +263,7 @@ public class MemUtil {
         } finally {
             // Restore buffers and estimators
             for (int i = 0; i < hbi.trees.size(); i++) {
-                restoreArrayList(hbi.trees.get(i).buffer.data, snaps.get(i));
+                hbi.trees.get(i).buffer.restore(snaps.get(i));
             }
             for (int i = 0; i < hbi.trees.size(); i++) {
                 if (hbi.trees.get(i).estimator == null) hbi.trees.get(i).estimator = saved.get(i);
@@ -356,7 +274,7 @@ public class MemUtil {
      * HYBRID report (fast, robust):
      *  - Membership filters: EXACT with JOL
      *  - Tree skeleton (LevelDirectory shells, codecs/layouts): APPROX (tiny)
-     *  - StreamBuffer payload: APPROX (ArrayList shell + Object[] refs + per-Integer payload)
+     *  - StreamBuffer payload: APPROX (StreamBuffer shell + int[] payload)
      *  - AlphabetMapper: EXACT with JOL
      *  - Estimators: EXACT with JOL
      *
@@ -372,6 +290,8 @@ public class MemUtil {
         final int AL_LIST_OBJ_OVERHEAD = 24;
         final int OBJ_ARRAY_HDR        = 16;
         final int SMALLS_PER_TREE      = 128;
+        final int STREAM_BUFFER_OBJ_OVERHEAD = 24;
+        final int INT_ARRAY_HDR        = 16;
 
         long treeStructuresMinusMembership = 0L;
         long streamBufferBytes = 0L;
@@ -389,10 +309,9 @@ public class MemUtil {
 
             // StreamBuffer: full (structure + payload) so you can see data cost
             int size = t.buffer.length();
-            long bufShell = alignUpSafe(AL_LIST_OBJ_OVERHEAD, ALIGN);
-            long bufArr   = alignUpSafe(OBJ_ARRAY_HDR + (long) size * REF, ALIGN);
-            long bufInts  = (size > 0) ? (long) size * (long) approxIntegerBytes : 0L;
-            streamBufferBytes = safeAdd(streamBufferBytes, safeAdd(safeAdd(bufShell, bufArr), bufInts));
+            long bufShell = alignUpSafe(STREAM_BUFFER_OBJ_OVERHEAD, ALIGN);
+            long bufArray = alignUpSafe(INT_ARRAY_HDR + (long) size * Integer.BYTES, ALIGN);
+            streamBufferBytes = safeAdd(streamBufferBytes, safeAdd(bufShell, bufArray));
         }
 
         // Exact with JOL: AlphabetMapper and Estimators (both small graphs)
@@ -413,8 +332,8 @@ public class MemUtil {
         java.util.Locale L = java.util.Locale.ROOT;
         return String.format(L, "Total (hybrid): %d B (%.3f MiB)", total, total/(1024.0*1024.0)) + "\n"
                 + String.format(L, "TreeStructures (exact membership + approx shells): %d B (%.3f MiB)", treeStructuresBytes, treeStructuresBytes/(1024.0*1024.0)) + "\n"
-                + String.format(L, "  ├─ Membership (JOL exact): %d B (%.3f MiB)", membershipBytes, membershipBytes/(1024.0*1024.0)) + "\n"
-                + String.format(L, "  └─ Non-membership shells (approx): %d B (%.3f MiB)", treeStructuresMinusMembership, treeStructuresMinusMembership/(1024.0*1024.0)) + "\n"
+                + String.format(L, "  |_ Membership (JOL exact): %d B (%.3f MiB)", membershipBytes, membershipBytes/(1024.0*1024.0)) + "\n"
+                + String.format(L, "  |_ Non-membership shells (approx): %d B (%.3f MiB)", treeStructuresMinusMembership, treeStructuresMinusMembership/(1024.0*1024.0)) + "\n"
                 + String.format(L, "StreamBuffer (approx): %d B (%.3f MiB)", streamBufferBytes, streamBufferBytes/(1024.0*1024.0)) + "\n"
                 + String.format(L, "AlphabetMapper (JOL): %d B (%.3f MiB)", alphabetBytes, alphabetBytes/(1024.0*1024.0)) + "\n"
                 + String.format(L, "Estimators (JOL): %d B (%.3f MiB)", estimatorsBytes, estimatorsBytes/(1024.0*1024.0));

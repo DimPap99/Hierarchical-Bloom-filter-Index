@@ -16,6 +16,7 @@ import search.PruningPlan;
 import search.SearchAlgorithm;
 import search.Verifier;
 import tree.ImplicitTree;
+import tree.StreamBuffer;
 import tree.TreeLayout;
 import utilities.AlphabetMapper;
 import utilities.MemUtil;
@@ -330,8 +331,12 @@ public final class HBI implements IPMIndexing {
         long duration = 0;
         for (int i = 0; i < lcCostEstimIter; i++) {
             long startTime = System.nanoTime();
+            StreamBuffer buffer = tree.buffer;
             for (int j = 0; j < pat.nGramToInt.length - 1; j++) {
-                boolean in = tree.buffer.data.get(0) == 1;
+                if (buffer.length() == 0) {
+                    break;
+                }
+                boolean in = buffer.get(0) == 1;
             }
             duration += System.nanoTime() - startTime;
         }

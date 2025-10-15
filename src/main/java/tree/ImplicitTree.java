@@ -16,7 +16,7 @@ import java.util.function.IntFunction;
 
 
 /**
- * An implicit binary tree of Bloom/Cuckoo filters that indexes
+ * An implicit binary tree of Membership data structures filters that indexes
  * a contiguous fragment of the text stream.
  *
  * @param <M> concrete {@link Membership} implementation
@@ -31,11 +31,12 @@ public final class ImplicitTree< M extends Membership> {
     public final StreamBuffer         buffer;
     public final LongKey codec;
     public Estimator estimator;
-    /** Maximum number of characters the root interval spans. */
+    int treeSize;
+    // Maximum number of characters the root interval spans.
     private final int capacity;
     public PruningPlan pruningPlan;
 //    public int treeIdx;
-    /** Global position of the last appended character.  Starts at –1. */
+    // Global position of the last appended character.  Starts at –1.
     private long endPos = -1;
     public int id = 0;
 
@@ -44,11 +45,12 @@ public final class ImplicitTree< M extends Membership> {
                         LongKey codec, Estimator est) {
         this.layout   = layout;
         this.levels   = new LevelDirectory<>(layout, filterFactory);
-        this.buffer   = new StreamBuffer();
-        this.codec    = codec;
         this.capacity = layout.intervalSize(0);
+        this.buffer   = new StreamBuffer(true, this.capacity);
+        this.codec    = codec;
         this.estimator = est;
         containCounter = 0;
+//        this.treeSize = size;
 //        this.tr
     }
 
@@ -70,6 +72,19 @@ public final class ImplicitTree< M extends Membership> {
         }
     }
 
+//    public void append(long c, long globalPos) {
+//        buffer.append(c);
+//        endPos = globalPos;
+//        indexedItemsCounter++;
+//
+//        for (int level = layout.getEffectiveRootLevel(); level < layout.getEffectiveLeafLevel(); level++) {
+//            int span       = layout.intervalSize(level);
+//            int intervalId = (int) (indexedItemsCounter / span);      // LOCAL id
+//            long key       = codec.pack(level, intervalId, c);
+//            levels.insert(level, key);
+//        }
+//    }
+
     /** Returns {@code true} once the tree’s root interval is full. */
     public boolean isFull() {
         return buffer.length() >= capacity;
@@ -79,7 +94,7 @@ public final class ImplicitTree< M extends Membership> {
     /** Inclusive global position of the last character held. */
     public long endPos() { return endPos; }
 
-    // ---- Geometry helpers forwarded from TreeLayout ----
+    //  Geometry helpers forwarded from TreeLayout
     public int intervalSize(int level)      { return layout.intervalSize(level); }
     public int leftChild(int idx) { return layout.leftChild(idx); }
     public int rightChild(int idx){ return layout.rightChild(idx); }
@@ -87,7 +102,7 @@ public final class ImplicitTree< M extends Membership> {
     public int effectiveDepth(){
         return layout.getEffectiveLeafLevel();
     }
-    // ---- Expose per-level membership and level-count (read-only) ----
+    //  Expose per-level membership and level-count (read-only)
     public M filterAtLevel(int level) { return levels.filter(level); }
 
     public int totalFilters(){return  levels.depth();}
@@ -135,7 +150,7 @@ public final class ImplicitTree< M extends Membership> {
         Frame rightFrame = new Frame(nextLevel, rightChild);
         int maxDepth = this.maxDepth();
         //add right child
-        //if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+//        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
             children.add(rightFrame);
         //}
         //add left child
@@ -153,7 +168,7 @@ public final class ImplicitTree< M extends Membership> {
         // Leaf: check the actual buffer position
         if (f.level() == maxLevel) {
             return (f.intervalIdx() >= posOffset &&
-                    this.buffer.data.get(f.intervalIdx()) == firstChar)
+                    this.buffer.get(f.intervalIdx()) == firstChar)
                     ? f.intervalIdx()
                     : -1;
         }
@@ -190,7 +205,7 @@ public final class ImplicitTree< M extends Membership> {
     }
 
 
-    // ---- Membership lookup ------------------------------------
+    //  Membership lookup
     public boolean contains(int level, long key) {
         containCounter++;
         return levels.contains(level, key);
