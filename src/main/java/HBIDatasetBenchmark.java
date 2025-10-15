@@ -69,24 +69,24 @@ public class HBIDatasetBenchmark {
                     System.out.println("\n");
                     double avgAlpha = 0;
                     /* JIT warm-up so HotSpot reaches steady state */
-//                    for (int i = 0; i < 2; i++) {
-//                        HBI hbi = newHbi(0.999);
-//
-//                        hbi.stats().setCollecting(false);
-//                        hbi.stats().setExperimentMode(false);
-//
-//                        Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
-//
-//                        IPMIndexing ipm = new RegexIndex();
-//                        Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-////                        avgLp = hbi.stats().lpLevels().stream()
-////                                .mapToDouble(a -> a)
-////                                .sum() / hbi.stats().lpLevels().size();
-////                        avgAlpha = hbi.stats().alphas().stream()
-////                                .mapToDouble(a -> a)
-////                                .sum() / hbi.stats().alphas().size();
-//
-//                    }
+                    for (int i = 0; i < 2; i++) {
+                        HBI hbi = newHbi(0.999);
+
+                        hbi.stats().setCollecting(false);
+                        hbi.stats().setExperimentMode(false);
+
+                        Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+
+                        IPMIndexing ipm = new RegexIndex();
+                        Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
+//                        avgLp = hbi.stats().lpLevels().stream()
+//                                .mapToDouble(a -> a)
+//                                .sum() / hbi.stats().lpLevels().size();
+//                        avgAlpha = hbi.stats().alphas().stream()
+//                                .mapToDouble(a -> a)
+//                                .sum() / hbi.stats().alphas().size();
+
+                    }
 
                     ArrayList<Long> timings;
                     for (int i = 0; i < 1; i++) {

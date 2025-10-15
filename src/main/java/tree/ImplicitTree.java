@@ -93,13 +93,13 @@ public final class ImplicitTree< M extends Membership> {
     public int totalFilters(){return  levels.depth();}
     public void dropFiltersUpToLp(int lp){
 
-        int effectiveroot = this.effectiveRoot();
-        while(lp != 0){
-            this.levels.dropFilter(0);
-            effectiveroot++;
+        int effectiveRoot = this.effectiveRoot();
+        while(lp > 0){
+            this.levels.dropLevel(effectiveRoot);
+            effectiveRoot++;
             lp--;
         }
-        this.layout.setEffectiveLeafLevel(effectiveroot);
+        this.layout.setEffectiveRootLevel(effectiveRoot);
 
     }
     public int levelCount() { return levels.depth(); }

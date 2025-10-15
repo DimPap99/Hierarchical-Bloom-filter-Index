@@ -48,12 +48,11 @@ public class TreeLayout{
             this.effectiveRootLevel = effRoot;
         }
 
-        public void setEffectiveLeafLevel(int effRoot){
-            this.effectiveLeafLevel = effectiveLeafLevel;
+        public void setEffectiveLeafLevel(int effLeaf){
+            this.effectiveLeafLevel = effLeaf;
         }
 
         public int getEffectiveRootLevel(){ return effectiveRootLevel; }
         public int getEffectiveLeafLevel(){ return effectiveLeafLevel; }
 
     }
-

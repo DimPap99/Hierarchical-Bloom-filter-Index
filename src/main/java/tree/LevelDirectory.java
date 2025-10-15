@@ -15,34 +15,48 @@ import java.util.function.IntFunction;
 public final class LevelDirectory<M extends Membership> {
 
     private final List<M> levelFilters;
+    private int firstLevel;
 
     public LevelDirectory(TreeLayout layout,
                           IntFunction<M> factory) {
-        int totalLevels = layout.getEffectiveLeafLevel() - layout.getEffectiveRootLevel();
+        this.firstLevel = layout.getEffectiveRootLevel();
+        int totalLevels = layout.getEffectiveLeafLevel() - this.firstLevel;
         this.levelFilters = new ArrayList<>(totalLevels);
-        for (int l = layout.getEffectiveRootLevel(); l < layout.getEffectiveLeafLevel(); l++) {
-            levelFilters.add(factory.apply(l));
+        for (int l = 0; l < totalLevels; l++) {
+            levelFilters.add(factory.apply(this.firstLevel + l));
         }
     }
 
+    private int toLocalIndex(int level) {
+        int idx = level - firstLevel;
+        if (idx < 0 || idx >= levelFilters.size()) {
+            throw new IllegalArgumentException("level " + level + " out of range");
+        }
+        return idx;
+    }
+
     public void insert(int level, long key) {
-        levelFilters.get(level).insert(key);
+        levelFilters.get(toLocalIndex(level)).insert(key);
     }
 
     public boolean contains(int level, long key) {
-        return levelFilters.get(level).contains(key);
+        return levelFilters.get(toLocalIndex(level)).contains(key);
     }
 
-    public M filter(int level) { return levelFilters.get(level); }
+    public M filter(int level) { return levelFilters.get(toLocalIndex(level)); }
 
-    public void dropFilter(int idx){
+    public void dropLevel(int level){
+        int idx = toLocalIndex(level);
         levelFilters.remove(idx);
+        if (idx == 0) {
+            firstLevel++;
+        }
     }
 
     public int depth() { return levelFilters.size(); }
 
 
     public double getLevelFpRate(int level) {
-        return levelFilters.get(level).getFpRate();
+        return levelFilters.get(toLocalIndex(level)).getFpRate();
     }
 }
