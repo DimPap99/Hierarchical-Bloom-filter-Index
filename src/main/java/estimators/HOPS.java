@@ -25,7 +25,7 @@ public final class HOPS {
     private final int bucketsMask; // valid only if power of two
 
     /** Per-bucket state: representative key and its priority. */
-    private final int[] repKey;     // representative key per bucket
+    private final long[] repKey;    // representative key per bucket
     private final long[] repPrio;    // representative priority per bucket (lower is better)
     private final boolean[] filled;  // whether a bucket has any representative
 
@@ -61,7 +61,7 @@ public final class HOPS {
         this.bucketsIsPow2 = (bucketNum & (bucketNum - 1)) == 0;
         this.bucketsMask = bucketsIsPow2 ? (bucketNum - 1) : 0;
 
-        this.repKey = new int[bucketNum];
+        this.repKey = new long[bucketNum];
         this.repPrio = new long[bucketNum];
         this.filled = new boolean[bucketNum];
         Arrays.fill(this.repPrio, Long.MAX_VALUE);
@@ -74,7 +74,7 @@ public final class HOPS {
      * Offer one key from the stream. O(1) time.
      * Keeps the minimum-priority representative per bucket.
      */
-    public void insert(int key) {
+    public void insert(long key) {
         final int b = bucketIndex(key);
         final long pr = priorityOf(key);
         if (!filled[b]) {
@@ -106,8 +106,8 @@ public final class HOPS {
     }
 
     /** Get a compact array of current representative keys (order arbitrary). */
-    public int[] getRepresentatives() {
-        int[] out = new int[nonEmpty];
+    public long[] getRepresentatives() {
+        long[] out = new long[nonEmpty];
         int j = 0;
         for (int i = 0; i < bucketNum; i++) {
             if (filled[i]) {
@@ -175,8 +175,8 @@ public final class HOPS {
      * Bucket index h1(key) ∈ {0..B-1}.
      * Uses SplitMix64 finalizer for mixing; maps to bucket via mask or unsigned mod.
      */
-    private int bucketIndex(int key) {
-        long z = Integer.toUnsignedLong(key) ^ bucketSeed;
+    private int bucketIndex(long key) {
+        long z = key ^ bucketSeed;
         long h = mix64(z);
         if (bucketsIsPow2) {
             return (int) (h & bucketsMask);
@@ -189,8 +189,8 @@ public final class HOPS {
     /**
      * Priority h2(key): 64-bit pseudo-uniform; lower is better. Deterministic for a given key+seed.
      */
-    private long priorityOf(int key) {
-        long z = Integer.toUnsignedLong(key) ^ prioritySeed;
+    private long priorityOf(long key) {
+        long z = key ^ prioritySeed;
         return mix64(z);
     }
 
@@ -217,11 +217,11 @@ public final class HOPS {
 
     /** Representative tuple for a bucket (key, priority, bucketIndex). */
     public static final class Rep {
-        public final int key;
+        public final long key;
         public final long priority;
         public final int bucket;
 
-        public Rep(int key, long priority, int bucket) {
+        public Rep(long key, long priority, int bucket) {
             this.key = key;
             this.priority = priority;
             this.bucket = bucket;

@@ -30,7 +30,7 @@ public class HBIDatasetBenchmark {
     private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 74;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 5;        // set to 0 for a dry run
+    private static final int RUNS         = 2;        // set to 0 for a dry run
     private static int NGRAMS = 2;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static int NUMQUERIES = 135;
@@ -79,13 +79,13 @@ public class HBIDatasetBenchmark {
                 }
 
             ArrayList<Long> timings;
-            for (int i = 0; i < 1; i++) {
+            for (int i = 0; i < RUNS; i++) {
 
                 HBI hbi = newHbi(0.99);
 
                 HbiStats stats = hbi.stats();
                 stats.setCollecting(true);
-                runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
+                runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
                 hbiTotalMs += runResult.totalRunTimeMs();
                 hbiTotalMsInsert += runResult.totalInsertTimeMs();
                 if (stats.totalQueryCount() > 0) {
@@ -106,6 +106,8 @@ public class HBIDatasetBenchmark {
             if (RUNS > 0) {
                 System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
                 System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+                System.out.printf("HBI Insert avg per symbol (ms): %.4f%n", (hbiTotalMsInsert / RUNS)/WINDOW_LEN);
+
                 if (statsSamples > 0) {
                     System.out.printf("HBI avg query time per pattern (ms): %.3f%n", avgQueryTimeSum / statsSamples);
                     System.out.printf("HBI avg LP computation time per pattern (ms): %.3f%n", avgLpTimeSum / statsSamples);

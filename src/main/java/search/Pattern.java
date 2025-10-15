@@ -12,8 +12,8 @@ public class Pattern{
     public int[] pi;
 
     public String[] nGramArr;
-    public int[] nGramToInt;
-    public int[] effectiveNgramArr;
+    public long[] nGramToLong;      // filled by the index via StringKeyMapper
+    public long[] effectiveNgramArr;
     public ArrayList<Integer> charStartLp;
     public int nGram = 1;
     public int size;
@@ -29,12 +29,11 @@ public class Pattern{
         int len = s.length() - nGram + 1;
 
         this.nGramArr   = new String[len];
-        this.nGramToInt = new int[len];        // or whatever you store there
+        this.nGramToLong = new long[len];
         int addition =  originalSz%nGram == 0 ? 0 : 1;
-        this.effectiveNgramArr = new int[originalSz/nGram + addition];
+        this.effectiveNgramArr = new long[originalSz/nGram + addition];
         for (int i = 0; i < len; i++) {
             nGramArr[i] = s.substring(i, i + nGram);   // sliding window
-            // nGramToInt[i] = … convert nGramArr[i] to int if needed
         }
 
     }
@@ -50,13 +49,12 @@ public class Pattern{
 
         this.nGramArr   = new String[len];
         Arrays.fill(this.nGramArr, "");
-        this.nGramToInt = new int[len];        // or whatever you store there
+        this.nGramToLong = new long[len];
         int addition =  originalSz%nGram == 0 ? 0 : 1;
-        this.effectiveNgramArr = new int[originalSz/nGram + addition];
+        this.effectiveNgramArr = new long[originalSz/nGram + addition];
         for (int i = 0; i < len; i++) {
-            for(int j = i; j < i + nGram; j++ ){
+            for (int j = i; j < i + nGram; j++ ) {
                 nGramArr[i] += s[j];   // sliding window
-
             }
         }
 
@@ -97,4 +95,3 @@ public class Pattern{
         return pi;
     }
 }
-

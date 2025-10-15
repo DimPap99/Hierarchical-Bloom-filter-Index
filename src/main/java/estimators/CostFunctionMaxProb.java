@@ -36,6 +36,14 @@ public class CostFunctionMaxProb implements CostFunction {
         return this.predictedBloomProbeCost;
     }
 
+    private static int[] toIntArray(long[] tokens) {
+        int[] out = new int[tokens.length];
+        for (int i = 0; i < tokens.length; i++) {
+            out[i] = Math.toIntExact(tokens[i]);
+        }
+        return out;
+    }
+
 
     /**
      * Branching-aware Cost–3:
@@ -79,14 +87,11 @@ public class CostFunctionMaxProb implements CostFunction {
         double bestCost = Double.POSITIVE_INFINITY;
         int    bestLp   = 0;
 
+        final int[] keySeq = toIntArray(strides ? p.effectiveNgramArr : p.nGramToLong);
+
         // Evaluate cost for each candidate Lp (no α sweep needed)
         for (int Lp = minLp; Lp <= maxLpLevel; Lp++) {
-            double cost;
-            if(strides){
-                cost = costAtLevel(tree, probs, p.effectiveNgramArr, Lp, tree.getMembershipFpRate(Lp), maxDepth);
-            }else{
-                cost = costAtLevel(tree, probs, p.nGramToInt, Lp, tree.getMembershipFpRate(Lp), maxDepth);
-            }
+            double cost = costAtLevel(tree, probs, keySeq, Lp, tree.getMembershipFpRate(Lp), maxDepth);
             if (cost < bestCost) {
                 bestCost = cost;
                 bestLp   = Lp;

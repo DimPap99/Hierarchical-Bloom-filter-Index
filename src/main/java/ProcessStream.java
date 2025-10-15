@@ -36,7 +36,7 @@ public class ProcessStream {
         int sumQueryLen = 0;
         for (String q : queries) {
             Pattern p = new Pattern(q, Ngram);
-            sumQueryLen += p.nGramToInt.length;
+            sumQueryLen += p.nGramToLong.length;
         }
         double avgQueryLen = queries.isEmpty() ? 0.0 : (sumQueryLen * 1.0 / queries.size());
 

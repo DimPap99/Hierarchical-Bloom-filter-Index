@@ -150,7 +150,7 @@ public final class HBI implements IPMIndexing {
     /** Stream a single character into the index. */
     @Override
     public void insert(String c) {
-        int intC = keyMapper.mapToInt(c);
+        long token = keyMapper.mapToLong(c);
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
@@ -160,13 +160,13 @@ public final class HBI implements IPMIndexing {
         if (lastTree.isFull()) {
             ImplicitTree<Membership> fresh = createTree();
             fresh.id = trees.size();
-            fresh.estimator.insert(intC);
-            fresh.append(intC, indexedItemsCounter);
+            fresh.estimator.insert(token);
+            fresh.append(token, indexedItemsCounter);
             trees.add(fresh);
 //            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
         } else {
-            lastTree.estimator.insert(intC);
-            lastTree.append(intC, indexedItemsCounter);
+            lastTree.estimator.insert(token);
+            lastTree.append(token, indexedItemsCounter);
         }
 
         if (trees.getLast().indexedItemsCounter + (trees.size() - 1) * this.treeLength > this.windowLength) {
@@ -207,11 +207,11 @@ public final class HBI implements IPMIndexing {
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
-            int ngToInt = this.keyMapper.mapToInt(pat.nGramArr[nIdx]);
-            pat.nGramToInt[nIdx] = ngToInt;
-            if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = ngToInt;
+            long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
+            pat.nGramToLong[nIdx] = tokenVal;
+            if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
-        if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToInt[pat.nGramToInt.length-1];
+        if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
 
         int positionOffset = -1;
         long startTime = System.currentTimeMillis();
@@ -296,7 +296,8 @@ public final class HBI implements IPMIndexing {
         long duration = 0;
         for (int z = 0; z < bcCostEstimIter; z++) {
             long startTime = System.nanoTime();
-            long key = tree.codec.pack(maxLvl, 0, pat.nGramToInt[0]);
+            int packedSymbol = Math.toIntExact(pat.nGramToLong[0]);
+            long key = tree.codec.pack(maxLvl, 0, packedSymbol);
             tree.contains(maxLvl, key);
             duration += System.nanoTime() - startTime;
         }
@@ -332,7 +333,7 @@ public final class HBI implements IPMIndexing {
         for (int i = 0; i < lcCostEstimIter; i++) {
             long startTime = System.nanoTime();
             StreamBuffer buffer = tree.buffer;
-            for (int j = 0; j < pat.nGramToInt.length - 1; j++) {
+            for (int j = 0; j < pat.nGramToLong.length - 1; j++) {
                 if (buffer.length() == 0) {
                     break;
                 }

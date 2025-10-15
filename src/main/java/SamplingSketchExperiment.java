@@ -53,7 +53,7 @@ public class SamplingSketchExperiment {
     }
 
     /** Sorted array (ascending) of exact per-key counts. */
-    private static int[] sortedCounts(HashMap<Integer,Integer> freq) {
+    private static int[] sortedCounts(HashMap<Long,Integer> freq) {
         int[] a = new int[freq.size()];
         int i = 0;
         for (int v : freq.values()) a[i++] = v;
@@ -202,17 +202,17 @@ public class SamplingSketchExperiment {
         Random rng = new Random(seed);
 
         // Generate stream once
-        ArrayList<Integer> stream = new ArrayList<>((int) Math.min(streamLen, Integer.MAX_VALUE));
+        ArrayList<Long> stream = new ArrayList<>((int) Math.min(streamLen, Integer.MAX_VALUE));
         ZipfDistribution z = makeZipfIntDist(alphabetSize, zipfS, seed);
         for (long t = 0; t < streamLen; t++) {
-            int key = (dist == Dist.UNIFORM) ? rng.nextInt(alphabetSize) : sampleZipfInt(z);
+            long key = (dist == Dist.UNIFORM) ? rng.nextInt(alphabetSize) : sampleZipfInt(z);
             stream.add(key);
         }
 
         // Exact truth
         long tTruth0 = System.currentTimeMillis();
-        HashMap<Integer, Integer> freq = new HashMap<>(Math.max(16, alphabetSize * 2));
-        for (int key : stream) freq.merge(key, 1, Integer::sum);
+        HashMap<Long, Integer> freq = new HashMap<>(Math.max(16, alphabetSize * 2));
+        for (long key : stream) freq.merge(key, 1, Integer::sum);
         int[] truthSorted = sortedCounts(freq);
         long tTruthMs = System.currentTimeMillis() - tTruth0;
 
@@ -244,8 +244,8 @@ public class SamplingSketchExperiment {
         HOPS mpq = new HOPS(Bused, /*effectiveSigma*/ 0, bucketSeed, prioSeed);
 
         long tMPQ0 = System.currentTimeMillis();
-        for (int key : stream) mpq.insert(key);
-        int[] repsMPQ = mpq.getRepresentatives();
+        for (long key : stream) mpq.insert(key);
+        long[] repsMPQ = mpq.getRepresentatives();
         int nbMPQ = repsMPQ.length;
 
         int[] sampleCountsMPQ = new int[nbMPQ];
@@ -268,8 +268,8 @@ public class SamplingSketchExperiment {
         BottomKSampler bk = new BottomKSampler(/*k=*/Bused, /*seed=*/seed ^ 0x5eed5eedL);
 
         long tBK0 = System.currentTimeMillis();
-        for (int key : stream) bk.offer(key);
-        int[] repsBK = bk.sampleKeys();
+        for (long key : stream) bk.offer(key);
+        long[] repsBK = bk.sampleKeys();
         int nbBK = repsBK.length;
         int[] sampleCountsBK = new int[nbBK];
         for (int i = 0; i < nbBK; i++) sampleCountsBK[i] = freq.getOrDefault(repsBK[i], 0);

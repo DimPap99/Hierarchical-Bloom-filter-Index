@@ -8,5 +8,3 @@ public interface LongKey extends Key {
     char ch(long key);
 }
 
-
-

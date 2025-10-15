@@ -22,11 +22,9 @@ public class MultiLevelPruning implements  PruningPlan {
     @Override
     public ArrayList<Integer> pruningPlan(Pattern pattern, ImplicitTree tree, double confidence, boolean strides) {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
-        int[] arr;
-        if(strides){arr = pattern.effectiveNgramArr;}
-        else{arr = pattern.nGramToInt;}
-        for(int c: arr){
-            int lp = MathUtils.pruningLevel(tree, confidence, tree.estimator.estimate(c));
+        long[] arr = strides ? pattern.effectiveNgramArr : pattern.nGramToLong;
+        for(long token : arr){
+            int lp = MathUtils.pruningLevel(tree, confidence, tree.estimator.estimate(token));
             prunedLevels.add(lp);
         }
         return prunedLevels;

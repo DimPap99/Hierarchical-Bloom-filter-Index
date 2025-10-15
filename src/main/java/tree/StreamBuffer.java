@@ -1,28 +1,32 @@
 package tree;
 
-/** Grow-only text store with constant-time random access backed by a fixed {@code int[]} capacity. */
+/** Grow-only text store with constant-time random access backed by a fixed {@code long[]} capacity. */
 public final class StreamBuffer {
 
-    private static final int[] EMPTY = new int[0];
+    private static final long[] EMPTY = new long[0];
 
     private final int capacity;
-    private int[] data;
+    private long[] data;
     private int size;
     private long offset;
     private boolean detached;
 
-    StreamBuffer(boolean useInts, int maxSize) {
+    StreamBuffer(boolean ignoredUseInts, int maxSize) {
         if (maxSize <= 0) {
             throw new IllegalArgumentException("maxSize must be positive");
         }
         this.capacity = maxSize;
-        this.data = new int[maxSize];
+        this.data = new long[maxSize];
         this.size = 0;
         this.offset = 0L;
         this.detached = false;
     }
 
     public void append(int value) {
+        append((long) value);
+    }
+
+    public void append(long value) {
         if (detached) {
             throw new IllegalStateException("StreamBuffer is detached");
         }
@@ -32,14 +36,7 @@ public final class StreamBuffer {
         data[size++] = value;
     }
 
-    public void append(long value) {
-        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("Token exceeds 32-bit range: " + value);
-        }
-        append((int) value);
-    }
-
-    public int get(int index) {
+    public long get(int index) {
         if (detached) {
             throw new IllegalStateException("StreamBuffer is detached");
         }
@@ -89,17 +86,17 @@ public final class StreamBuffer {
         return offset + size - 1L;
     }
 
-    public int charAt(long globalPos) {
+    public long charAt(long globalPos) {
         int local = (int) (globalPos - offset);
         return get(local);
     }
 
     public static final class Snapshot {
-        private final int[] data;
+        private final long[] data;
         private final int size;
         private final long offset;
 
-        private Snapshot(int[] data, int size, long offset) {
+        private Snapshot(long[] data, int size, long offset) {
             this.data = data;
             this.size = size;
             this.offset = offset;

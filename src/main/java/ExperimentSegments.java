@@ -110,7 +110,7 @@ public class ExperimentSegments {
             Pattern qPat = new Pattern(query, Ngram);
 
             ArrayList<Integer> report = index.report(qPat);
-            avgQueryLength += qPat.nGramToInt.length;
+            avgQueryLength += qPat.nGramToLong.length;
 
             if (queryResults) {
                 PatternResult rr = index.getLatestStats();

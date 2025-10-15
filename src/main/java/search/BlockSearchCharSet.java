@@ -14,7 +14,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
-        Probe probe = probe(tree, f.level(), f.intervalIdx(), p.nGramToInt, p.charStartLp);
+        Probe probe = probe(tree, f.level(), f.intervalIdx(), p.nGramToLong, p.charStartLp);
         this.currentOffset = positionOffset;
 
         int currentIntervalSize  = tree.intervalSize(f.level());
@@ -58,7 +58,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         return matches;
     }
 
-    Probe probe(ImplicitTree tree, int level, int interval, int[] pattern, ArrayList<Integer> lp) {
+    Probe probe(ImplicitTree tree, int level, int interval, long[] pattern, ArrayList<Integer> lp) {
         long key;
         boolean[] matchedArr = new boolean[pattern.length];
         Arrays.fill(matchedArr, false);
@@ -68,13 +68,15 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         for (int i = 0; i < pattern.length; i++) {
             if (level >= lp.get(i)) {
                 // this position is enabled at this level
-                key = tree.codec.pack(level, interval, pattern[i]);
+                int packedSymbol = Math.toIntExact(pattern[i]);
+                key = tree.codec.pack(level, interval, packedSymbol);
                 if (i == 0) testedFirst = true;  // NEW
 
                 if (!tree.contains(level, key)) {
                     // First observed mismatch at i → ensure we know the true prefix length:
                     for (int j = 0; j < i; j++) {
-                        key = tree.codec.pack(level, interval, pattern[j]);
+                        int prefixSymbol = Math.toIntExact(pattern[j]);
+                        key = tree.codec.pack(level, interval, prefixSymbol);
                         matchedArr[j] = tree.contains(level, key);
                         if (j == 0) testedFirst = true;
                         if (!matchedArr[j]) break;             // stop at first NO in prefix

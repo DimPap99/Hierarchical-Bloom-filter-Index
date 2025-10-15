@@ -109,6 +109,7 @@ public class MemUtil {
 
 
     public String fastMemoryEstimate(boolean includePayloadApprox, int approxIntegerBytes, HBI hbi) {
+        // approxIntegerBytes parameter retained for backwards compatibility; long-backed buffers ignore it.
         final double LN2 = Math.log(2.0);
         final int ALIGN  = VM.current().objectAlignment();    // often 8 or 16
         final int REF    = inferReferenceSizeFromVmDetails();
@@ -120,7 +121,6 @@ public class MemUtil {
         final int AL_LIST_OBJ_OVERHEAD     = 24;  // ArrayList object header/fields (for levelFilters)
         final int OBJ_ARRAY_HDR            = 16;  // Object[] header
         final int STREAM_BUFFER_OBJ_OVERHEAD = 24; // StreamBuffer object shell
-        final int INT_ARRAY_HDR            = 16;  // int[] header
 
         long treesBytes = 0L;
 
@@ -158,8 +158,8 @@ public class MemUtil {
             //  StreamBuffer (backed by int[])
             int size = t.buffer.length();  // number of symbols in hbi tree buffer
             long bufferShell = alignUp(STREAM_BUFFER_OBJ_OVERHEAD, ALIGN);
-            long payloadBytes = includePayloadApprox ? (long) size * Integer.BYTES : 0L;
-            long arrayBytes = alignUp(INT_ARRAY_HDR + payloadBytes, ALIGN);
+            long payloadBytes = includePayloadApprox ? (long) size * Long.BYTES : 0L;
+            long arrayBytes = alignUp(LONG_ARRAY_HDR + payloadBytes, ALIGN);
             treesBytes += bufferShell + arrayBytes;
         }
 
@@ -274,13 +274,14 @@ public class MemUtil {
      * HYBRID report (fast, robust):
      *  - Membership filters: EXACT with JOL
      *  - Tree skeleton (LevelDirectory shells, codecs/layouts): APPROX (tiny)
-     *  - StreamBuffer payload: APPROX (StreamBuffer shell + int[] payload)
+     *  - StreamBuffer payload: APPROX (StreamBuffer shell + long[] payload)
      *  - AlphabetMapper: EXACT with JOL
      *  - Estimators: EXACT with JOL
      *
      * Prints five lines: Total / TreeStructures / StreamBuffer / AlphabetMapper / Estimators
      */
     public String jolHybridMemoryReport(int approxIntegerBytes, HBI hbi) {
+        // approxIntegerBytes retained for API compatibility; stream buffers are long-backed.
         // Exact membership bytes
         long membershipBytes = jolExactMembershipBytes(hbi);
 
@@ -291,7 +292,7 @@ public class MemUtil {
         final int OBJ_ARRAY_HDR        = 16;
         final int SMALLS_PER_TREE      = 128;
         final int STREAM_BUFFER_OBJ_OVERHEAD = 24;
-        final int INT_ARRAY_HDR        = 16;
+        final int LONG_ARRAY_HDR       = 16;
 
         long treeStructuresMinusMembership = 0L;
         long streamBufferBytes = 0L;
@@ -310,7 +311,7 @@ public class MemUtil {
             // StreamBuffer: full (structure + payload) so you can see data cost
             int size = t.buffer.length();
             long bufShell = alignUpSafe(STREAM_BUFFER_OBJ_OVERHEAD, ALIGN);
-            long bufArray = alignUpSafe(INT_ARRAY_HDR + (long) size * Integer.BYTES, ALIGN);
+            long bufArray = alignUpSafe(LONG_ARRAY_HDR + (long) size * Long.BYTES, ALIGN);
             streamBufferBytes = safeAdd(streamBufferBytes, safeAdd(bufShell, bufArray));
         }
 

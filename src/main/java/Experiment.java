@@ -60,7 +60,7 @@ public class Experiment {
 
             //            HBILogger.info("Query: " + query);
             ArrayList<Integer> report = index.report(qPat);
-            avgQueryLength += qPat.nGramToInt.length;
+            avgQueryLength += qPat.nGramToLong.length;
             if(queryResults){
                 PatternResult rr = index.getLatestStats();
                 queryResultsList.add(rr);

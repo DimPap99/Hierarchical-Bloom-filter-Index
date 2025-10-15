@@ -59,15 +59,16 @@ public final class ImplicitTree< M extends Membership> {
      * The character is packed into a key for each level and inserted into
      * the corresponding membership structure.
      */
-    public void append(int c, long globalPos) {
-        buffer.append(c);
+    public void append(long symbol, long globalPos) {
+        buffer.append(symbol);
         endPos = globalPos;
         indexedItemsCounter++;
 
+        final int packedSymbol = (int) symbol;
         for (int level = layout.getEffectiveRootLevel(); level < layout.getEffectiveLeafLevel(); level++) {
             int span       = layout.intervalSize(level);
             int intervalId = (int) (indexedItemsCounter / span);      // LOCAL id
-            long key       = codec.pack(level, intervalId, c);
+            long key       = codec.pack(level, intervalId, packedSymbol);
             levels.insert(level, key);
         }
     }
@@ -160,38 +161,40 @@ public final class ImplicitTree< M extends Membership> {
         return children;
     }
 
-    public int traverse(Frame f,
-                 int maxLevel,
-                 int posOffset,
-                 int firstChar) {
-
-        // Leaf: check the actual buffer position
-        if (f.level() == maxLevel) {
-            return (f.intervalIdx() >= posOffset &&
-                    this.buffer.get(f.intervalIdx()) == firstChar)
-                    ? f.intervalIdx()
-                    : -1;
-        }
-
-        // Internal node: depth-first search of children
-        for (Frame child : this.generateChildren(f, posOffset, this.id)) {
-
-            long key = this.codec.pack(child.level(), child.intervalIdx(), firstChar);
-
-            if (!this.contains(child.level(), key)) {
-                // This child cannot possibly contain firstChar – skip it
-                continue;
-            }
-
-            int res = traverse(child, maxLevel, posOffset, firstChar);
-            if (res != -1) {          // found it in this subtree
-                return res;
-            }
-        }
-
-        // Not found in any child
-        return -1;
-    }
+//    public int traverse(Frame f,
+//                 int maxLevel,
+//                 int posOffset,
+//                 long firstSymbol) {
+//
+//        // Leaf: check the actual buffer position
+//        final int packedSymbol = Math.toIntExact(firstSymbol);
+//
+//        if (f.level() == maxLevel) {
+//            return (f.intervalIdx() >= posOffset &&
+//                    this.buffer.get(f.intervalIdx()) == firstSymbol)
+//                    ? f.intervalIdx()
+//                    : -1;
+//        }
+//
+//        // Internal node: depth-first search of children
+//        for (Frame child : this.generateChildren(f, posOffset, this.id)) {
+//
+//            long key = this.codec.pack(child.level(), child.intervalIdx(), packedSymbol);
+//
+//            if (!this.contains(child.level(), key)) {
+//                // This child cannot possibly contain firstChar – skip it
+//                continue;
+//            }
+//
+//            int res = traverse(child, maxLevel, posOffset, firstChar);
+//            if (res != -1) {          // found it in this subtree
+//                return res;
+//            }
+//        }
+//
+//        // Not found in any child
+//        return -1;
+//    }
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
         int spanAll = 1 << maxLevel;              // == tree.intervalSize

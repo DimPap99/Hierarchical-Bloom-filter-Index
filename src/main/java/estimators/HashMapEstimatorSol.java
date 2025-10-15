@@ -9,7 +9,7 @@ import static solvers.PatternPrunerHalley.solveB;
 
 public class HashMapEstimatorSol implements Estimator {
 
-    public HashMap<Integer, Integer> frequencies;
+    public HashMap<Long, Integer> frequencies;
 
     public double totalRecords;
 
@@ -24,22 +24,23 @@ public class HashMapEstimatorSol implements Estimator {
     }
 
     @Override
-    public void insert(int key) {
+    public void insert(long key) {
         frequencies.merge(key, 1, Integer::sum);
     }
 
     @Override
-    public double estimate(int key) {
-        if(frequencies.containsKey(key)){
-            return frequencies.get(key)/totalRecords;
+    public double estimate(long key) {
+        if (totalRecords <= 0) {
+            return 0.0;
         }
-        return 0;
+        Integer count = frequencies.get(key);
+        return (count == null) ? 0.0 : (count / totalRecords);
     }
     @Override
     public double[] estimateALl(Pattern p, boolean strides){
-        double[] result = new double[p.nGramToInt.length];
-        for(int i = 0; i < p.nGramToInt.length; i++){
-            result[i] = this.estimate(p.nGramToInt[i]);
+        double[] result = new double[p.nGramToLong.length];
+        for(int i = 0; i < p.nGramToLong.length; i++){
+            result[i] = this.estimate(p.nGramToLong[i]);
         }
         return result;
     }

@@ -308,16 +308,16 @@ public class ConfidenceExperiment {
             // track extremes
             if (relErr < s.minRelError) {
                 s.minRelError = relErr;
-                s.minRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length);
+                s.minRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToLong.length);
             }
             if (relErr > s.maxRelError) {
                 s.maxRelError = relErr;
-                s.maxRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length);
+                s.maxRow = new PatternRow(runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToLong.length);
             }
 
             // optional detailed CSV
             patternRows.add(List.of(
-                    runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToInt.length
+                    runIdx, pr.Lp(), pr.cfLp(), actual, est, relErr, pr.p().nGramToLong.length
             ));
         }
 

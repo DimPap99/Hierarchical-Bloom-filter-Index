@@ -4,8 +4,8 @@ import search.Pattern;
 
 public interface Estimator {
     public void init(int totalRecords);
-    public void insert(int key);
-    public double estimate(int key);
+    public void insert(long key);
+    public double estimate(long key);
 
     public double[] estimateALl(Pattern p, boolean strides);
 

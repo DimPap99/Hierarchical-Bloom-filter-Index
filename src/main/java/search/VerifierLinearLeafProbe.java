@@ -44,7 +44,7 @@ public class VerifierLinearLeafProbe implements Verifier {
             }
 
             /* ---------- 2. run the naive verifier  */
-            result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat.nGramToInt);
+            result = verifyAtLeavesNaive(currentTreeIdx, trees, leafStartIdx, pat.nGramToLong);
 
             if (result.matched) {                           // full hit
                 matches.add(result.pos);
@@ -71,7 +71,7 @@ public class VerifierLinearLeafProbe implements Verifier {
             int currentTreeIdx,
             ArrayList<ImplicitTree<Membership>> trees,
             int leafStartIdx,
-            int[] pat)
+            long[] pat)
     {
         //  constants (same for every tree)
         final int span      = trees.get(0).baseIntervalSize();               // 2^maxDepth

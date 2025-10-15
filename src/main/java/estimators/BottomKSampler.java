@@ -12,7 +12,7 @@ public final class BottomKSampler {
     // Max-heap by unsigned priority (largest at root = current threshold)
     private final PriorityQueue<Entry> heap;
     // Keys currently in the heap (uniqueness guard)
-    private final HashSet<Integer> inHeap;
+    private final HashSet<Long> inHeap;
 
     public BottomKSampler(int k, long seed) {
         if (k <= 0) throw new IllegalArgumentException("k must be > 0");
@@ -23,7 +23,7 @@ public final class BottomKSampler {
     }
 
     /** Offer one key occurrence; ensures each key appears at most once in the kept set. */
-    public void offer(int key) {
+    public void offer(long key) {
         if (inHeap.contains(key)) return; // already represented; duplicates do nothing
 
         long p = priorityOf(key);
@@ -42,9 +42,9 @@ public final class BottomKSampler {
         }
     }
 
-    public int[] sampleKeys() {
+    public long[] sampleKeys() {
         int n = heap.size();
-        int[] out = new int[n];
+        long[] out = new long[n];
         int i = 0;
         for (Entry e : heap) out[i++] = e.key;
         return out;
@@ -61,8 +61,8 @@ public final class BottomKSampler {
 
     // ---------- internals ----------
 
-    private long priorityOf(int key) {
-        long z = Integer.toUnsignedLong(key) ^ prioritySeed;
+    private long priorityOf(long key) {
+        long z = key ^ prioritySeed;
         return mix64(z);
     }
 
@@ -80,9 +80,9 @@ public final class BottomKSampler {
 
     /** Heap entry */
     private static final class Entry {
-        final int key;
+        final long key;
         final long priority;
-        Entry(int key, long priority) { this.key = key; this.priority = priority; }
+        Entry(long key, long priority) { this.key = key; this.priority = priority; }
 
         // Comparator: unsigned priority descending → max-heap
         static final Comparator<Entry> BY_UNSIGNED_PRIORITY_DESC =
