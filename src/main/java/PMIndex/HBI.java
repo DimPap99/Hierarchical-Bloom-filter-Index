@@ -4,6 +4,7 @@ import estimators.CostFunction;
 import estimators.Estimator;
 import jdk.jshell.execution.Util;
 import membership.Key64;
+import membership.KeyPackingService;
 import membership.Membership;
 import org.apache.commons.math3.util.Pair;
 import org.openjdk.jol.info.GraphLayout;
@@ -296,8 +297,7 @@ public final class HBI implements IPMIndexing {
         long duration = 0;
         for (int z = 0; z < bcCostEstimIter; z++) {
             long startTime = System.nanoTime();
-            int packedSymbol = Math.toIntExact(pat.nGramToLong[0]);
-            long key = tree.codec.pack(maxLvl, 0, packedSymbol);
+            long key = tree.codec.packWord(0, pat.nGramToLong[0]);
             tree.contains(maxLvl, key);
             duration += System.nanoTime() - startTime;
         }
@@ -377,7 +377,8 @@ public final class HBI implements IPMIndexing {
         return new ImplicitTree<>(
                 layout,
                 filterFactory,
-                new Key64(maxDepth, alphabetSize),
+                new KeyPackingService(maxDepth, alphabetSize),
+                //new Key64(maxDepth, alphabetSize),
                 estimatorFac.get());
     }
 

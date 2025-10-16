@@ -29,7 +29,17 @@ public class MockMembership implements Membership{
     }
 
     @Override
+    public void insert(long hi, long lo) {
+
+    }
+
+    @Override
     public boolean contains(long[] key) {
+        return false;
+    }
+
+    @Override
+    public boolean contains(long hi, long lo) {
         return false;
     }
 

@@ -64,20 +64,33 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         Arrays.fill(matchedArr, false);
 
         boolean testedFirst = false;   // NEW: did we actually test i==0?
-
+        boolean contains = false;
         for (int i = 0; i < pattern.length; i++) {
             if (level >= lp.get(i)) {
                 // this position is enabled at this level
-                int packedSymbol = Math.toIntExact(pattern[i]);
-                key = tree.codec.pack(level, interval, packedSymbol);
+                if (tree.codec.fitsOneWord(interval, pattern[i])) {
+                    long w = tree.codec.packWord(interval, pattern[i]);
+                    contains = tree.contains(level, w);
+                } else {
+                    long hi = Integer.toUnsignedLong(interval);
+                    long lo = pattern[i];
+                    contains = tree.contains(level, hi, lo);
+                }
                 if (i == 0) testedFirst = true;  // NEW
 
-                if (!tree.contains(level, key)) {
+                if (!contains) {
                     // First observed mismatch at i → ensure we know the true prefix length:
                     for (int j = 0; j < i; j++) {
-                        int prefixSymbol = Math.toIntExact(pattern[j]);
-                        key = tree.codec.pack(level, interval, prefixSymbol);
-                        matchedArr[j] = tree.contains(level, key);
+//                        int prefixSymbol = Math.toIntExact(pattern[j]);
+                        if (tree.codec.fitsOneWord(interval, pattern[j])) {
+                            long w = tree.codec.packWord(interval, pattern[j]);
+                            contains = tree.contains(level, w);
+                        } else {
+                            long hi = Integer.toUnsignedLong(interval);
+                            long lo = pattern[j];
+                            contains = tree.contains(level, hi, lo);
+                        }
+                        matchedArr[j] = contains;
                         if (j == 0) testedFirst = true;
                         if (!matchedArr[j]) break;             // stop at first NO in prefix
                     }

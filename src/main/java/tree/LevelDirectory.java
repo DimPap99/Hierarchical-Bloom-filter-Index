@@ -38,9 +38,19 @@ public final class LevelDirectory<M extends Membership> {
         levelFilters.get(toLocalIndex(level)).insert(key);
     }
 
+    public void insert(int level, long hi, long lo) {
+        levelFilters.get(toLocalIndex(level)).insert(hi, lo);
+    }
+
+
     public boolean contains(int level, long key) {
         return levelFilters.get(toLocalIndex(level)).contains(key);
     }
+
+    public boolean contains(int level, long hi, long lo) {
+        return levelFilters.get(toLocalIndex(level)).contains(hi, lo);
+    }
+
 
     public M filter(int level) { return levelFilters.get(toLocalIndex(level)); }
 

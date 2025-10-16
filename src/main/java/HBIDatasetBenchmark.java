@@ -2,6 +2,7 @@ import PMIndex.HBI;
 import PMIndex.HbiStats;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
+import estimators.CSEstimator;
 import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
@@ -72,7 +73,7 @@ public class HBIDatasetBenchmark {
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
-            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
 
             IPMIndexing ipm = new RegexIndex();
             Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
@@ -136,7 +137,7 @@ public class HBIDatasetBenchmark {
     // Helper that builds a fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory =
-                () -> new HashMapEstimator(TREE_LEN);
+                () -> new CSEstimator(TREE_LEN, 5, 16384 );//new HashMapEstimator(TREE_LEN);
 
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();

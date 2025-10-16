@@ -1,10 +1,7 @@
 package tree;
 
 import estimators.Estimator;
-import membership.Key;
-import membership.Key64;
-import membership.LongKey;
-import membership.Membership;
+import membership.*;
 import search.BlockSearch;
 import search.Frame;
 import search.PruningPlan;
@@ -29,7 +26,8 @@ public final class ImplicitTree< M extends Membership> {
 
     private final LevelDirectory< M> levels;
     public final StreamBuffer         buffer;
-    public final LongKey codec;
+    public final KeyPackingService codec;
+    public boolean alwaysFits = false;
     public Estimator estimator;
     int treeSize;
     // Maximum number of characters the root interval spans.
@@ -42,7 +40,7 @@ public final class ImplicitTree< M extends Membership> {
 
     public ImplicitTree(TreeLayout layout,
                         IntFunction<M> filterFactory,
-                        LongKey codec, Estimator est) {
+                        KeyPackingService codec, Estimator est) {
         this.layout   = layout;
         this.levels   = new LevelDirectory<>(layout, filterFactory);
         this.capacity = layout.intervalSize(0);
@@ -64,12 +62,21 @@ public final class ImplicitTree< M extends Membership> {
         endPos = globalPos;
         indexedItemsCounter++;
 
-        final int packedSymbol = (int) symbol;
+
+        int span       = layout.intervalSize(layout.getEffectiveRootLevel());
         for (int level = layout.getEffectiveRootLevel(); level < layout.getEffectiveLeafLevel(); level++) {
-            int span       = layout.intervalSize(level);
-            int intervalId = (int) (indexedItemsCounter / span);      // LOCAL id
-            long key       = codec.pack(level, intervalId, packedSymbol);
-            levels.insert(level, key);
+
+            int intervalId = indexedItemsCounter / span;      // node id
+            if (codec.fitsOneWord(intervalId, symbol)) {
+                long w = codec.packWord(intervalId, symbol);
+                levels.insert(level, w);           // calls BloomFilter.insert(long)
+            } else {
+                long hi = Integer.toUnsignedLong(intervalId);
+                long lo = symbol;
+                levels.insert(level, hi, lo);      // calls BloomFilter.insert(long,long)
+            }
+
+            span = span / 2;
         }
     }
 
@@ -212,6 +219,11 @@ public final class ImplicitTree< M extends Membership> {
     public boolean contains(int level, long key) {
         containCounter++;
         return levels.contains(level, key);
+    }
+
+    public boolean contains(int level, long hi, long lo) {
+        containCounter++;
+        return levels.contains(level, hi, lo);
     }
 
     public double getMembershipFpRate(int level) {

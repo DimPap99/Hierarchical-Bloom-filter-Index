@@ -55,11 +55,20 @@ public class BlockSearch implements SearchAlgorithm{
         int matches = 0;
         int effectiveLookupRange = Math.min(currentIntervalSize, pattern.length);
         long key;
+        boolean contains = false;
         for (int i = 0; i < effectiveLookupRange; i+=1) {
-            int packedSymbol = (int)pattern[i];
-            key =  tree.codec.pack(level, interval, packedSymbol);
+//            int packedSymbol = (int)pattern[i];
 
-            if (!tree.contains(level, key)) {
+            if (tree.codec.fitsOneWord(interval, pattern[i])) {
+                long w = tree.codec.packWord(interval, pattern[i]);
+                contains = tree.contains(level, w);
+            } else {
+                long hi = Integer.toUnsignedLong(interval);
+                long lo = pattern[i];
+                contains = tree.contains(level, hi, lo);
+            }
+
+            if (!contains) {
                 return new Probe(matches, false);          // first mismatch at i
             }
             matches+=1;

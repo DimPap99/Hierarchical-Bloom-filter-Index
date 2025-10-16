@@ -46,6 +46,7 @@ public final class StringKeyMapper {
     /** Construct with expected distinct tokens n and target collision probability epsilon. Uses Murmur by default. */
     public StringKeyMapper(long expectedDistinct, double epsilon) {
         this(expectedDistinct, epsilon, Algo.MURMUR3_APACHE);
+
     }
 
     public static StringKeyMapper.Algo chooseAlgo(int avgLen, boolean haveBytes) {
@@ -130,6 +131,16 @@ public final class StringKeyMapper {
 
     /** Map a string to a long in the range [0, 2^{requiredBits}-1]. Always valid and honors epsilon. */
     public long mapToLong(String s) {
+        if (!warnedOnce) {
+            double err31 = birthdayCollisionProbability(this.expectedDistinct, 63);
+            System.out.println(
+                    "Mapper requires " + requiredBits +
+                            " bits to meet epsilon=" + epsilon +
+                            " for n=" + expectedDistinct +
+                            ". Returning 31-bit int (best-effort). Expected collision prob at 63 bits: " + err31
+            );
+            warnedOnce = true;
+        }
         long h64 = hash64(s);
         return h64 & mask64;
     }
@@ -227,24 +238,46 @@ public final class StringKeyMapper {
     /** Collision probability for n distinct items in a space of 2^{bits}. */
     public static double birthdayCollisionProbability(long n, int bits) {
         if (n <= 1) return 0.0;
-        double space = Math.scalb(1.0, bits); // 2^{bits}
-        double nn = (double) n;
-        double num = nn * (nn - 1.0) * 0.5;
-        double x = -num / space;
-        return 1.0 - Math.exp(x);
+        if (bits <= 0) return 1.0;
+
+        // M = 2^bits as a double; safe up to 2^1023 in double exponent
+        final double space = Math.scalb(1.0, bits); // 2^{bits}
+        // Use double for numerator; this is ~ n^2/2 and can exceed 2^53 for large n,
+        // but we only need it as a floating ratio below.
+        final double nn = (double) n;
+        final double num = 0.5d * nn * (nn - 1.0d); // n(n-1)/2
+
+        // If num/space is huge, probability is essentially 1.
+        // Use a threshold where exp(-x) underflows or is numerically negligible.
+        final double x = num / space; // nonnegative
+        if (x >= 40.0) { // exp(-40) ~ 4.2e-18, far below double precision concerns
+            return 1.0;
+        }
+
+        // P = 1 - exp(-x); use -expm1(-x) for accuracy when x is small
+        return -Math.expm1(-x);
     }
+
 
     /** Bits required so that collision probability <= epsilon for n items. */
     public static int bitsForEpsilon(long n, double epsilon) {
         if (n <= 1) return 1;
-        if (!(epsilon > 0.0 && epsilon < 1.0)) throw new IllegalArgumentException("epsilon must be in (0, 1)");
-        double denom = -Math.log(1.0 - epsilon);
-        double nn = (double) n;
-        double M = (nn * (nn - 1.0)) / (2.0 * denom);  // required states
-        double bitsExact = Math.log(M) / Math.log(2.0);
+        if (!(epsilon > 0.0 && epsilon < 1.0)) {
+            throw new IllegalArgumentException("epsilon must be in (0, 1)");
+        }
+
+        // When epsilon is very small, -ln(1 - eps) ~ eps; using log1p improves accuracy.
+        final double denom = -Math.log1p(-epsilon); // = -ln(1 - eps)
+        final double nn = (double) n;
+        final double requiredStates = (nn * (nn - 1.0d)) / (2.0d * denom); // M
+
+        // bits = ceil(log2(M))
+        final double bitsExact = Math.log(requiredStates) / Math.log(2.0d);
         int bits = (int) Math.ceil(bitsExact);
-        if (bits < 1) bits = 1;
-        if (bits > 64) bits = 64; // clamp to 64
+
+        if (bits < 1)  bits = 1;
+        if (bits > 64) bits = 64; // clamp to 64 since you only mask to 64 in this class
         return bits;
     }
+
 }
