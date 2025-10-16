@@ -8,6 +8,10 @@ import tree.ImplicitTree;
 import utilities.MathUtils;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
 
 public class CostFunctionMaxProb implements CostFunction {
 
@@ -35,15 +39,6 @@ public class CostFunctionMaxProb implements CostFunction {
     public double getEstimatedProbeCost() {
         return this.predictedBloomProbeCost;
     }
-
-    private static int[] toIntArray(long[] tokens) {
-        int[] out = new int[tokens.length];
-        for (int i = 0; i < tokens.length; i++) {
-            out[i] = Math.toIntExact(tokens[i]);
-        }
-        return out;
-    }
-
 
     /**
      * Branching-aware Cost–3:
@@ -87,7 +82,7 @@ public class CostFunctionMaxProb implements CostFunction {
         double bestCost = Double.POSITIVE_INFINITY;
         int    bestLp   = 0;
 
-        final int[] keySeq = toIntArray(strides ? p.effectiveNgramArr : p.nGramToLong);
+        final long[] keySeq = strides ? p.effectiveNgramArr : p.nGramToLong;
 
         // Evaluate cost for each candidate Lp (no α sweep needed)
         for (int Lp = minLp; Lp <= maxLpLevel; Lp++) {
@@ -206,18 +201,18 @@ public class CostFunctionMaxProb implements CostFunction {
         return q;
     }
 
-    private static double expectedProbesFromQ(double[] q, int[] keySeq, int width, int level) {
+    private static double expectedProbesFromQ(double[] q, long[] keySeq, int width, int level) {
         int bL   = width >> level;
         int ell  = Math.min(keySeq.length, bL);
         if (ell <= 0) return 0.0;
         if (ell == 1) return 1.0;
 
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+        HashSet<Long> seen = new HashSet<>();
         double total = 1.0;    // P(N>=1) = 1
         double prod  = 1.0;    // running product over q's of first occurrences so far
 
         for (int i = 0; i < ell - 1; i++) {
-            int sym = keySeq[i];
+            long sym = keySeq[i];
             if (seen.add(sym)) {
                 prod *= q[i];
                 if (prod == 0.0) {
@@ -235,15 +230,15 @@ public class CostFunctionMaxProb implements CostFunction {
         return 31 - Integer.numberOfLeadingZeros(q); // floor(log2(width/r))
     }
 
-    private static double productFirstOccurrences(double[] q, int[] keySeq, int width, int level) {
+    private static double productFirstOccurrences(double[] q, long[] keySeq, int width, int level) {
         int bL   = width >> level;
         int ell  = Math.min(keySeq.length, bL);
         if (ell <= 0) return 1.0;  // empty prefix passes trivially
 
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+        HashSet<Long> seen = new HashSet<>();
         double prod = 1.0;
         for (int i = 0; i < ell; i++) {
-            int sym = keySeq[i];
+            long sym = keySeq[i];
             if (seen.add(sym)) {
                 prod *= q[i];
                 if (prod == 0.0) return 0.0; // short-circuit
@@ -257,8 +252,8 @@ public class CostFunctionMaxProb implements CostFunction {
 
 
     // #distinct symbols among the first ell positions (first-occurrence count)
-    private static int countDistinctAtLevel(int[] keySeq, int ell) {
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+    private static int countDistinctAtLevel(long[] keySeq, int ell) {
+        HashSet<Long> seen = new HashSet<>();
         int m = 0;
         for (int i = 0; i < ell; i++) if (seen.add(keySeq[i])) m++;
         return m;
@@ -361,12 +356,13 @@ public class CostFunctionMaxProb implements CostFunction {
 //        return out;
 //    }
 
-    private static double[] adjustWithNgram(int[] keySeq, double[] probs,
+    private double[] adjustWithNgram(long[] keySeq, double[] probs,
                                             PMIndex.NgramModel.Model M) {
-        double[] out = java.util.Arrays.copyOf(probs, probs.length);
+        double[] out = Arrays.copyOf(probs, probs.length);
         for (int i = 0; i < keySeq.length; i++) {
-            double pi_v  = M.pi(keySeq[i]);             // unigram π[v]
-            double pcond = M.P_cond(keySeq, i);         // backoff P(v | context up to order-1)
+            int idx = M.symbolIndex(keySeq[i]);
+            double pi_v  = M.pi(idx);             // unigram π[v]
+            double pcond = (idx >= 0) ? M.P_cond(keySeq, i) : 0.0;         // backoff P(v | context up to order-1)
             if (pi_v > 0.0) {
                 double p = out[i] * (pcond / pi_v);     // likelihood-ratio reweight
                 out[i] = (p < 0.0) ? 0.0 : (p > 1.0) ? 1.0 : p;
@@ -402,7 +398,7 @@ public class CostFunctionMaxProb implements CostFunction {
         // T
         this.T = new double[SIGMA][SIGMA];
         java.util.Map<Long, java.util.Map<Integer, Long>> M1 = bigramModel.ctxMaps.isEmpty()
-                ? java.util.Collections.emptyMap()
+                ? Collections.emptyMap()
                 : bigramModel.ctxMaps.get(0);
 
         int fallbackRows = 0;
@@ -412,8 +408,8 @@ public class CostFunctionMaxProb implements CostFunction {
             if (row != null) for (long c : row.values()) rowSum += c;
 
             if (rowSum > 0L) {
-                for (java.util.Map.Entry<Integer, Long> e :
-                        (row == null ? java.util.Collections.<java.util.Map.Entry<Integer, Long>>emptySet() : row.entrySet())) {
+                for (Map.Entry<Integer, Long> e :
+                        (row == null ? Collections.<Map.Entry<Integer, Long>>emptySet() : row.entrySet())) {
                     int v = e.getKey();
                     this.T[u][v] = (double)e.getValue() / (double)rowSum;
                 }
@@ -446,13 +442,13 @@ public class CostFunctionMaxProb implements CostFunction {
             for (int b = 0; b < SIGMA; b++) rowsum += T[a][b];
             maxRowErr = Math.max(maxRowErr, Math.abs(rowsum - 1.0));
         }
-        if (fallbackRows < 0) {
-            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  PI[min=%.3g,max=%.3g]%n",
-                    sumPi, maxRowErr, SIGMA, minPi, maxPi);
-        } else {
-            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  fallbackRows=%d  PI[min=%.3g,max=%.3g]%n",
-                    sumPi, maxRowErr, SIGMA, fallbackRows, minPi, maxPi);
-        }
+//        if (fallbackRows < 0) {
+//            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  PI[min=%.3g,max=%.3g]%n",
+//                    sumPi, maxRowErr, SIGMA, minPi, maxPi);
+//        } else {
+//            System.out.printf("Markov stats: PI_SUM=%.6f  maxRowErr=%.3g  sigma=%d  fallbackRows=%d  PI[min=%.3g,max=%.3g]%n",
+//                    sumPi, maxRowErr, SIGMA, fallbackRows, minPi, maxPi);
+//        }
         loggedChainStats = true;
     }
 
@@ -517,7 +513,7 @@ public class CostFunctionMaxProb implements CostFunction {
 
     //  utilities
     private static int[] firstOccurrencePositions(int[] keySeq, int ell) {
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell*2);
+        HashSet<Integer> seen = new HashSet<>(ell * 2);
         java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
         for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
         int[] out = new int[first.size()];
@@ -614,9 +610,11 @@ public class CostFunctionMaxProb implements CostFunction {
     private double[] colSum = null;          // colSum[b] = Σ_a π[a] T[a,b]
     private double[][] PTcol = null;         // PTcol[b][a] = π[a] T[a,b]
 
+    // inside estimators.CostFunctionMaxProb
+
     private void ensureDerived() {
         if (derivedReady) return;
-        ensureMarkovFromModel(); // you already have this
+        ensureMarkovFromModel();
 
         PI_SUM = 0.0;
         for (int a = 0; a < SIGMA; a++) PI_SUM += PI[a];
@@ -632,12 +630,56 @@ public class CostFunctionMaxProb implements CostFunction {
             }
             colSum[b] = s;
         }
+        derivedReady = true;
     }
+
     // Small container for set statistics
     private static final class SetStats {
         double pi_notS;    // π(Σ \ S)
         double thetaS;     // avg stay prob inside Σ \ S
         double[] w_to_b;   // for each b in current m-set: Σ_{a∉S} π[a] T[a,b]
+    }
+
+    private final Map<Long, Integer> markovSymbolIndex = new HashMap<>();
+    private boolean markovIndexWarned = false;
+
+    private void replaceMarkovSymbolMapping(Map<Long, Integer> mapping) {
+        markovSymbolIndex.clear();
+        markovIndexWarned = false;
+        if (mapping != null) {
+            markovSymbolIndex.putAll(mapping);
+        }
+    }
+
+    private int resolveMarkovSymbol(long symbol) {
+        Integer idx = markovSymbolIndex.get(symbol);
+        if (idx != null) {
+            return idx;
+        }
+        if (!markovIndexWarned) {
+//            System.out.printf("Markov symbol %d is not mapped; falling back to non-Markov estimates.%n", symbol);
+            markovIndexWarned = true;
+        }
+        return -1;
+    }
+
+    private int[] mapToMarkovIndices(long[] keySeq) {
+        if (markovSymbolIndex.isEmpty()) {
+            if (!markovIndexWarned) {
+                System.out.println("Markov model has no symbol mapping; using non-Markov estimates.");
+                markovIndexWarned = true;
+            }
+            return null;
+        }
+        int[] mapped = new int[keySeq.length];
+        for (int i = 0; i < keySeq.length; i++) {
+            int idx = resolveMarkovSymbol(keySeq[i]);
+            if (idx < 0) {
+                return null;
+            }
+            mapped[i] = idx;
+        }
+        return mapped;
     }
 
     // sym[t] = symbol id for the t-th first-distinct (0..m-1)
@@ -781,11 +823,11 @@ public class CostFunctionMaxProb implements CostFunction {
     private static final int JOINT_M_CAP = 12;
 
 
-    @Override
-    //synth unb
-    public double costAtLevel(ImplicitTree<?> tree,
+//    @Override
+    //synth unbiased
+    public double costAtLevel_unb(ImplicitTree<?> tree,
                               double[] probs,   // per-position per-slot masses p_i, aligned 1-1 with keySeq
-                              int[]    keySeq,  // symbols in probe order
+                              long[]    keySeq,  // symbols in probe order
                               int      Lp,
                               double   _unusedBloomFp,
                               int      _unusedStopLp) {
@@ -845,13 +887,17 @@ public class CostFunctionMaxProb implements CostFunction {
     }
 
     // h(b,s) = 1 - π(Σ\{s}) * θ^{b-1},  with θ = 1 - (Σ_{a≠s} π[a]T[a,s]) / π(Σ\{s})
-    private double hSingletonMarkov(int b, int sym) {
+    private double hSingletonMarkov(int b, long sym) {
         ensureSingleton();
         if (b <= 0) return 0.0;
-        double pi_s   = PI[sym];
+        int idx = resolveMarkovSymbol(sym);
+        if (idx < 0 || idx >= SIGMA) {
+            return 0.0;
+        }
+        double pi_s   = PI[idx];
         double pi_not = 1.0 - pi_s;
         if (pi_not <= 0.0) return 1.0; // degenerate: everything is s
-        double exitToS = colSum[sym] - (pi_s * T[sym][sym]); // Σ_a π[a]T[a,s] - π[s]T[s,s]
+        double exitToS = colSum[idx] - (pi_s * T[idx][idx]); // Σ_a π[a]T[a,s] - π[s]T[s,s]
         double theta   = 1.0 - (exitToS / pi_not);           // avg stay in complement
         if (theta < 0.0) theta = 0.0; else if (theta > 1.0) theta = 1.0;
         double noS     = pi_not * Math.pow(theta, Math.max(0, b - 1));
@@ -859,102 +905,121 @@ public class CostFunctionMaxProb implements CostFunction {
         return (h < 0.0) ? 0.0 : (h > 1.0) ? 1.0 : h;
     }
 
+    private double hSingletonMarkovIdx(int b, int idx) {
+        ensureSingleton();
+        if (b <= 0) return 0.0;
+        if (idx < 0 || idx >= SIGMA) return 0.0;
+
+        double pi_s   = PI[idx];
+        double pi_not = 1.0 - pi_s;
+        if (pi_not <= 0.0) return 1.0;
+
+        double exitToS = colSum[idx] - (pi_s * T[idx][idx]);
+        double theta   = 1.0 - (exitToS / pi_not);
+        if (theta < 0.0) theta = 0.0;
+        if (theta > 1.0) theta = 1.0;
+
+        double noS = pi_not * Math.pow(theta, Math.max(0, b - 1));
+        double h   = 1.0 - noS;
+        return (h < 0.0) ? 0.0 : (h > 1.0) ? 1.0 : h;
+    }
 
     // Unconditional YES per position at level L using Markov singleton presence
-    private double[] qUncondAtLevel_Markov(int width, int level, int[] keySeq, double betaL) {
+    private double[] qUncondAtLevel_Markov(int width, int level, int[] keySeqIdx, double betaL) {
         final int bL  = width >> level;
-        final int ell = Math.min(keySeq.length, bL);
+        final int ell = Math.min(keySeqIdx.length, bL);
         double[] q = new double[ell];
         final double omb = 1.0 - betaL;
         for (int i = 0; i < ell; i++) {
-            int s = keySeq[i];
-            double h = hSingletonMarkov(bL, s);
+            int idx = keySeqIdx[i];
+            double h = hSingletonMarkovIdx(bL, idx);
             q[i] = clamp01(betaL + omb * h);
         }
         return q;
     }
 
+
     // Conditional YES per position at child L given parent (L-1) YES, Markov singleton
-    private double[] qCondChildGivenParent_Markov(int width, int level, int[] keySeq,
+    private double[] qCondChildGivenParent_Markov(int width, int level, int[] keySeqIdx,
                                                   double betaPrev, double betaL) {
         final int bPrev = width >> (level - 1);
         final int bL    = width >> level;
-        final int ell   = Math.min(keySeq.length, bL);
+        final int ell   = Math.min(keySeqIdx.length, bL);
         double[] q = new double[ell];
 
         for (int i = 0; i < ell; i++) {
-            int s = keySeq[i];
-            double hPrev = hSingletonMarkov(bPrev, s);
-            double hL    = hSingletonMarkov(bL,   s);
+            int idx   = keySeqIdx[i];
+            double hPrev = hSingletonMarkovIdx(bPrev, idx);
+            double hL    = hSingletonMarkovIdx(bL,   idx);
 
             double numer = hL + betaL * (hPrev - hL) + betaL * betaPrev * (1.0 - hPrev);
             double denom = betaPrev + (1.0 - betaPrev) * hPrev;
-            double qc    = (denom > 0.0) ? (numer / denom) : 1.0; // if parent YES impossible we wouldn't be here
+            double qc    = (denom > 0.0) ? (numer / denom) : 1.0;
             q[i] = clamp01(qc);
         }
         return q;
     }
 
-//    @Override
-    public double costAtLevel_markov(ImplicitTree<?> tree,
-                              double[] probs,   // NOT used by Markov; kept for API
-                              int[]    keySeq,
+    // inside estimators.CostFunctionMaxProb
+
+    @Override
+    public double costAtLevel(ImplicitTree<?> tree,
+                              double[] probs,   // not used by Markov path, kept for API symmetry
+                              long[]   keySeq,
                               int      Lp,
                               double   _unused,
                               int      _unused2) {
 
-        ensureMarkovFromModel();              // build π and T once
+        ensureMarkovFromModel();
 
         final int width = tree.baseIntervalSize();
         final int r     = keySeq.length;
         final int Ldesc = deepestVisitedLevel(width, r);
 
+        // Map tokens to Markov indices
+        int[] keySeqIdx = mapToMarkovIndices(keySeq);
+//        if (keySeqIdx == null) {
+//            // Real non Markov fallback on long[]
+//            return costAtLevel_nonMarkovLong(tree, probs, keySeq, Lp, _unused, _unused2);
+//        }
+
         double total = 0.0;
 
-        // ---------- Base level Lp: Markov IE (unconditional) ----------
+        // Base level Lp: IE with exact Markov no hit for subsets
         final int bLp  = width >> Lp;
-        final int ellP = Math.min(r, bLp);
+        final int ellP = Math.min(keySeqIdx.length, bLp);
         if (ellP <= 0) return 0.0;
 
         final double betaLp = tree.getMembershipFpRate(Lp);
 
-        // IE over first-occurrences at Lp using Markov "no-U" (unconditional)
-        double[] FmLp = Fm_uncond_markov(width, Lp, keySeq, ellP, betaLp);
-        int[] firstLp = firstOccurrencePositions(keySeq, ellP);
-        double HLp    = H_from_Fm_by_positions(keySeq, ellP, firstLp, FmLp);
-        double F_prev_all = (FmLp.length == 0 ? 1.0 : FmLp[FmLp.length - 1]);  // IE all-YES at Lp
+        double[] FmLp = Fm_uncond_markov(width, Lp, keySeqIdx, ellP, betaLp);
+        int[] firstLp = firstOccurrencePositions(keySeqIdx, ellP);
+        double HLp    = H_from_Fm_by_positions(keySeqIdx, ellP, firstLp, FmLp);
+        double F_prev_all = (FmLp.length == 0 ? 1.0 : FmLp[FmLp.length - 1]);
 
-        double parentsVisited = (1 << Lp);          // expected nodes processed at Lp
-        total += HLp * parentsVisited;              // (× bloomProbeCost if you want time units)
+        double parentsVisited = (1 << Lp);
+        total += HLp * parentsVisited;
 
         if (Lp >= Ldesc) return total;
 
-//        double[] qPrev = qUncondAtLevel_Markov(width, Lp, keySeq, betaLp);
-
-        // ---------- Deeper levels: true conditional q (Markov), IE inside node ----------
+        // Deeper levels: build true conditional q at the child level using the Markov singleton
         for (int L = Lp + 1; L <= Ldesc; L++) {
-            if (!utilities.MathUtils.childCanHost(width, L - 1, r)) break;
+            if (!MathUtils.childCanHost(width, L - 1, r)) break;
 
-            // expected nodes to visit at level L come from IE all-pass at parent:
             double nodesAtL = 2.0 * parentsVisited * F_prev_all;
             if (nodesAtL <= 0.0) break;
 
             double betaPrev = tree.getMembershipFpRate(L - 1);
             double betaL    = tree.getMembershipFpRate(L);
 
-            // per-position YES at child given parent YES (Markov, β-aware)
-            double[] qCondL = qCondChildGivenParent_Markov(width, L, keySeq, betaPrev, betaL);
+            double[] qCondL = qCondChildGivenParent_Markov(width, L, keySeqIdx, betaPrev, betaL);
 
-            // IE inside child from conditional q's via strip→peff→IE (IID surjection inside node)
             HF ns = HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, betaL);
 
-            double HL = ns.H;           // expected probes per visited node at this level
-            total += HL * nodesAtL;     // (× bloomProbeCost if you want time units)
+            total += ns.H * nodesAtL;
 
-            // advance to next level using IE all-YES from this node
             parentsVisited = nodesAtL;
-            F_prev_all     = ns.F;      // carry IE all-pass forward (NOT product of q's)
-//            qPrev          = qCondL;
+            F_prev_all     = ns.F;
         }
 
         return total;
@@ -967,6 +1032,14 @@ public class CostFunctionMaxProb implements CostFunction {
     @Override
     public void setModel(NgramModel.Model bigramModel) {
         this.bigramModel = bigramModel;
+        replaceMarkovSymbolMapping((bigramModel != null) ? bigramModel.symbolToIndex() : Collections.emptyMap());
+        this.PI = null;
+        this.T = null;
+        this.colSum = null;
+        this.PTcol = null;
+        this.singletonReady = false;
+        this.derivedReady = false;
+        this.loggedChainStats = false;
     }
 
     @Override
@@ -977,7 +1050,7 @@ public class CostFunctionMaxProb implements CostFunction {
 
     public double costAtLevel_biased(ImplicitTree<?> tree,
                               double[] probs,   // probs[i] = p_i (per-position)
-                              int[]    keySeq,  // keySeq[i] = symbol at position i
+                              long[]   keySeq,  // keySeq[i] = symbol at position i
                               int      Lp,
                               double   _unusedBloomFp,
                               int      _unusedStopLp) {
@@ -1037,12 +1110,12 @@ public class CostFunctionMaxProb implements CostFunction {
 
     //  Base level: unconditional IE with Bloom (βL)
     public static HF HF_uncond_pos_beta(int width, int level,
-                                        int[] keySeq, double[] probs, double betaL) {
+                                        long[] keySeq, double[] probs, double betaL) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
 
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell * 2);
+        HashSet<Long> seen = new HashSet<>(ell * 2);
         java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
         for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
         final int M = first.size();
@@ -1065,12 +1138,12 @@ public class CostFunctionMaxProb implements CostFunction {
 
     //  Deeper levels: conditional IE from qCond[] with Bloom (βL)
     public static HF HF_cond_from_q_pos_beta(int width, int level,
-                                             int[] keySeq, double[] qCond, double betaL) {
+                                             long[] keySeq, double[] qCond, double betaL) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
 
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>(ell * 2);
+        HashSet<Long> seen = new HashSet<>(ell * 2);
         java.util.ArrayList<Integer> first = new java.util.ArrayList<>();
         for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
         final int M = first.size();
@@ -1161,7 +1234,7 @@ public class CostFunctionMaxProb implements CostFunction {
      * followedFinal is the expected "1 + F*(N-1)" at the last processed level
      */
     private Pair<Double, Double> verticalCostBranching(double[] probs,
-                                                       int[] keySeq,
+                                                       long[] keySeq,
                                                        int width,
                                                        int maxDepth,
                                                        int r,

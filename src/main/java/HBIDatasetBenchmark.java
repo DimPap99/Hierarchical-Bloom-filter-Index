@@ -67,61 +67,64 @@ public class HBIDatasetBenchmark {
         System.out.println("\n");
         double avgAlpha = 0;
         /* JIT warm-up so HotSpot reaches steady state */
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 1; i++) {
             HBI hbi = newHbi(0.999);
 
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
-            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
 
             IPMIndexing ipm = new RegexIndex();
             Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-                }
 
-            ArrayList<Long> timings;
-            for (int i = 0; i < RUNS; i++) {
+        }
 
-                HBI hbi = newHbi(0.99);
+        ArrayList<Long> timings;
+        for (int i = 0; i < RUNS; i++) {
 
-                HbiStats stats = hbi.stats();
-                stats.setCollecting(true);
-                runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
-                hbiTotalMs += runResult.totalRunTimeMs();
-                hbiTotalMsInsert += runResult.totalInsertTimeMs();
-                if (stats.totalQueryCount() > 0) {
-                    lpShareSum += stats.lpShareOfQuery();
-                    avgQueryTimeSum += stats.averageQueryTimeMillis();
-                    avgLpTimeSum += stats.averageLpTimeMillis();
-                    statsSamples++;
-                }
-                IPMIndexing ipm = new RegexIndex();
-                runResult = Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-                ipmTotalMs += runResult.totalRunTimeMs();
-                ipmTotalMsInsert += runResult.totalInsertTimeMs();
-                MemUtil memUtil = new MemUtil();
+            HBI hbi = newHbi(0.99);
 
-
+            HbiStats stats = hbi.stats();
+            hbi.stats().setCollecting(false);
+            hbi.stats().setExperimentMode(false);
+//            stats.setCollecting(true);
+            runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+            hbiTotalMs += runResult.totalRunTimeMs();
+            hbiTotalMsInsert += runResult.totalInsertTimeMs();
+            if (stats.totalQueryCount() > 0) {
+                lpShareSum += stats.lpShareOfQuery();
+                avgQueryTimeSum += stats.averageQueryTimeMillis();
+                avgLpTimeSum += stats.averageLpTimeMillis();
+                statsSamples++;
             }
+            IPMIndexing ipm = new RegexIndex();
+            runResult = Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
+            ipmTotalMs += runResult.totalRunTimeMs();
+            ipmTotalMsInsert += runResult.totalInsertTimeMs();
+            MemUtil memUtil = new MemUtil();
 
-            if (RUNS > 0) {
-                System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-                System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
-                System.out.printf("HBI Insert avg per symbol (ms): %.4f%n", (hbiTotalMsInsert / RUNS)/WINDOW_LEN);
 
-                if (statsSamples > 0) {
-                    System.out.printf("HBI avg query time per pattern (ms): %.3f%n", avgQueryTimeSum / statsSamples);
-                    System.out.printf("HBI avg LP computation time per pattern (ms): %.3f%n", avgLpTimeSum / statsSamples);
-                    System.out.printf("HBI LP time share of query (%%): %.2f%n", (lpShareSum / statsSamples) * 100.0);
-                }
-                System.out.println("Avg LP: " + avgLp);
-                System.out.println("Avg Alpha: " + avgAlpha);
+        }
 
-                System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-                System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
-                System.out.println("\n");
+        if (RUNS > 0) {
+            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
+            System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
+            System.out.printf("HBI Insert avg per symbol (ms): %.4f%n", (hbiTotalMsInsert / RUNS)/WINDOW_LEN);
 
+            if (statsSamples > 0) {
+                System.out.printf("HBI avg query time per pattern (ms): %.3f%n", avgQueryTimeSum / statsSamples);
+                System.out.printf("HBI avg LP computation time per pattern (ms): %.3f%n", avgLpTimeSum / statsSamples);
+                System.out.printf("HBI LP time share of query (%%): %.2f%n", (lpShareSum / statsSamples) * 100.0);
             }
+            System.out.println("Avg LP: " + avgLp);
+            System.out.println("Avg Alpha: " + avgAlpha);
+
+            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
+            System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
+            System.out.println("\n");
+
+        }
 //                    rows.add(List.of(n, hbiTotalMs / RUNS,  hbiTotalMsInsert / RUNS, avgQueryLength, "hbi"));
 
             }

@@ -28,7 +28,7 @@ import java.util.function.Supplier;
 public final class Main {
 
     private static final Path DEFAULT_DATA_FILE = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt");
-    private static final Path DEFAULT_QUERIES_FILE = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/unique_substrings_pg2701_10.txt");
+    private static final Path DEFAULT_QUERIES_FILE = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/10.txt");
     private static final int DEFAULT_WINDOW_LEN = 1 << 21;
     private static final int DEFAULT_TREE_LEN = 1 << 20;
     private static final int DEFAULT_ALPHABET_BASE = 75;

@@ -3,6 +3,7 @@ package utilities;
 import tree.ImplicitTree;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 
 public final class  MathUtils {
     private MathUtils() {
@@ -46,7 +47,7 @@ public final class  MathUtils {
      * Probe order = as given in probs[].
      */
     public static double expectedProbesPerNode(double[] probs,
-                                               int[] keySeq,
+                                               long[] keySeq,
                                                double bloomFp,
                                                int width,
                                                int level) {
@@ -57,10 +58,10 @@ public final class  MathUtils {
 
         double total = 1.0;     // P(N >= 1) = 1
         double prod  = 1.0;     // product over q's for first occurrences seen so far
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+        HashSet<Long> seen = new HashSet<>();
 
         for (int i = 0; i < ell - 1; i++) {
-            int sym = keySeq[i];
+            long sym = keySeq[i];
             if (seen.add(sym)) {
                 // first time we see this key at this node
                 prod *= q_yes(probs[i], width, level, bloomFp);
@@ -72,13 +73,13 @@ public final class  MathUtils {
 
 
 
-    public static double fp_rate(double[] probs, int[] keySeq, int width, int level, double bloomFp){
+    public static double fp_rate(double[] probs, long[] keySeq, int width, int level, double bloomFp){
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         double prod = 1.0;
-        java.util.HashSet<Integer> seen = new java.util.HashSet<>();
+        HashSet<Long> seen = new HashSet<>();
         for (int i = 0; i < ell; i++) {
-            int sym = keySeq[i];
+            long sym = keySeq[i];
             if (seen.add(sym)) {
                 prod *= q_yes(probs[i], width, level, bloomFp);
             }

@@ -91,7 +91,7 @@ public final class HBI implements IPMIndexing {
         this.nGram = config.nGram();
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
-        //this.modelBuilder = new NgramModel.Builder(89*89, 2);
+        this.modelBuilder = new NgramModel.Builder(this.alphabetSize*this.alphabetSize, 2);
     }
 
     public HBI(SearchAlgorithm algo,
@@ -155,7 +155,7 @@ public final class HBI implements IPMIndexing {
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
-//        this.modelBuilder.observeSymbol(intC);
+        this.modelBuilder.observeSymbol(token);
         indexedItemsCounter++;
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
@@ -199,20 +199,19 @@ public final class HBI implements IPMIndexing {
     @Override
     public ArrayList<Integer> report(Pattern pat) {
 
-//        if(!this.builtModel) {
-//            this.modelBuilder.Sigma
-//            cf.setModel(this.modelBuilder.build());
-
-//        };
         ArrayList<Integer> results = new ArrayList<>();
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             pat.nGramToLong[nIdx] = tokenVal;
+            this.modelBuilder.ensureSymbolRegistered(tokenVal);
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
         if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
+
+        cf.setModel(this.modelBuilder.build());
+        this.builtModel = true;
 
         int positionOffset = -1;
         long startTime = System.currentTimeMillis();
@@ -225,29 +224,30 @@ public final class HBI implements IPMIndexing {
             tree.pruningPlan = this.pruningPlanFac.get();
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
             Deque<Frame> stack = new ArrayDeque<>();
-//            double[] pp = tree.estimator.estimateALl(pat, strides);
-//            double pMax = Arrays.stream(pp).min().getAsDouble();
+
             long lpStart = System.nanoTime();
             ArrayList<Integer> lps = null;
 //            lp = Collections.min(lps);
             totalLpTimeNanos += System.nanoTime() - lpStart;
               //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
 //
-//            if (stats.isExperimentMode()) {
-//                pp = tree.estimator.estimateALl(pat, this.strides);
-//                pMax = Arrays.stream(pp).min().getAsDouble();
-//                lp = this.lpOverride;
-//                arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
-//                int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToInt.length) / Math.log(2)));
-//                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToInt, lp, 0.0, m);
-//                lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
-//            } else {
+            if (stats.isExperimentMode()) {
+                double[] pp = tree.estimator.estimateALl(pat, strides);
+                double pMax = Arrays.stream(pp).min().getAsDouble();
+                pp = tree.estimator.estimateALl(pat, this.strides);
+                pMax = Arrays.stream(pp).min().getAsDouble();
+                lp = this.lpOverride;
+                arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
+                int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
+                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToLong, lp, 0.0, m);
+                lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
+            } else {
                 lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
 //                lp = lpCf;
-//            }
+            }
 
             pat.charStartLp = lps;
-
+            lp = this.lpOverride;//Collections.min(lps);
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
                 stats.recordAlpha(cf.getAlpha());
@@ -277,16 +277,16 @@ public final class HBI implements IPMIndexing {
         }
         //long queryDuration = System.nanoTime() - queryStartNanos;
         //stats.recordQueryTiming(queryDuration, totalLpTimeNanos);
-//        if (stats.isExperimentMode()) {
-//
-//            int leafProbes = this.verifier.getLeafProbes();
-//            int bfprobes = this.getAllprobes();
-//            int actualCost = bfprobes;
-////            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
-//
-//            this.verifier.reset();
-//            stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
-//        }
+        if (stats.isExperimentMode()) {
+
+            int leafProbes = this.verifier.getLeafProbes();
+            int bfprobes = this.getAllprobes();
+            int actualCost = bfprobes;
+//            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
+
+            this.verifier.reset();
+            stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
+        }
 
         return results;
     }

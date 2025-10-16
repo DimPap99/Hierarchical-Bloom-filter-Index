@@ -28,7 +28,7 @@ public class CostFunctionSetConf  implements CostFunction {
     }
 
     @Override
-    public double costAtLevel(ImplicitTree<?> tree, double[] probs, int[] keySeq, int Lp, double bloomFp, int stopLp) {
+    public double costAtLevel(ImplicitTree<?> tree, double[] probs, long[] keySeq, int Lp, double bloomFp, int stopLp) {
         return 0;
     }
 

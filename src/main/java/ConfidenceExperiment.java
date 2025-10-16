@@ -21,7 +21,7 @@ public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/1023.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/1023/unique_substrings_1023_10.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/1023/15.txt";
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
@@ -35,7 +35,7 @@ public class ConfidenceExperiment {
     // N-grams for this experiment
     private static int NGRAMS = 1;
 
-    private static int ALPHABET = 75;
+    private static int ALPHABET = 89;
 
     /** Per-pattern row for (optional) CSV dump. */
     private record PatternRow(
@@ -118,11 +118,14 @@ public class ConfidenceExperiment {
         for (int run = 0; run <= RUNS; run++) {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
+            hbi.strides = false;
             hbi.setLpOverride(run);
 //            hbi.resetAlphabetMap(ALPHABET);
             hbi.stats().setCollecting(true);
+            hbi.stats().setExperimentMode(true);
+
 //            RegexIndex ipm = new RegexIndex();
-            ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, true, true);
+            ExperimentRunResult result = Experiment.run(DATA_FILE, QUERIES_FILE, hbi, NGRAMS, false, true);
 
             // --- Summarize this run ---
             RunStats stats = summarizeRun(run, result, patternRows, true, patternAccuracy);

@@ -12,7 +12,7 @@ public interface CostFunction {
 
     double getEstimatedProbeCost();
 
-    double costAtLevel(ImplicitTree<?> tree,  double[] probs, int[] keySeq, int Lp, double bloomFp, int stopLp);
+    double costAtLevel(ImplicitTree<?> tree,  double[] probs, long[] keySeq, int Lp, double bloomFp, int stopLp);
 
     void setModel(NgramModel.Model bigramModel);
 
