@@ -3,7 +3,7 @@ import PMIndex.HbiStats;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 import estimators.CSEstimator;
-import estimators.CostFunctionMaxProb;
+import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
@@ -157,7 +157,7 @@ public class HBIDatasetBenchmark {
                 estFactory,
                 memFactory,
                 prFactory,
-                v, new CostFunctionMaxProb(), conf, NGRAMS);
+                v, new CostFunctionMarkov(), conf, NGRAMS);
     }
 
 

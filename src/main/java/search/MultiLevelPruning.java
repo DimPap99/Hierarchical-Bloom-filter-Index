@@ -1,6 +1,5 @@
 package search;
 
-import estimators.CostFunctionMaxProb;
 import tree.ImplicitTree;
 import utilities.MathUtils;
 

@@ -1,5 +1,4 @@
 package search;
-import estimators.CostFunctionMaxProb;
 import tree.ImplicitTree;
 
 import java.util.ArrayList;

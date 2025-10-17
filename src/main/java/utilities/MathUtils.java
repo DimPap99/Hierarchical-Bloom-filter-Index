@@ -120,4 +120,152 @@ public final class  MathUtils {
         return Math.max(0, Math.min(L, tree.maxDepth() - 1)) + 1;
     }
 
+    public static double clamp01(double value) {
+        if (value <= 0.0) {
+            return 0.0;
+        }
+        if (value >= 1.0) {
+            return 1.0;
+        }
+        return value;
+    }
+
+    public static int deepestVisitedLevel(int width, int patternLength) {
+        int ratio = width / Math.max(patternLength, 1);
+        if (ratio <= 0) {
+            return 0;
+        }
+        return 31 - Integer.numberOfLeadingZeros(ratio);
+    }
+
+    public static double[] qUncondAtLevel(double[] probs, int width, int level, double beta) {
+        int bL   = width >> level;
+        int ell  = Math.min(probs.length, bL);
+        double[] q = new double[ell];
+        double omb = 1.0 - beta;
+        for (int i = 0; i < ell; i++) {
+            double h = h_b(width, level, probs[i]);
+            q[i] = clamp01(beta + omb * h);
+        }
+        return q;
+    }
+
+    public static double[] qCondChildGivenParent(double[] probs,
+                                                  int width,
+                                                  int level,
+                                                  double betaPrev,
+                                                  double betaL) {
+        int bL   = width >> level;
+        int ell  = Math.min(probs.length, bL);
+        double[] q = new double[ell];
+        for (int i = 0; i < ell; i++) {
+            double p     = probs[i];
+            double hPrev = h_b(width, level - 1, p);
+            double hL    = h_b(width, level,     p);
+
+            double numer = hL + betaL * (hPrev - hL) + betaL * betaPrev * (1.0 - hPrev);
+            double denom = betaPrev + (1.0 - betaPrev) * hPrev;
+
+            double qc = (denom > 0.0) ? (numer / denom) : 1.0;
+            q[i] = clamp01(qc);
+        }
+        return q;
+    }
+
+    public static final class HF {
+        public final double H;
+        public final double F;
+
+        public HF(double H, double F) {
+            this.H = H;
+            this.F = F;
+        }
+    }
+
+    public static HF HF_uncond_pos_beta(int width, int level,
+                                        long[] keySeq, double[] probs, double betaL) {
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        if (ell <= 0) return new HF(0.0, 1.0);
+
+        HashSet<Long> seen = new HashSet<>(ell * 2);
+        ArrayList<Integer> first = new ArrayList<>();
+        for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
+        final int M = first.size();
+        if (M == 0) return new HF(1.0, 1.0);
+
+        double[] p = new double[M];
+        for (int m = 0; m < M; m++) {
+            p[m] = clamp01(probs[first.get(m)]);
+        }
+
+        double[] Fm = new double[M];
+        for (int m = 1; m <= M; m++) {
+            Fm[m - 1] = IE_prefix_collapsed_beta(p, m, bL, betaL);
+        }
+
+        double H = 1.0;
+        for (int m = 0; m < M; m++) {
+            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1);
+            int mult = next - first.get(m);
+            H += mult * Fm[m];
+        }
+        return new HF(H, Fm[M - 1]);
+    }
+
+    public static HF HF_cond_from_q_pos_beta(int width, int level,
+                                             long[] keySeq, double[] qCond, double betaL) {
+        final int bL  = width >> level;
+        final int ell = Math.min(keySeq.length, bL);
+        if (ell <= 0) return new HF(0.0, 1.0);
+
+        HashSet<Long> seen = new HashSet<>(ell * 2);
+        ArrayList<Integer> first = new ArrayList<>();
+        for (int pos = 0; pos < ell; pos++) if (seen.add(keySeq[pos])) first.add(pos);
+        final int M = first.size();
+        if (M == 0) return new HF(1.0, 1.0);
+
+        final double omb = 1.0 - betaL;
+
+        double[] pEff = new double[M];
+        for (int m = 0; m < M; m++) {
+            double q = clamp01(qCond[first.get(m)]);
+            double g = (omb > 0.0) ? clamp01((q - betaL) / omb) : 1.0;
+            double p = 1.0 - Math.pow(1.0 - g, 1.0 / Math.max(1, bL));
+            pEff[m] = clamp01(p);
+        }
+
+        double[] Fm = new double[M];
+        for (int m = 1; m <= M; m++) {
+            Fm[m - 1] = IE_prefix_collapsed_beta(pEff, m, bL, betaL);
+        }
+
+        double H = 1.0;
+        for (int m = 0; m < M; m++) {
+            int next = (m + 1 < M) ? first.get(m + 1) : (ell - 1);
+            int mult = next - first.get(m);
+            H += mult * Fm[m];
+        }
+        return new HF(H, Fm[M - 1]);
+    }
+
+    private static double IE_prefix_collapsed_beta(double[] pFirstOccur, int m, int bL, double betaL) {
+        final int subsets = 1 << m;
+        final double omb = 1.0 - betaL;
+        double F = 0.0;
+        for (int mask = 0; mask < subsets; mask++) {
+            int bits = Integer.bitCount(mask);
+            double sumP = 0.0;
+            for (int i = 0; i < m; i++) {
+                if ((mask & (1 << i)) != 0) {
+                    sumP += pFirstOccur[i];
+                }
+            }
+            double base = clamp01(1.0 - sumP);
+            double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
+            F += coeff * Math.pow(base, bL);
+        }
+        return clamp01(F);
+    }
+
 }

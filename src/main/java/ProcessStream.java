@@ -1,7 +1,7 @@
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
-import estimators.CostFunctionMaxProb;
+import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
@@ -203,7 +203,7 @@ public class ProcessStream {
                 memFactory,
                 prFactory,
                 verifier,
-                new CostFunctionMaxProb(),
+                new CostFunctionMarkov(),
                 conf,
                 ngrams
         );

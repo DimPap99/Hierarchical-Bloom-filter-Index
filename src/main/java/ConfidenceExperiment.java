@@ -1,6 +1,7 @@
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
+import estimators.CostFunctionMarkov;
 import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
@@ -21,7 +22,7 @@ public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
     private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/1023.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/1023/15.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/1023/25.txt";
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
@@ -29,7 +30,7 @@ public class ConfidenceExperiment {
     private static final boolean LINEBREAK_DATASET = false;
 
     // Controls how many times we rerun the whole workload to average out JIT etc.
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
+    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(20)/Math.log(2)));
 
 
     // N-grams for this experiment
@@ -114,10 +115,11 @@ public class ConfidenceExperiment {
 
         Map<String, PatternAccuracy> patternAccuracy = new HashMap<>();
         double avgOverallOverestimation = 0.0;
-
+        long start = System.currentTimeMillis();
         for (int run = 0; run <= RUNS; run++) {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
+            hbi.isMarkov = true;
             hbi.strides = false;
             hbi.setLpOverride(run);
 //            hbi.resetAlphabetMap(ALPHABET);
@@ -265,11 +267,12 @@ public class ConfidenceExperiment {
         double u = 1f - avgOverallOverestimation;
         System.out.printf(Locale.ROOT,
                 "Overall Overestimation: " + avgOverallOverestimation + " Underestimation: " + u);
-
-
+        long end = System.currentTimeMillis() - start;
+        System.out.println("\nTime taken: " + end);
         // --- Write CSVs ---
         CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
         CsvUtil.writeRows(Path.of("patterns_summary.csv"), patternRows);
+
     }
 
     /** Computes all per-run stats, optionally filling per-pattern rows. */
@@ -451,7 +454,7 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionMaxProb(),
+                new CostFunctionMarkov(),
                 conf,
                 NGRAMS
         );

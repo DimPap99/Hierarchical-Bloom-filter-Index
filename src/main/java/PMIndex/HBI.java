@@ -70,9 +70,20 @@ public final class HBI implements IPMIndexing {
     private int lpOverride;
     public NgramModel.Builder modelBuilder;
     public boolean memoryPolicy = false;
+    public boolean isMarkov = false;
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
+
+    private void ensureMarkovBuilder() {
+        if (this.modelBuilder == null) {
+            int sigma = Math.max(1, this.alphabetSize);
+            long squared = (long) sigma * (long) sigma;
+            int capacity = (squared > Integer.MAX_VALUE) ? Integer.MAX_VALUE : (int) squared;
+            this.modelBuilder = new NgramModel.Builder(capacity, 2);
+        }
+    }
+
     public HBI(HbiConfiguration config) {
         this.config = Objects.requireNonNull(config, "config");
         this.stats = new HbiStats(config.collectStats(), config.experimentMode());
@@ -91,7 +102,9 @@ public final class HBI implements IPMIndexing {
         this.nGram = config.nGram();
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
-        this.modelBuilder = new NgramModel.Builder(this.alphabetSize*this.alphabetSize, 2);
+        if(isMarkov) {
+            ensureMarkovBuilder();
+        }
     }
 
     public HBI(SearchAlgorithm algo,
@@ -155,7 +168,11 @@ public final class HBI implements IPMIndexing {
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
-        this.modelBuilder.observeSymbol(token);
+        if(isMarkov) {
+            ensureMarkovBuilder();
+            this.modelBuilder.observeSymbol(token);
+        }
+
         indexedItemsCounter++;
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
@@ -205,13 +222,20 @@ public final class HBI implements IPMIndexing {
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             pat.nGramToLong[nIdx] = tokenVal;
-            this.modelBuilder.ensureSymbolRegistered(tokenVal);
+            if(isMarkov) {
+                ensureMarkovBuilder();
+                this.modelBuilder.ensureSymbolRegistered(tokenVal);
+            }
+
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
         if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
+        if(isMarkov){
+            ensureMarkovBuilder();
+            cf.setModel(this.modelBuilder.build());
+            this.builtModel = true;
+        }
 
-        cf.setModel(this.modelBuilder.build());
-        this.builtModel = true;
 
         int positionOffset = -1;
         long startTime = System.currentTimeMillis();

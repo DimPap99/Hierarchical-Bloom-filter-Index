@@ -1,6 +1,6 @@
 import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
-import estimators.CostFunctionMaxProb;
+import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
@@ -100,7 +100,7 @@ public final class TrackIndexingSpeed {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(() -> null)
                 .verifier(verifier)
-                .costFunction(new CostFunctionMaxProb())
+                .costFunction(new CostFunctionMarkov())
                 .confidence(0.99)
                 .collectStats(false)
                 .experimentMode(false)

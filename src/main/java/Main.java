@@ -3,7 +3,7 @@ import PMIndex.HbiConfiguration;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 
-import estimators.CostFunctionMaxProb;
+import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
 import membership.BloomFilter;
@@ -97,7 +97,7 @@ public final class Main {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(verifier)
-                .costFunction(new CostFunctionMaxProb())
+                .costFunction(new CostFunctionMarkov())
                 .confidence(conf)
                 .build();
 
