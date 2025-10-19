@@ -1,15 +1,26 @@
 package PMIndex;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-/** Variable-order n-gram model (order = maxOrder). No smoothing; pure backoff. */
-public class  NgramModel {
+/**
+ * Variable-order n-gram model with dense, prebuilt context-state operator for a chosen order.
+ *
+ * Let order t = maxOrder - 1. For t = 0 there is no context (unigram only).
+ * For t >= 1 we construct a first-order Markov chain over the σ^t context states.
+ * We expose:
+ *  - PI[v]                 : unigram probabilities over symbols (length σ)
+ *  - T[u][v]               : first-order symbol->symbol matrix (for t=1 fallback), shape [σ][σ]
+ *  - ORDER                 : t (context length)
+ *  - CTX_CARD              : number of contexts = σ^t  (0 if t == 0)
+ *  - P0_CTX[ctx]           : initial distribution over contexts (length CTX_CARD)
+ *  - PNEXT[ctx][v]         : P(next = v | context = ctx), shape [CTX_CARD][σ]
+ *  - NEXT_CTX[ctx][v]      : next context index after appending v, shape [CTX_CARD][σ]
+ *
+ * No smoothing; pure MLE from the stream. Use Builder.resetChain() to break dependencies across documents.
+ */
+public final class NgramModel {
+
+    // ========= Utilities =========
 
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
@@ -40,40 +51,71 @@ public class  NgramModel {
         return h;
     }
 
-    /** Immutable model used at query time. */
+    private static int powIntChecked(int base, int exp) {
+        long acc = 1L;
+        for (int i = 0; i < exp; i++) {
+            acc *= base;
+            if (acc > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("base^exp exceeds int: " + base + "^" + exp);
+            }
+        }
+        return (int) acc;
+    }
+
+    // ========= Immutable snapshot =========
+
     public static final class Model {
         public final int sigma;
-        public final int maxOrder;        // e.g., 3 => up to trigram contexts
-        public final long[] uni;          // unigram counts
-        public final long total;          // total symbols
-        // For each context length t in [1..maxOrder-1], a map: ctxCode -> (nextSym -> count)
-        public final List<Map<Long, Map<Integer, Long>>> ctxMaps;
+        public final int maxOrder;                       // = ORDER + 1
+        public final int ORDER;                          // context length t
+        public final long[] uni;                         // unigram counts
+        public final long total;
+        public final List<Map<Long, Map<Integer, Long>>> ctxMaps;  // kept for compatibility
+
         private final Map<Long, Integer> symbolToIndex;
         private final long[] indexToSymbol;
 
-        public Model(int sigma, int maxOrder,
-                     long[] uni, long total,
+        // First-order fallback (always filled)
+        public final double[] PI;                        // length σ
+        public final double[][] T;                       // [σ][σ]
+
+        // Context-state operator for ORDER >= 1
+        public final int CTX_CARD;                       // = σ^ORDER, 0 if ORDER==0
+        public final double[] P0_CTX;                    // length CTX_CARD, null if ORDER==0
+        public final double[][] PNEXT;                   // [CTX_CARD][σ], null if ORDER==0
+        public final int[][] NEXT_CTX;                   // [CTX_CARD][σ], null if ORDER==0
+
+        public Model(int sigma,
+                     int maxOrder,
+                     int order,
+                     long[] uni,
+                     long total,
                      List<Map<Long, Map<Integer, Long>>> ctxMaps,
                      Map<Long, Integer> symbolToIndex,
-                     long[] indexToSymbol) {
-            this.sigma     = sigma;
-            this.maxOrder  = maxOrder;
-            this.uni       = uni;
-            this.total     = total;
-            this.ctxMaps   = ctxMaps;
+                     long[] indexToSymbol,
+                     double[] PI,
+                     double[][] T,
+                     int CTX_CARD,
+                     double[] P0_CTX,
+                     double[][] PNEXT,
+                     int[][] NEXT_CTX) {
+            this.sigma = sigma;
+            this.maxOrder = maxOrder;
+            this.ORDER = order;
+            this.uni = uni;
+            this.total = total;
+            this.ctxMaps = ctxMaps;
             this.symbolToIndex = Collections.unmodifiableMap(new HashMap<>(symbolToIndex));
             this.indexToSymbol = indexToSymbol;
+            this.PI = PI;
+            this.T = T;
+            this.CTX_CARD = CTX_CARD;
+            this.P0_CTX = P0_CTX;
+            this.PNEXT = PNEXT;
+            this.NEXT_CTX = NEXT_CTX;
         }
 
-        /** π[v] = unigram MLE. */
-        public double pi(int v) {
-            long c = (v >= 0 && v < uni.length) ? uni[v] : 0L;
-            return (total > 0) ? ((double)c / (double)total) : 0.0;
-        }
-
-        public Map<Long, Integer> symbolToIndex() {
-            return symbolToIndex;
-        }
+        public Map<Long, Integer> symbolToIndex() { return symbolToIndex; }
 
         public int symbolIndex(long symbol) {
             Integer idx = symbolToIndex.get(symbol);
@@ -81,27 +123,20 @@ public class  NgramModel {
         }
 
         public long symbolForIndex(int idx) {
-            if (idx < 0 || idx >= indexToSymbol.length) {
-                return -1L;
-            }
+            if (idx < 0 || idx >= indexToSymbol.length) return -1L;
             return indexToSymbol[idx];
         }
 
-        /** Encode a context (last t symbols) as base-sigma code. */
-        private long encode(long[] seq, int startInclusive, int endExclusive) {
-            return hashContextIds(seq, startInclusive, endExclusive, symbolToIndex);
+        public double pi(int v) {
+            if (v < 0 || v >= PI.length) return 0.0;
+            return PI[v];
         }
 
-        /**
-         * Backoff conditional: try longest t in [maxOrder-1 .. 1]; if unseen, fall to unigram.
-         * No smoothing; if even unigram 0, returns 0.
-         */
+        /** Hashed backoff conditional (kept for compatibility). */
         public double P_cond(long[] keySeq, int pos) {
             int v = symbolIndex(keySeq[pos]);
-            if (v < 0) {
-                return 0.0;
-            }
-            int maxCtx = Math.min(maxOrder - 1, pos);   // how many previous symbols we have
+            if (v < 0) return 0.0;
+            int maxCtx = Math.min(maxOrder - 1, pos);
             for (int t = maxCtx; t >= 1; t--) {
                 long ctx;
                 if (t == 1) {
@@ -109,43 +144,46 @@ public class  NgramModel {
                     if (prev < 0) continue;
                     ctx = prev & 0xffffffffL;
                 } else {
-                    ctx = encode(keySeq, pos - t, pos); // hashed context
+                    ctx = hashContextIds(keySeq, pos - t, pos, symbolToIndex);
                     if (ctx == Long.MIN_VALUE) continue;
-                }
-                if (ctx == Long.MIN_VALUE) {
-                    continue;
                 }
                 Map<Long, Map<Integer, Long>> mapT = ctxMaps.get(t - 1);
                 Map<Integer, Long> row = mapT.get(ctx);
                 if (row != null) {
-                    long rowSum = 0L;
-                    long cNext = 0L;
+                    long rowSum = 0L, cNext = 0L;
                     for (Map.Entry<Integer, Long> e : row.entrySet()) {
                         rowSum += e.getValue();
                         if (e.getKey() == v) cNext = e.getValue();
                     }
-                    if (rowSum > 0L) {
-                        return (double) cNext / (double) rowSum; // MLE for this context
-                    }
+                    if (rowSum > 0L) return (double) cNext / (double) rowSum;
                 }
             }
-            // backoff to unigram
             return pi(v);
         }
     }
 
-    /** Streaming builder. Feed symbols in corpus order. */
+    // ========= Streaming builder =========
+
     public static final class Builder {
         public final int sigma;
-        public final int maxOrder;
+        public final int maxOrder;       // ORDER = maxOrder - 1
+        public final int ORDER;
         public final long[] uni;
         public long total = 0L;
 
-        // For t=1..maxOrder-1: ctxMaps[t-1] : ctxCode -> (nextSym -> count)
+        // Keep the original sparse structures for compatibility
         private final List<Map<Long, Map<Integer, Long>>> ctxMaps;
 
-        // Sliding window of up to (maxOrder-1) previous symbols
+        // Dense context-state structures for ORDER >= 1
+        private final int CTX_CARD;                // = σ^ORDER, 0 if ORDER==0
+        private final long[] ctxOcc;               // occurrences of each context (for P0), length CTX_CARD
+        private final long[][] nextCounts;         // [CTX_CARD][σ] counts for PNEXT rows
+        private final int[][] nextCtx;             // [CTX_CARD][σ] deterministic next context indices
+
+        // Small history of previous symbol ids
         private final ArrayDeque<Integer> hist = new ArrayDeque<>();
+
+        // Symbol mapping
         private final Map<Long, Integer> symbolToIndex;
         private final long[] indexToSymbol;
         private int distinctSymbols = 0;
@@ -153,59 +191,90 @@ public class  NgramModel {
         public Builder(int sigma, int maxOrder) {
             if (maxOrder < 1) throw new IllegalArgumentException("maxOrder must be >= 1");
             if (sigma <= 0) throw new IllegalArgumentException("sigma must be positive");
-            this.sigma    = sigma;
+            this.sigma = sigma;
             this.maxOrder = maxOrder;
-            this.uni      = new long[sigma];
-            this.ctxMaps  = new ArrayList<>(Math.max(0, maxOrder - 1));
+            this.ORDER = maxOrder - 1;
+            this.uni = new long[sigma];
+
+            // sparse structures
+            this.ctxMaps = new ArrayList<>(Math.max(0, maxOrder - 1));
             for (int t = 1; t <= maxOrder - 1; t++) {
                 ctxMaps.add(new HashMap<>());
             }
-            this.symbolToIndex = new HashMap<>(Math.max(16, (int)Math.ceil(sigma / 0.75))); // avoid frequent resizes
+
+            // dense context-state scaffolding
+            if (ORDER >= 1) {
+                this.CTX_CARD = powIntChecked(sigma, ORDER);
+                this.ctxOcc = new long[CTX_CARD];
+                this.nextCounts = new long[CTX_CARD][sigma];
+                this.nextCtx = new int[CTX_CARD][sigma];
+                // precompute nextCtx mapping for all ctx, v
+                final int powPrev = (ORDER >= 2) ? powIntChecked(sigma, ORDER - 1) : 1;
+                for (int ctx = 0; ctx < CTX_CARD; ctx++) {
+                    final int tail = (ORDER == 1) ? 0 : (ctx % powPrev);
+                    for (int v = 0; v < sigma; v++) {
+                        nextCtx[ctx][v] = tail * sigma + v;
+                    }
+                }
+            } else {
+                this.CTX_CARD = 0;
+                this.ctxOcc = null;
+                this.nextCounts = null;
+                this.nextCtx = null;
+            }
+
+            this.symbolToIndex = new HashMap<>(Math.max(16, (int) Math.ceil(sigma / 0.75)));
             this.indexToSymbol = new long[sigma];
         }
 
-        /** Observe one symbol id (same id space as your estimator). */
-        public void observeSymbol(int s) {
-            observeSymbol((long) s);
-        }
+        public void observeSymbol(int s) { observeSymbol((long) s); }
 
         public void observeSymbol(long symbol) {
             int id = ensureSymbolIndex(symbol);
 
-            uni[id]++;
-            total++;
+            // unigram
+            uni[id] += 1L;
+            total += 1L;
 
-            if (!hist.isEmpty()) {
-                int histSize = hist.size();
-                int[] buf = new int[histSize];
-                int idx = 0;
-                for (int x : hist) buf[idx++] = x;
-
-                for (int t = 1; t <= Math.min(maxOrder - 1, buf.length); t++) {
-                    long ctx;
-                    if (t == 1) {
-                        ctx = buf[buf.length - 1] & 0xffffffffL;
-                    } else {
-                        ctx = hashContextIds(buf, buf.length - t, buf.length);
+            // if we have at least ORDER symbols in history, we can form a context
+            if (ORDER >= 1) {
+                if (hist.size() >= ORDER) {
+                    int ctx = 0;
+                    // oldest..newest over last ORDER ids in history
+                    Iterator<Integer> it = hist.descendingIterator(); // newest..oldest
+                    int[] tmp = new int[ORDER];
+                    for (int i = ORDER - 1; i >= 0 && it.hasNext(); i--) {
+                        tmp[i] = it.next();
                     }
-                    Map<Long, Map<Integer, Long>> mapT = ctxMaps.get(t - 1);
-                    Map<Integer, Long> row = mapT.computeIfAbsent(ctx, k -> new HashMap<>());
+                    for (int i = 0; i < ORDER; i++) ctx = ctx * sigma + tmp[i];
+
+                    // record context occurrence
+                    ctxOcc[ctx] += 1L;
+
+                    // update context->next-symbol counts
+                    nextCounts[ctx][id] += 1L;
+
+                    // keep sparse map in sync for compatibility (optional but cheap)
+                    long ctxHash = (ORDER == 1)
+                            ? (tmp[ORDER - 1] & 0xffffffffL)
+                            : hashContextIds(tmp, 0, ORDER);
+                    Map<Long, Map<Integer, Long>> mapT = ctxMaps.get(ORDER - 1);
+                    Map<Integer, Long> row = mapT.computeIfAbsent(ctxHash, k -> new HashMap<>());
                     row.put(id, row.getOrDefault(id, 0L) + 1L);
                 }
             }
 
+            // advance history
             hist.addLast(id);
-            if (hist.size() > maxOrder - 1) hist.removeFirst();
+            if (hist.size() > ORDER) hist.removeFirst();
         }
 
-        /** Optional: break dependencies across boundaries. */
+        /** Optional: break dependencies between segments. */
         public void resetChain() { hist.clear(); }
 
         private int ensureSymbolIndex(long symbol) {
             Integer existing = symbolToIndex.get(symbol);
-            if (existing != null) {
-                return existing;
-            }
+            if (existing != null) return existing;
             int next = distinctSymbols;
             if (next >= sigma) {
                 throw new IllegalStateException("Exceeded configured sigma capacity while building NgramModel: " + sigma);
@@ -216,23 +285,99 @@ public class  NgramModel {
             return next;
         }
 
-        /**
-         * Ensure the provided symbol has an assigned internal index without affecting
-         * unigram or context counts. Useful when queries introduce previously unseen
-         * hashes that still need to be part of the Markov model.
-         */
-        public int ensureSymbolRegistered(long symbol) {
-            return ensureSymbolIndex(symbol);
-        }
-
+        /** DO NOT call during query time. */
         public Model build() {
+            // Trim symbol arrays to the actually used range, but keep sigma slots for convenience
             long[] uniTrim = uni;
-            if (distinctSymbols < uni.length) {
-                uniTrim = Arrays.copyOf(uni, distinctSymbols);
+            long totalSym = total;
+
+            // π
+            double[] PI = new double[sigma];
+            if (totalSym > 0L) {
+                double denom = (double) totalSym;
+                for (int v = 0; v < sigma; v++) PI[v] = uniTrim[v] / denom;
+            } else {
+                double p = sigma > 0 ? 1.0 / sigma : 0.0;
+                Arrays.fill(PI, p);
             }
-            long[] idToSymbol = Arrays.copyOf(indexToSymbol, distinctSymbols);
+
+            // First-order matrix T for convenience/fallback
+            double[][] T = new double[sigma][sigma];
+            if (ORDER >= 1) {
+                // When ORDER==1, nextCounts rows correspond to previous-symbol contexts directly
+                if (ORDER == 1 && nextCounts != null) {
+                    for (int u = 0; u < sigma; u++) {
+                        long rowSum = 0L;
+                        for (int v = 0; v < sigma; v++) rowSum += nextCounts[u][v];
+                        if (rowSum > 0L) {
+                            double d = (double) rowSum;
+                            for (int v = 0; v < sigma; v++) T[u][v] = nextCounts[u][v] / d;
+                        } else {
+                            System.arraycopy(PI, 0, T[u], 0, sigma);
+                        }
+                    }
+                } else {
+                    // ORDER >= 2 → we do not have T directly; back off to π
+                    for (int u = 0; u < sigma; u++) System.arraycopy(PI, 0, T[u], 0, sigma);
+                }
+            } else {
+                for (int u = 0; u < sigma; u++) System.arraycopy(PI, 0, T[u], 0, sigma);
+            }
+
+            // Context-state operator for ORDER >= 1
+            int ctxCard = (ORDER >= 1) ? CTX_CARD : 0;
+            double[] P0 = null;
+            double[][] PNEXT = null;
+            int[][] NEXT = null;
+
+            if (ORDER >= 1) {
+                P0 = new double[ctxCard];
+                PNEXT = new double[ctxCard][sigma];
+                NEXT = nextCtx; // already filled deterministically
+
+                long totalCtx = 0L;
+                for (int c = 0; c < ctxCard; c++) totalCtx += ctxOcc[c];
+                if (totalCtx > 0L) {
+                    double d = (double) totalCtx;
+                    for (int c = 0; c < ctxCard; c++) P0[c] = ctxOcc[c] / d;
+                } else {
+                    double p = ctxCard > 0 ? 1.0 / ctxCard : 0.0;
+                    Arrays.fill(P0, p);
+                }
+
+                for (int c = 0; c < ctxCard; c++) {
+                    long rowSum = 0L;
+                    for (int v = 0; v < sigma; v++) rowSum += nextCounts[c][v];
+                    if (rowSum > 0L) {
+                        double d = (double) rowSum;
+                        for (int v = 0; v < sigma; v++) PNEXT[c][v] = nextCounts[c][v] / d;
+                    } else {
+                        // unseen context: back off to π
+                        System.arraycopy(PI, 0, PNEXT[c], 0, sigma);
+                    }
+                }
+            }
+
             Map<Long, Integer> mappingSnapshot = new HashMap<>(symbolToIndex);
-            return new Model(distinctSymbols, maxOrder, uniTrim, total, ctxMaps, mappingSnapshot, idToSymbol);
+            long[] idToSymbol = Arrays.copyOf(indexToSymbol, indexToSymbol.length);
+            List<Map<Long, Map<Integer, Long>>> ctxCopy = ctxMaps;
+
+            return new Model(
+                    sigma,
+                    maxOrder,
+                    ORDER,
+                    uniTrim,
+                    totalSym,
+                    ctxCopy,
+                    mappingSnapshot,
+                    idToSymbol,
+                    PI,
+                    T,
+                    ctxCard,
+                    P0,
+                    PNEXT,
+                    NEXT
+            );
         }
     }
 }

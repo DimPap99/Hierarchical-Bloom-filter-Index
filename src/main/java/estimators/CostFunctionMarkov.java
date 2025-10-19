@@ -204,84 +204,64 @@ public class CostFunctionMarkov extends AbstractCostFunction {
         }
         return mapped;
     }
-
-    private double noU_block_markov(int b, int[] U_syms) {
-        if (b <= 0) {
-            return 0.0;
-        }
-        boolean[] inU = new boolean[SIGMA];
-        for (int s : U_syms) {
-            if (s >= 0 && s < SIGMA) {
-                inU[s] = true;
-            }
-        }
-
-        double pi_notU = 0.0;
-        double numer = 0.0;
-        for (int a = 0; a < SIGMA; a++) {
-            if (inU[a]) {
-                continue;
-            }
-            double rowStay = 0.0;
-            for (int bsym = 0; bsym < SIGMA; bsym++) {
-                if (!inU[bsym]) {
-                    rowStay += T[a][bsym];
+    private MarkovSubsetCache buildSubsetCache(int[] sym) {
+        int m = sym.length;
+        double[] piSym = new double[m];
+        double[] colSym = new double[m];
+        double[][] pairMass = new double[m][m];
+        for (int i = 0; i < m; i++) {
+            int si = sym[i];
+            double piVal = (si >= 0 && si < SIGMA) ? PI[si] : 0.0;
+            double colVal = (si >= 0 && si < SIGMA && singletonColSum != null) ? singletonColSum[si] : 0.0;
+            piSym[i] = piVal;
+            colSym[i] = colVal;
+            for (int j = 0; j < m; j++) {
+                int sj = sym[j];
+                if (si >= 0 && si < SIGMA && sj >= 0 && sj < SIGMA) {
+                    pairMass[i][j] = piVal * T[si][sj];
+                } else {
+                    pairMass[i][j] = 0.0;
                 }
             }
-            pi_notU += PI[a];
-            numer += PI[a] * rowStay;
         }
-        if (pi_notU <= 0.0) {
-            return 0.0;
-        }
-        double T00 = numer / pi_notU;
-        if (T00 < 0.0) {
-            T00 = 0.0;
-        } else if (T00 > 1.0) {
-            T00 = 1.0;
-        }
-        return pi_notU * Math.pow(T00, Math.max(0, b - 1));
-    }
-
-    private double Fm_markov_beta(int width, int level, int[] keySeq, int[] firstIdx, int m, double betaL) {
-        final int bL = width >> level;
-        if (m <= 0) {
-            return 1.0;
-        }
-
-        int[] sym = new int[m];
-        for (int k = 0; k < m; k++) {
-            sym[k] = keySeq[firstIdx[k]];
-        }
-
-        final int subsets = 1 << m;
-        final double omb = 1.0 - betaL;
-
-        double F = 0.0;
-        F += 1.0;
-
-        for (int mask = 1; mask < subsets; mask++) {
-            int bits = Integer.bitCount(mask);
-            int[] U = new int[bits];
-            for (int i = 0, t = 0; i < m; i++) {
-                if ((mask & (1 << i)) != 0) {
-                    U[t++] = sym[i];
-                }
-            }
-
-            double PnoU = noU_block_markov(bL, U);
-            double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
-            F += coeff * PnoU;
-        }
-        return MathUtils.clamp01(F);
+        return new MarkovSubsetCache(piSym, colSym, pairMass);
     }
 
     private double[] Fm_uncond_markov(int width, int level, int[] keySeq, int ell, double betaL) {
         int[] firstIdx = firstOccurrencePositions(keySeq, ell);
         int M = firstIdx.length;
+        if (M == 0) {
+            return new double[0];
+        }
+        if (M >= 31) {
+            // Inclusion-exclusion becomes intractable; fall back to zeros so caller reverts to iid.
+            return new double[M];
+        }
+        ensureSingleton();
+        if (singletonColSum == null) {
+            return new double[M];
+        }
+
+        int[] sym = new int[M];
+        for (int k = 0; k < M; k++) {
+            sym[k] = keySeq[firstIdx[k]];
+        }
+
+        MarkovSubsetCache cache = buildSubsetCache(sym);
+        final int bL = width >> level;
+        final double omb = 1.0 - betaL;
         double[] Fm = new double[M];
+
         for (int m = 1; m <= M; m++) {
-            Fm[m - 1] = Fm_markov_beta(width, level, keySeq, firstIdx, m, betaL);
+            double F = 1.0;
+            int limit = 1 << m;
+            for (int mask = 1; mask < limit; mask++) {
+                int bits = Integer.bitCount(mask);
+                double pNo = cache.probabilityNoSymbols(mask, bL);
+                double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
+                F += coeff * pNo;
+            }
+            Fm[m - 1] = MathUtils.clamp01(F);
         }
         return Fm;
     }
@@ -385,5 +365,63 @@ public class CostFunctionMarkov extends AbstractCostFunction {
             q[i] = MathUtils.clamp01(qc);
         }
         return q;
+    }
+
+    private static final class MarkovSubsetCache {
+        private final double[] piSum;
+        private final double[] colSum;
+        private final double[] pairTotal;
+
+        MarkovSubsetCache(double[] piSym, double[] colSym, double[][] pairMass) {
+            int m = piSym.length;
+            int subsets = 1 << m;
+            this.piSum = new double[subsets];
+            this.colSum = new double[subsets];
+            this.pairTotal = new double[subsets];
+
+            for (int mask = 1; mask < subsets; mask++) {
+                int lsb = mask & -mask;
+                int idx = Integer.numberOfTrailingZeros(lsb);
+                int prev = mask ^ lsb;
+
+                piSum[mask] = piSum[prev] + piSym[idx];
+                colSum[mask] = colSum[prev] + colSym[idx];
+
+                double mass = pairTotal[prev] + pairMass[idx][idx];
+                int remaining = prev;
+                while (remaining != 0) {
+                    int bit = remaining & -remaining;
+                    int j = Integer.numberOfTrailingZeros(bit);
+                    mass += pairMass[idx][j];
+                    mass += pairMass[j][idx];
+                    remaining ^= bit;
+                }
+                pairTotal[mask] = mass;
+                // clear remaining bits for this iteration
+            }
+        }
+
+        double probabilityNoSymbols(int mask, int blockLen) {
+            if (mask <= 0 || mask >= piSum.length || blockLen <= 0) {
+                return 0.0;
+            }
+            double piNot = 1.0 - piSum[mask];
+            if (piNot <= 0.0) {
+                return 0.0;
+            }
+            double exitMass = colSum[mask] - pairTotal[mask];
+            if (exitMass < 0.0) {
+                exitMass = 0.0;
+            } else if (exitMass > piNot) {
+                exitMass = piNot;
+            }
+            double theta = 1.0 - (exitMass / piNot);
+            if (theta < 0.0) {
+                theta = 0.0;
+            } else if (theta > 1.0) {
+                theta = 1.0;
+            }
+            return piNot * Math.pow(theta, Math.max(0, blockLen - 1));
+        }
     }
 }

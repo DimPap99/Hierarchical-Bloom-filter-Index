@@ -74,13 +74,15 @@ public final class HBI implements IPMIndexing {
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
+    // Markov config + snapshot lifecycle
+    private int  desiredMaxOrder = 2;   // 2 => first-order
+    private boolean markovDirty = false; // set true on insert; snapshot rebuilt lazily before query
 
     private void ensureMarkovBuilder() {
         if (this.modelBuilder == null) {
             int sigma = Math.max(1, this.alphabetSize);
-            long squared = (long) sigma * (long) sigma;
-            int capacity = (squared > Integer.MAX_VALUE) ? Integer.MAX_VALUE : (int) squared;
-            this.modelBuilder = new NgramModel.Builder(capacity, 2);
+            // maxOrder = context length + 1
+            this.modelBuilder = new NgramModel.Builder(sigma, desiredMaxOrder);
         }
     }
 
@@ -170,7 +172,8 @@ public final class HBI implements IPMIndexing {
 //        if(intC == 146) System.out.println(c);
         if(isMarkov) {
             ensureMarkovBuilder();
-            this.modelBuilder.observeSymbol(token);
+            this.modelBuilder.observeSymbol(token); // update counts while indexing
+            this.markovDirty = true;                // snapshot must be rebuilt before next query
         }
 
         indexedItemsCounter++;
@@ -222,20 +225,16 @@ public final class HBI implements IPMIndexing {
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             pat.nGramToLong[nIdx] = tokenVal;
-            if(isMarkov) {
-                ensureMarkovBuilder();
-                this.modelBuilder.ensureSymbolRegistered(tokenVal);
-            }
-
+            // DO NOT register symbols or mutate the model at query time
+            // if (isMarkov) { ensureMarkovBuilder(); this.modelBuilder.ensureSymbolRegistered(tokenVal); }
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
         if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
-        if(isMarkov){
-            ensureMarkovBuilder();
-            cf.setModel(this.modelBuilder.build());
-            this.builtModel = true;
-        }
 
+        // Lazily rebuild the immutable snapshot once (if new data arrived), then reuse
+        if (isMarkov) {
+            refreshCostModelIfNeeded();
+        }
 
         int positionOffset = -1;
         long startTime = System.currentTimeMillis();
@@ -253,7 +252,7 @@ public final class HBI implements IPMIndexing {
             ArrayList<Integer> lps = null;
 //            lp = Collections.min(lps);
             totalLpTimeNanos += System.nanoTime() - lpStart;
-              //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
+            //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
 //
             if (stats.isExperimentMode()) {
                 double[] pp = tree.estimator.estimateALl(pat, strides);
@@ -288,31 +287,29 @@ public final class HBI implements IPMIndexing {
                 }
                 scn.positionOffset = res.getSecond();
             }
-
-
-//            for (int h = 0; i < results.size(); i++) {
-//                String s = alphabetMap.idToWord.get(tree.buffer.data.get(results.get(i)));
-//                String ppp = alphabetMap.idToWord.get(pat.nGramToInt[0]);
-//                System.out.println("Pattern: " + ppp + " Matched with: "  + s);
-//                int b=2;
-//
-//            }
-
         }
-        //long queryDuration = System.nanoTime() - queryStartNanos;
-        //stats.recordQueryTiming(queryDuration, totalLpTimeNanos);
+
         if (stats.isExperimentMode()) {
 
             int leafProbes = this.verifier.getLeafProbes();
             int bfprobes = this.getAllprobes();
             int actualCost = bfprobes;
-//            System.out.println("Pattern: " + pat.text +" Probes: " + bfprobes + " Leafs: " + bfprobes + " Actual: " + actualCost);
 
             this.verifier.reset();
             stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
         }
 
         return results;
+    }
+
+    private void refreshCostModelIfNeeded() {
+        if (!isMarkov) return;
+        ensureMarkovBuilder();
+        if (this.markovDirty) {
+            this.cf.setModel(this.modelBuilder.build()); // consume prebuilt matrices
+            this.markovDirty = false;
+            this.builtModel = true;
+        }
     }
 
     public long getAvgBloomCost(Pattern pat) {
@@ -379,11 +376,6 @@ public final class HBI implements IPMIndexing {
     }
 
     private ImplicitTree<Membership> createTree() {
-//        if(alphabetSize != 0){
-//            int sigmaSz = this.alphabetMap.getSize();
-//
-//            alphabetSize = sigmaSz +  (int)(sigmaSz*0.1);
-//        }
 
         TreeLayout layout = makeLayout();
         int maxDepth = layout.levels();
@@ -414,8 +406,5 @@ public final class HBI implements IPMIndexing {
         }
         return sum;
     }
-
-
-
 
 }
