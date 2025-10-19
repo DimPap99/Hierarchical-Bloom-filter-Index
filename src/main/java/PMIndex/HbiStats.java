@@ -14,12 +14,14 @@ public final class HbiStats {
 
     private final List<Integer> lpLevels = new ArrayList<>();
     private final List<Double> alphas = new ArrayList<>();
+    private final List<Long> minCostLpTimesNanos = new ArrayList<>();
     private PatternResult latestPatternResult;
     private boolean collectStats;
     private boolean experimentMode;
     private long totalQueryTimeNanos;
     private long totalLpTimeNanos;
     private long queryCount;
+    private long totalMinCostLpTimeNanos;
 
     public HbiStats(boolean collectStats, boolean experimentMode) {
         this.collectStats = collectStats;
@@ -36,6 +38,7 @@ public final class HbiStats {
         if (!collectStats) {
             lpLevels.clear();
             alphas.clear();
+            resetExperimentStats();
             resetTiming();
         }
     }
@@ -46,6 +49,9 @@ public final class HbiStats {
 
     public void setExperimentMode(boolean experimentMode) {
         this.experimentMode = experimentMode;
+        if (!experimentMode) {
+            resetExperimentStats();
+        }
     }
 
     public void recordLp(int lp) {
@@ -68,6 +74,10 @@ public final class HbiStats {
         return Collections.unmodifiableList(alphas);
     }
 
+    public List<Long> minCostLpTimesNanos() {
+        return Collections.unmodifiableList(minCostLpTimesNanos);
+    }
+
     public PatternResult latestPatternResult() {
         return latestPatternResult;
     }
@@ -83,6 +93,14 @@ public final class HbiStats {
         totalQueryTimeNanos += queryTimeNanos;
         totalLpTimeNanos += lpTimeNanos;
         queryCount++;
+    }
+
+    public void recordMinCostLpTime(long durationNanos) {
+        if (!experimentMode) {
+            return;
+        }
+        minCostLpTimesNanos.add(durationNanos);
+        totalMinCostLpTimeNanos += durationNanos;
     }
 
     public double averageQueryTimeMillis() {
@@ -106,6 +124,13 @@ public final class HbiStats {
         return (double) totalLpTimeNanos / totalQueryTimeNanos;
     }
 
+    public double averageMinCostLpTimeMillis() {
+        if (minCostLpTimesNanos.isEmpty()) {
+            return 0.0;
+        }
+        return (totalMinCostLpTimeNanos / 1_000_000.0) / minCostLpTimesNanos.size();
+    }
+
     public long totalQueryCount() {
         return queryCount;
     }
@@ -118,9 +143,18 @@ public final class HbiStats {
         return totalLpTimeNanos;
     }
 
+    public long totalMinCostLpTimeNanos() {
+        return totalMinCostLpTimeNanos;
+    }
+
     private void resetTiming() {
         totalQueryTimeNanos = 0L;
         totalLpTimeNanos = 0L;
         queryCount = 0L;
+    }
+
+    private void resetExperimentStats() {
+        minCostLpTimesNanos.clear();
+        totalMinCostLpTimeNanos = 0L;
     }
 }

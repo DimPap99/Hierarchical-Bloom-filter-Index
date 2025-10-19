@@ -184,6 +184,11 @@ public final class  MathUtils {
 
     public static HF HF_uncond_pos_beta(int width, int level,
                                         long[] keySeq, double[] probs, double betaL) {
+        return HF_uncond_pos_beta(width, level, keySeq, probs, betaL, Integer.MAX_VALUE);
+    }
+
+    public static HF HF_uncond_pos_beta(int width, int level,
+                                        long[] keySeq, double[] probs, double betaL, int ieMaxOrder) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
@@ -194,6 +199,8 @@ public final class  MathUtils {
         final int M = first.size();
         if (M == 0) return new HF(1.0, 1.0);
 
+        int orderLimit = (ieMaxOrder < 0) ? Integer.MAX_VALUE : ieMaxOrder;
+
         double[] p = new double[M];
         for (int m = 0; m < M; m++) {
             p[m] = clamp01(probs[first.get(m)]);
@@ -201,7 +208,7 @@ public final class  MathUtils {
 
         double[] Fm = new double[M];
         for (int m = 1; m <= M; m++) {
-            Fm[m - 1] = IE_prefix_collapsed_beta(p, m, bL, betaL);
+            Fm[m - 1] = IE_prefix_collapsed_beta(p, m, bL, betaL, orderLimit);
         }
 
         double H = 1.0;
@@ -215,6 +222,11 @@ public final class  MathUtils {
 
     public static HF HF_cond_from_q_pos_beta(int width, int level,
                                              long[] keySeq, double[] qCond, double betaL) {
+        return HF_cond_from_q_pos_beta(width, level, keySeq, qCond, betaL, Integer.MAX_VALUE);
+    }
+
+    public static HF HF_cond_from_q_pos_beta(int width, int level,
+                                             long[] keySeq, double[] qCond, double betaL, int ieMaxOrder) {
         final int bL  = width >> level;
         final int ell = Math.min(keySeq.length, bL);
         if (ell <= 0) return new HF(0.0, 1.0);
@@ -226,6 +238,7 @@ public final class  MathUtils {
         if (M == 0) return new HF(1.0, 1.0);
 
         final double omb = 1.0 - betaL;
+        int orderLimit = (ieMaxOrder < 0) ? Integer.MAX_VALUE : ieMaxOrder;
 
         double[] pEff = new double[M];
         for (int m = 0; m < M; m++) {
@@ -237,7 +250,7 @@ public final class  MathUtils {
 
         double[] Fm = new double[M];
         for (int m = 1; m <= M; m++) {
-            Fm[m - 1] = IE_prefix_collapsed_beta(pEff, m, bL, betaL);
+            Fm[m - 1] = IE_prefix_collapsed_beta(pEff, m, bL, betaL, orderLimit);
         }
 
         double H = 1.0;
@@ -250,22 +263,46 @@ public final class  MathUtils {
     }
 
     private static double IE_prefix_collapsed_beta(double[] pFirstOccur, int m, int bL, double betaL) {
-        final int subsets = 1 << m;
+        return IE_prefix_collapsed_beta(pFirstOccur, m, bL, betaL, Integer.MAX_VALUE);
+    }
+
+    private static double IE_prefix_collapsed_beta(double[] pFirstOccur,
+                                                   int m,
+                                                   int bL,
+                                                   double betaL,
+                                                   int maxOrder) {
+        final int M = Math.max(0, Math.min(m, pFirstOccur.length));
+        if (M == 0) {
+            return 1.0;
+        }
+
+        final int t = Math.max(0, Math.min(maxOrder, M));
         final double omb = 1.0 - betaL;
-        double F = 0.0;
-        for (int mask = 0; mask < subsets; mask++) {
-            int bits = Integer.bitCount(mask);
-            double sumP = 0.0;
-            for (int i = 0; i < m; i++) {
-                if ((mask & (1 << i)) != 0) {
-                    sumP += pFirstOccur[i];
-                }
-            }
-            double base = clamp01(1.0 - sumP);
-            double coeff = ((bits & 1) == 0 ? 1.0 : -1.0) * Math.pow(omb, bits);
-            F += coeff * Math.pow(base, bL);
+
+        double F = 1.0; // k = 0 term
+        for (int k = 1; k <= t; k++) {
+            double sumOverSubsetsK = sumCombPowers_k(pFirstOccur, M, k, 0, 0.0, bL);
+            double coeff = (((k & 1) == 0) ? 1.0 : -1.0) * Math.pow(omb, k);
+            F += coeff * sumOverSubsetsK;
         }
         return clamp01(F);
+    }
+
+    private static double sumCombPowers_k(double[] p,
+                                          int M,
+                                          int k,
+                                          int start,
+                                          double sumP,
+                                          int bL) {
+        if (k == 0) {
+            double base = clamp01(1.0 - sumP);
+            return Math.pow(base, bL);
+        }
+        double total = 0.0;
+        for (int i = start; i <= M - k; i++) {
+            total += sumCombPowers_k(p, M, k - 1, i + 1, sumP + p[i], bL);
+        }
+        return total;
     }
 
 }

@@ -75,16 +75,26 @@ public final class HBI implements IPMIndexing {
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
     // Markov config + snapshot lifecycle
-    private int  desiredMaxOrder = 2;   // 2 => first-order
+    private int  desiredMaxOrder = 3;   // 2 => first-order
     private boolean markovDirty = false; // set true on insert; snapshot rebuilt lazily before query
 
     private void ensureMarkovBuilder() {
         if (this.modelBuilder == null) {
             int sigma = Math.max(1, this.alphabetSize);
             // maxOrder = context length + 1
-            this.modelBuilder = new NgramModel.Builder(sigma, desiredMaxOrder);
+            this.modelBuilder = new NgramModel.Builder(sigma, 3);
         }
     }
+//    Avg overallRelError = 0.0052
+//    Avg MAPE            = 0.0069
+//    Avg RMSE (probes)   = 1450.40
+//    Predicted optimal Lp matches actual best: 167/199 (83.92%)
+//    Predicted optimal Lp exactly ±1 level: 25/199 (12.56%)
+//    Predicted optimal Lp within {0,±1}: 192/199 (96.48%)
+//    Avg probe reduction (CF vs arbitrary): 18381.38 over 171 patterns
+//    Avg probe reduction (arbitrary vs Lp=0): 26674.27 over 199 patterns
+//    Mispredicted cases (>|1| off optimal): 7  with arbitrary comparison: 0  cf better: 0.00%  arbitrary better: 0.00%
+//    Overall Overestimation: 0.7406249999999999 Underestimation: 0.25937500000000013
 
     public HBI(HbiConfiguration config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -263,7 +273,9 @@ public final class HBI implements IPMIndexing {
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
                 cp_cost = cf.costAtLevel(tree, pp, pat.nGramToLong, lp, 0.0, m);
+                long minCostStart = System.nanoTime();
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
+                stats.recordMinCostLpTime(System.nanoTime() - minCostStart);
             } else {
                 lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
 //                lp = lpCf;

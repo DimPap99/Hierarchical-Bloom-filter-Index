@@ -5,6 +5,27 @@ import utilities.MathUtils;
 
 public class CostFunctionIE extends AbstractCostFunction {
 
+    private int ieMaxOrder = Integer.MAX_VALUE;
+
+    public CostFunctionIE() {
+    }
+
+    public CostFunctionIE(int ieMaxOrder) {
+        setIEMaxOrder(ieMaxOrder);
+    }
+
+    public CostFunctionIE setIEMaxOrder(int ieMaxOrder) {
+        if (ieMaxOrder < 0) {
+            throw new IllegalArgumentException("ieMaxOrder must be >= 0");
+        }
+        this.ieMaxOrder = ieMaxOrder;
+        return this;
+    }
+
+    public int ieMaxOrder() {
+        return ieMaxOrder;
+    }
+
     @Override
     public double costAtLevel(ImplicitTree<?> tree,
                               double[] probs,
@@ -19,7 +40,7 @@ public class CostFunctionIE extends AbstractCostFunction {
         double total = 0.0;
         double nodes = 1 << Lp;
 
-        MathUtils.HF nsLp = MathUtils.HF_uncond_pos_beta(width, Lp, keySeq, probs, 0.0);
+        MathUtils.HF nsLp = MathUtils.HF_uncond_pos_beta(width, Lp, keySeq, probs, 0.0, ieMaxOrder);
         total += nsLp.H * nodes;
 
         if (Lp >= Ldesc) {
@@ -37,7 +58,7 @@ public class CostFunctionIE extends AbstractCostFunction {
             }
 
             double[] qCondL = MathUtils.qCondChildGivenParent(probs, width, L, 0.0, 0.0);
-            MathUtils.HF ns = MathUtils.HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, 0.0);
+            MathUtils.HF ns = MathUtils.HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, 0.0, ieMaxOrder);
             total += ns.H * nodes;
 
             if (L < Ldesc) {

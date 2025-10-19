@@ -5,6 +5,7 @@ import tree.ImplicitTree;
 import utilities.MathUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,6 +16,7 @@ public class CostFunctionMarkov extends AbstractCostFunction {
     private double[] PI;
     private double[][] T;
     private int SIGMA;
+    private ContextModel contextModel;
 
     private boolean loggedChainStats;
 
@@ -99,6 +101,7 @@ public class CostFunctionMarkov extends AbstractCostFunction {
         this.singletonColSum = null;
         this.singletonReady = false;
         this.loggedChainStats = false;
+        this.contextModel = null;
     }
 
     private void ensureMarkovFromModel() {
@@ -118,6 +121,28 @@ public class CostFunctionMarkov extends AbstractCostFunction {
             this.PI[v] = bigramModel.pi(v);
         }
 
+        double[][] modelT = bigramModel.aggregatedFirstOrder();
+        if (modelT != null && modelT.length == SIGMA) {
+            this.T = new double[SIGMA][SIGMA];
+            int fallbackRows = 0;
+            boolean anyCopied = false;
+            for (int u = 0; u < SIGMA; u++) {
+                double[] src = modelT[u];
+                if (src != null && src.length >= SIGMA) {
+                    System.arraycopy(src, 0, this.T[u], 0, SIGMA);
+                    anyCopied = true;
+                } else {
+                    fallbackRows++;
+                    fillRowFromPi(u);
+                }
+            }
+            if (anyCopied) {
+                this.contextModel = ContextModel.create(bigramModel, this.T, SIGMA);
+                logChainStats(fallbackRows);
+                return;
+            }
+        }
+
         this.T = new double[SIGMA][SIGMA];
         Map<Long, Map<Integer, Long>> M1 = bigramModel.ctxMaps.isEmpty()
                 ? Collections.emptyMap()
@@ -133,29 +158,32 @@ public class CostFunctionMarkov extends AbstractCostFunction {
                 }
             }
 
-            if (rowSum > 0L) {
-                if (row != null) {
-                    for (Map.Entry<Integer, Long> e : row.entrySet()) {
-                        int v = e.getKey();
-                        this.T[u][v] = (double) e.getValue() / (double) rowSum;
-                    }
+            if (rowSum > 0L && row != null) {
+                for (Map.Entry<Integer, Long> e : row.entrySet()) {
+                    int v = e.getKey();
+                    this.T[u][v] = (double) e.getValue() / (double) rowSum;
                 }
             } else {
                 fallbackRows++;
-                double Z = 0.0;
-                for (int v = 0; v < SIGMA; v++) {
-                    Z += this.PI[v];
-                }
-                if (Z <= 0.0) {
-                    Z = 1.0;
-                }
-                for (int v = 0; v < SIGMA; v++) {
-                    this.T[u][v] = this.PI[v] / Z;
-                }
+                fillRowFromPi(u);
             }
         }
 
+        this.contextModel = ContextModel.create(bigramModel, this.T, SIGMA);
         logChainStats(fallbackRows);
+    }
+
+    private void fillRowFromPi(int row) {
+        double Z = 0.0;
+        for (int v = 0; v < SIGMA; v++) {
+            Z += this.PI[v];
+        }
+        if (Z <= 0.0) {
+            Z = 1.0;
+        }
+        for (int v = 0; v < SIGMA; v++) {
+            this.T[row][v] = this.PI[v] / Z;
+        }
     }
 
     private void logChainStats(int fallbackRows) {
@@ -206,25 +234,7 @@ public class CostFunctionMarkov extends AbstractCostFunction {
     }
     private MarkovSubsetCache buildSubsetCache(int[] sym) {
         int m = sym.length;
-        double[] piSym = new double[m];
-        double[] colSym = new double[m];
-        double[][] pairMass = new double[m][m];
-        for (int i = 0; i < m; i++) {
-            int si = sym[i];
-            double piVal = (si >= 0 && si < SIGMA) ? PI[si] : 0.0;
-            double colVal = (si >= 0 && si < SIGMA && singletonColSum != null) ? singletonColSum[si] : 0.0;
-            piSym[i] = piVal;
-            colSym[i] = colVal;
-            for (int j = 0; j < m; j++) {
-                int sj = sym[j];
-                if (si >= 0 && si < SIGMA && sj >= 0 && sj < SIGMA) {
-                    pairMass[i][j] = piVal * T[si][sj];
-                } else {
-                    pairMass[i][j] = 0.0;
-                }
-            }
-        }
-        return new MarkovSubsetCache(piSym, colSym, pairMass);
+        return new MarkovSubsetCache(sym, PI, singletonColSum, T, SIGMA, contextModel);
     }
 
     private double[] Fm_uncond_markov(int width, int level, int[] keySeq, int ell, double betaL) {
@@ -367,17 +377,280 @@ public class CostFunctionMarkov extends AbstractCostFunction {
         return q;
     }
 
+    //COntext model is used to run the higher order chain. BEcause we are also doing IE this part get WAY too expensive in
+    //higher order chains (even order 2). So we limit the steps here and we fall back on the first order chain reduction. Those
+    //few steps on the higher order chain do give a better probability adjustment though
+//    Avg overallRelError = 0.0090
+//    Avg MAPE            = 0.0235
+//    Avg RMSE (probes)   = 78.14
+//    Predicted optimal Lp matches actual best: 14/50 (28.00%)
+//    Predicted optimal Lp exactly ±1 level: 20/50 (40.00%)
+//    Predicted optimal Lp within {0,±1}: 34/50 (68.00%)
+//    Avg probe reduction (CF vs arbitrary): 299.00 over 15 patterns
+//    Avg probe reduction (arbitrary vs Lp=0): 640.86 over 43 patterns
+//    Mispredicted cases (>|1| off optimal): 16  with arbitrary comparison: 0  cf better: 0.00%  arbitrary better: 0.00%
+//    Overall Overestimation: 0.7311111111111112 Underestimation: 0.26888888888888884
+//    Time taken: 4187
+
+    private static final class ContextModel {
+        private static final int CONTEXT_STEPS_LIMIT = 15;
+        private final int sigma;
+        private final int ctxCard;
+        private final double[] p0;
+        private final double[][] pnext;
+        private final int[][] next;
+        private final int[] lastSymbol;
+
+        private ContextModel(int sigma, int ctxCard, double[] p0, double[][] pnext, int[][] next) {
+            this.sigma = sigma;
+            this.ctxCard = ctxCard;
+            this.p0 = p0;
+            this.pnext = pnext;
+            this.next = next;
+            this.lastSymbol = new int[ctxCard];
+            for (int ctx = 0; ctx < ctxCard; ctx++) {
+                this.lastSymbol[ctx] = ctx % sigma;
+            }
+        }
+
+        static ContextModel create(NgramModel.Model model, double[][] firstOrderT, int sigma) {
+            if (model == null) {
+                return null;
+            }
+            if (model.ORDER < 1) {
+                return null;
+            }
+            if (model.P0_CTX == null || model.PNEXT == null || model.NEXT_CTX == null) {
+                return null;
+            }
+            if (model.CTX_CARD <= 0) {
+                return null;
+            }
+            if (firstOrderT == null) {
+                return null;
+            }
+            return new ContextModel(sigma, model.CTX_CARD, model.P0_CTX, model.PNEXT, model.NEXT_CTX);
+        }
+
+        double noHitProbability(int[] subsetSymbols, int blockLen, double[][] firstOrderT) {
+            if (blockLen <= 0) {
+                return 0.0;
+            }
+            if (subsetSymbols == null || subsetSymbols.length == 0) {
+                return 1.0;
+            }
+            boolean[] forbidden = new boolean[sigma];
+            for (int s : subsetSymbols) {
+                if (s >= 0 && s < sigma) {
+                    forbidden[s] = true;
+                }
+            }
+
+            double[] current = Arrays.copyOf(p0, ctxCard);
+            double[] nextDist = new double[ctxCard];
+            int steps = Math.min(blockLen, CONTEXT_STEPS_LIMIT);
+
+            for (int step = 0; step < steps; step++) {
+                Arrays.fill(nextDist, 0.0);
+                double survive = 0.0;
+                for (int ctx = 0; ctx < ctxCard; ctx++) {
+                    double weight = current[ctx];
+                    if (weight <= 0.0) {
+                        continue;
+                    }
+                    double[] row = pnext[ctx];
+                    int[] transitions = next[ctx];
+                    double rowSurvive = 0.0;
+                    for (int v = 0; v < sigma; v++) {
+                        if (forbidden[v]) {
+                            continue;
+                        }
+                        double prob = row[v];
+                        if (prob <= 0.0) {
+                            continue;
+                        }
+                        int ctx2 = transitions[v];
+                        nextDist[ctx2] += weight * prob;
+                        rowSurvive += prob;
+                    }
+                    survive += weight * rowSurvive;
+                }
+                if (survive <= 0.0) {
+                    return 0.0;
+                }
+                double[] tmp = current;
+                current = nextDist;
+                nextDist = tmp;
+            }
+
+            double survivalMass = 0.0;
+            for (double val : current) {
+                survivalMass += val;
+            }
+            if (steps >= blockLen) {
+                return survivalMass;
+            }
+            if (survivalMass <= 0.0) {
+                return 0.0;
+            }
+
+            double[] lastSymbolDist = new double[sigma];
+            for (int ctx = 0; ctx < ctxCard; ctx++) {
+                double weight = current[ctx];
+                if (weight <= 0.0) {
+                    continue;
+                }
+                int last = lastSymbol[ctx];
+                if (last < 0 || last >= sigma || forbidden[last]) {
+                    continue;
+                }
+                lastSymbolDist[last] += weight;
+            }
+
+            double norm = survivalMass;
+            if (norm <= 0.0) {
+                return 0.0;
+            }
+            for (int v = 0; v < sigma; v++) {
+                lastSymbolDist[v] /= norm;
+            }
+
+            int remaining = blockLen - steps;
+            double remainderProb = computeFirstOrderRemainder(lastSymbolDist, forbidden, remaining, firstOrderT);
+            return survivalMass * remainderProb;
+        }
+
+        private double computeFirstOrderRemainder(double[] startDist,
+                                                  boolean[] forbidden,
+                                                  int steps,
+                                                  double[][] firstOrderT) {
+            if (steps <= 0) {
+                return 1.0;
+            }
+            double piNotNext = 0.0;
+            double[] nextDist = new double[sigma];
+            for (int u = 0; u < sigma; u++) {
+                if (forbidden[u]) {
+                    continue;
+                }
+                double weight = startDist[u];
+                if (weight <= 0.0) {
+                    continue;
+                }
+                double[] row = firstOrderT[u];
+                if (row == null) {
+                    continue;
+                }
+                for (int v = 0; v < sigma; v++) {
+                    if (forbidden[v]) {
+                        continue;
+                    }
+                    double prob = row[v];
+                    if (prob <= 0.0) {
+                        continue;
+                    }
+                    double contrib = weight * prob;
+                    nextDist[v] += contrib;
+                    piNotNext += contrib;
+                }
+            }
+            if (piNotNext <= 0.0) {
+                return 0.0;
+            }
+            if (steps == 1) {
+                return piNotNext;
+            }
+            double inv = 1.0 / piNotNext;
+            double theta = 0.0;
+            for (int v = 0; v < sigma; v++) {
+                if (forbidden[v]) {
+                    continue;
+                }
+                double cond = nextDist[v] * inv;
+                if (cond <= 0.0) {
+                    continue;
+                }
+                double[] row = firstOrderT[v];
+                if (row == null) {
+                    continue;
+                }
+                double stay = 0.0;
+                for (int w = 0; w < sigma; w++) {
+                    if (!forbidden[w]) {
+                        stay += row[w];
+                    }
+                }
+                theta += cond * stay;
+            }
+            theta = MathUtils.clamp01(theta);
+            return piNotNext * Math.pow(theta, Math.max(0, steps - 1));
+        }
+    }
+
     private static final class MarkovSubsetCache {
         private final double[] piSum;
         private final double[] colSum;
         private final double[] pairTotal;
+        private final double[][] firstOrderT;
+        private final ContextModel context;
+        private final int[][] subsetSymbols;
+        private final HashMap<Integer, Double>[] contextMemo;
 
-        MarkovSubsetCache(double[] piSym, double[] colSym, double[][] pairMass) {
-            int m = piSym.length;
+        MarkovSubsetCache(int[] sym,
+                          double[] PI,
+                          double[] singletonColSum,
+                          double[][] firstOrderT,
+                          int sigma,
+                          ContextModel context) {
+            int m = sym.length;
             int subsets = 1 << m;
             this.piSum = new double[subsets];
             this.colSum = new double[subsets];
             this.pairTotal = new double[subsets];
+            this.firstOrderT = firstOrderT;
+            this.context = (context != null) ? context : null;
+            this.subsetSymbols = new int[subsets][];
+            this.subsetSymbols[0] = new int[0];
+            if (this.context != null) {
+                @SuppressWarnings("unchecked")
+                HashMap<Integer, Double>[] memo = (HashMap<Integer, Double>[]) new HashMap[subsets];
+                for (int i = 0; i < subsets; i++) {
+                    memo[i] = new HashMap<>();
+                }
+                this.contextMemo = memo;
+            } else {
+                this.contextMemo = null;
+            }
+
+            double[] piSym = new double[m];
+            double[] colSym = new double[m];
+            double[][] pairMass = new double[m][m];
+            for (int i = 0; i < m; i++) {
+                int si = sym[i];
+                double piVal = (si >= 0 && si < sigma) ? PI[si] : 0.0;
+                double colVal = (si >= 0 && si < sigma && singletonColSum != null) ? singletonColSum[si] : 0.0;
+                piSym[i] = piVal;
+                colSym[i] = colVal;
+                for (int j = 0; j < m; j++) {
+                    int sj = sym[j];
+                    if (si >= 0 && si < sigma && sj >= 0 && sj < sigma && firstOrderT != null) {
+                        pairMass[i][j] = piVal * firstOrderT[si][sj];
+                    } else {
+                        pairMass[i][j] = 0.0;
+                    }
+                }
+            }
+
+            for (int mask = 1; mask < subsets; mask++) {
+                int bits = Integer.bitCount(mask);
+                int[] subset = new int[bits];
+                for (int i = 0, t = 0; i < m; i++) {
+                    if ((mask & (1 << i)) != 0) {
+                        subset[t++] = sym[i];
+                    }
+                }
+                subsetSymbols[mask] = subset;
+            }
 
             for (int mask = 1; mask < subsets; mask++) {
                 int lsb = mask & -mask;
@@ -397,13 +670,25 @@ public class CostFunctionMarkov extends AbstractCostFunction {
                     remaining ^= bit;
                 }
                 pairTotal[mask] = mass;
-                // clear remaining bits for this iteration
             }
         }
 
         double probabilityNoSymbols(int mask, int blockLen) {
             if (mask <= 0 || mask >= piSum.length || blockLen <= 0) {
                 return 0.0;
+            }
+            if (context != null) {
+                int[] subset = subsetSymbols[mask];
+                if (subset != null && subset.length > 0) {
+                    HashMap<Integer, Double> memo = contextMemo[mask];
+                    Double cached = memo.get(blockLen);
+                    if (cached != null) {
+                        return cached;
+                    }
+                    double value = context.noHitProbability(subset, blockLen, firstOrderT);
+                    memo.put(blockLen, value);
+                    return value;
+                }
             }
             double piNot = 1.0 - piSum[mask];
             if (piNot <= 0.0) {
@@ -416,11 +701,7 @@ public class CostFunctionMarkov extends AbstractCostFunction {
                 exitMass = piNot;
             }
             double theta = 1.0 - (exitMass / piNot);
-            if (theta < 0.0) {
-                theta = 0.0;
-            } else if (theta > 1.0) {
-                theta = 1.0;
-            }
+            theta = MathUtils.clamp01(theta);
             return piNot * Math.pow(theta, Math.max(0, blockLen - 1));
         }
     }

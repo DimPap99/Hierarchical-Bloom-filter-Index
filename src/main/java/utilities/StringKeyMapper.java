@@ -137,7 +137,7 @@ public final class StringKeyMapper {
                     "Mapper requires " + requiredBits +
                             " bits to meet epsilon=" + epsilon +
                             " for n=" + expectedDistinct +
-                            ". Returning 31-bit int (best-effort). Expected collision prob at 63 bits: " + err31
+                            ".Expected collision prob at 63 bits: " + err31
             );
             warnedOnce = true;
         }

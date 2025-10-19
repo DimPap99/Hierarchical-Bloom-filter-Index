@@ -127,6 +127,11 @@ public final class NgramModel {
             return indexToSymbol[idx];
         }
 
+        /** Aggregated first-order transition probabilities derived from the observed contexts. */
+        public double[][] aggregatedFirstOrder() {
+            return T;
+        }
+
         public double pi(int v) {
             if (v < 0 || v >= PI.length) return 0.0;
             return PI[v];
@@ -301,27 +306,53 @@ public final class NgramModel {
                 Arrays.fill(PI, p);
             }
 
-            // First-order matrix T for convenience/fallback
+            // First-order matrix aggregated from context counts
             double[][] T = new double[sigma][sigma];
-            if (ORDER >= 1) {
-                // When ORDER==1, nextCounts rows correspond to previous-symbol contexts directly
-                if (ORDER == 1 && nextCounts != null) {
+            if (ORDER >= 1 && nextCounts != null) {
+                long[][] aggregated = new long[sigma][sigma];
+
+                if (ORDER == 1) {
                     for (int u = 0; u < sigma; u++) {
-                        long rowSum = 0L;
-                        for (int v = 0; v < sigma; v++) rowSum += nextCounts[u][v];
-                        if (rowSum > 0L) {
-                            double d = (double) rowSum;
-                            for (int v = 0; v < sigma; v++) T[u][v] = nextCounts[u][v] / d;
-                        } else {
-                            System.arraycopy(PI, 0, T[u], 0, sigma);
+                        if (u < nextCounts.length) {
+                            System.arraycopy(nextCounts[u], 0, aggregated[u], 0, sigma);
                         }
                     }
                 } else {
-                    // ORDER >= 2 → we do not have T directly; back off to π
-                    for (int u = 0; u < sigma; u++) System.arraycopy(PI, 0, T[u], 0, sigma);
+                    final int ctxCount = Math.min(nextCounts.length, CTX_CARD);
+                    for (int ctx = 0; ctx < ctxCount; ctx++) {
+                        long[] row = nextCounts[ctx];
+                        if (row == null) {
+                            continue;
+                        }
+                        int prevSymbol = ctx % sigma;
+                        long[] aggRow = aggregated[prevSymbol];
+                        for (int v = 0; v < sigma; v++) {
+                            long c = row[v];
+                            if (c != 0L) {
+                                aggRow[v] += c;
+                            }
+                        }
+                    }
+                }
+
+                for (int u = 0; u < sigma; u++) {
+                    long rowSum = 0L;
+                    for (int v = 0; v < sigma; v++) {
+                        rowSum += aggregated[u][v];
+                    }
+                    if (rowSum > 0L) {
+                        double inv = 1.0 / (double) rowSum;
+                        for (int v = 0; v < sigma; v++) {
+                            T[u][v] = aggregated[u][v] * inv;
+                        }
+                    } else {
+                        System.arraycopy(PI, 0, T[u], 0, sigma);
+                    }
                 }
             } else {
-                for (int u = 0; u < sigma; u++) System.arraycopy(PI, 0, T[u], 0, sigma);
+                for (int u = 0; u < sigma; u++) {
+                    System.arraycopy(PI, 0, T[u], 0, sigma);
+                }
             }
 
             // Context-state operator for ORDER >= 1

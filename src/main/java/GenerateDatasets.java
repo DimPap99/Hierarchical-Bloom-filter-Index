@@ -9,8 +9,8 @@ public class GenerateDatasets {
     public static void main(String[] args) throws IOException {
         System.out.println("Generating datasets...");
         //uniform distributions
-        String data = Generator.generateUniform(1 << 18, 48, 89);
-        Files.write(Paths.get("data/uniform_text_18_experiment_domain_48_88.txt"),
+        String data = Generator.generateZipf(1 << 13, 48, 68, 1);
+        Files.write(Paths.get("data/zipf_text_13_1.txt"),
         data.getBytes(StandardCharsets.UTF_8));
 
 //        data = Generator.generateUniform(1 << 21, 48, 122);

@@ -1,10 +1,7 @@
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
-import estimators.CostFunctionMarkov;
-import estimators.CostFunctionMaxProb;
-import estimators.Estimator;
-import estimators.HashMapEstimator;
+import estimators.*;
 import membership.BloomFilter;
 import membership.Membership;
 import membership.MockMembership;
@@ -21,8 +18,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/1023.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/1023/25.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_20.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform20/5.uniform.txt";
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
@@ -36,7 +33,7 @@ public class ConfidenceExperiment {
     // N-grams for this experiment
     private static int NGRAMS = 1;
 
-    private static int ALPHABET = 89;
+    private static int ALPHABET = 74;
 
     /** Per-pattern row for (optional) CSV dump. */
     private record PatternRow(
@@ -112,6 +109,7 @@ public class ConfidenceExperiment {
         double aggOverallRelErr = 0.0;
         double aggMAPE          = 0.0;
         double aggRMSE          = 0.0;
+        double aggAvgMinCostLpMillis = 0.0;
 
         Map<String, PatternAccuracy> patternAccuracy = new HashMap<>();
         double avgOverallOverestimation = 0.0;
@@ -119,7 +117,7 @@ public class ConfidenceExperiment {
         for (int run = 0; run <= RUNS; run++) {
             // --- Build a fresh HBI and stream data ---
             HBI hbi = newHbi(0.99);
-            hbi.isMarkov = true;
+            hbi.isMarkov = false;
             hbi.strides = false;
             hbi.setLpOverride(run);
 //            hbi.resetAlphabetMap(ALPHABET);
@@ -138,6 +136,8 @@ public class ConfidenceExperiment {
                     run, stats.patterns, stats.sumActual, stats.sumEstimated,
                     stats.overallRelError(), stats.mape(), stats.rmse(), stats.lpMatchRate());
             System.out.println("Leaf probes: " + stats.leafProbes + " Bloom Probes: " + stats.bloomProbes);
+            double avgMinCostLpMillis = hbi.stats().averageMinCostLpTimeMillis();
+            System.out.printf(Locale.ROOT, "Avg minCostLp time = %.3f ms%n", avgMinCostLpMillis);
 
 
             // Add run row for CSV
@@ -160,6 +160,7 @@ public class ConfidenceExperiment {
             aggMAPE          += stats.mape();
             aggRMSE          += stats.rmse();
             avgOverallOverestimation += stats.overestimation();
+            aggAvgMinCostLpMillis += avgMinCostLpMillis;
             int b =2;
 
         }
@@ -168,11 +169,13 @@ public class ConfidenceExperiment {
         double avgOverallRelErr = aggOverallRelErr / (RUNS+1);
         double avgMAPE          = aggMAPE / (RUNS+1);
         double avgRMSE          = aggRMSE / (RUNS+1);
+        double avgMinCostLpMillis = aggAvgMinCostLpMillis / (RUNS + 1);
 
         System.out.println("\n=== Cross-run summary ===");
         System.out.printf(Locale.ROOT, "Avg overallRelError = %.4f%n", avgOverallRelErr);
         System.out.printf(Locale.ROOT, "Avg MAPE            = %.4f%n", avgMAPE);
         System.out.printf(Locale.ROOT, "Avg RMSE (probes)   = %.2f%n", avgRMSE);
+        System.out.printf(Locale.ROOT, "Avg minCostLp time  = %.3f ms%n", avgMinCostLpMillis);
 
         // --- Predicted vs actual optimal level statistics ---
         int predictedMatches = 0;
@@ -454,7 +457,7 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionMarkov(),
+                new CostFunctionIE(),
                 conf,
                 NGRAMS
         );
