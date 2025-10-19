@@ -12,4 +12,8 @@ public interface SearchAlgorithm {
     CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset);
 
     int getCurrentOffset();
+
+    default void setStrides(boolean strides) {}
+
+    default boolean usesStrides() { return false; }
 }
