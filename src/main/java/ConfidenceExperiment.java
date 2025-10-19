@@ -18,9 +18,9 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/uniform_text_20.txt";
-    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/uniform20/5.uniform.txt";
-    private static final int TextSize = 20;
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
+    private static final String QUERIES_FILE= "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
+    private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.0;
@@ -457,9 +457,9 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionIE(),
+                new CostFunctionMarkov(),
                 conf,
-                NGRAMS
+                2
         );
     }
 }
