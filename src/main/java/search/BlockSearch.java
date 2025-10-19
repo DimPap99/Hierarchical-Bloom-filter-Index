@@ -2,13 +2,13 @@ package search;
 
 import tree.ImplicitTree;
 import estimators.Estimator;
-import org.apache.commons.math3.util.Pair;
 
 import java.util.*;
 
 public class BlockSearch implements SearchAlgorithm{
     public Estimator estimator;
     public int currentOffset;
+    private boolean strides;
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
@@ -16,10 +16,13 @@ public class BlockSearch implements SearchAlgorithm{
         int childrenIntervalSize = currentIntervalSize / 2;
         int treeBaseInterval = tree.baseIntervalSize();
 
+        long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
         Probe probe = probe(tree,
-                f.level(),             // unchanged helper signature
+                f.level(),
                 f.intervalIdx(),
-                p.nGramToLong, currentIntervalSize, p.nGram, p.originalSz);
+                p,
+                tokens,
+                currentIntervalSize);
         this.currentOffset = positionOffset;
 
         if (probe.consumed() == 0) {
@@ -49,34 +52,48 @@ public class BlockSearch implements SearchAlgorithm{
 
 
     public int getCurrentOffset(){return this.currentOffset;}
-    Probe probe(ImplicitTree tree, int level, int interval, long[] pattern, int currentIntervalSize, int nGramSz, int pOriginalSz) {
+    @Override
+    public void setStrides(boolean strides) {
+        this.strides = strides;
+    }
+
+    @Override
+    public boolean usesStrides() {
+        return strides;
+    }
+
+    Probe probe(ImplicitTree tree,
+                int level,
+                int interval,
+                Pattern pattern,
+                long[] tokens,
+                int currentIntervalSize) {
         //p72xcHxRu1
 
         int matches = 0;
-        int effectiveLookupRange = Math.min(currentIntervalSize, pattern.length);
-        long key;
+        int effectiveLookupRange = Math.min(tokens.length, maxTokensForInterval(currentIntervalSize, pattern));
         boolean contains = false;
         for (int i = 0; i < effectiveLookupRange; i+=1) {
-//            int packedSymbol = (int)pattern[i];
-
-            if (tree.codec.fitsOneWord(interval, pattern[i])) {
-                long w = tree.codec.packWord(interval, pattern[i]);
+            long token = tokens[i];
+            if (tree.codec.fitsOneWord(interval, token)) {
+                long w = tree.codec.packWord(interval, token);
                 contains = tree.contains(level, w);
             } else {
                 long hi = Integer.toUnsignedLong(interval);
-                long lo = pattern[i];
+                long lo = token;
                 contains = tree.contains(level, hi, lo);
             }
 
             if (!contains) {
-                return new Probe(matches, false);          // first mismatch at i
+                int consumed = charactersMatched(matches, pattern);
+                return new Probe(consumed, false);          // first mismatch at i
             }
             matches+=1;
             if(matches == effectiveLookupRange){
-                return new Probe((int) pOriginalSz, true);
+                return new Probe(pattern.originalSz, true);
             }
         }
-        return new Probe(pOriginalSz, true);                 // checked len chars, all good
+        return new Probe(pattern.originalSz, true);                 // checked len chars, all good
     }
 
 
@@ -89,5 +106,39 @@ public class BlockSearch implements SearchAlgorithm{
                 - 1;
 
         return maxPos >= positionOffset;
+    }
+
+    private int maxTokensForInterval(int intervalSize, Pattern pattern) {
+        if (!strides) {
+            return intervalSize;
+        }
+
+        int nGramSize = Math.max(1, pattern.nGram);
+        if (nGramSize <= 1) {
+            return intervalSize;
+        }
+
+        int full = intervalSize / nGramSize;
+        int rem = intervalSize % nGramSize;
+        return full + (rem > 0 ? 1 : 0);
+    }
+
+    private int charactersMatched(int matchedTokens, Pattern pattern) {
+        if (matchedTokens <= 0) {
+            return 0;
+        }
+
+        int nGramSize = Math.max(1, pattern.nGram);
+        if (strides) {
+            long chars = (long) matchedTokens * nGramSize;
+            return (int) Math.min(pattern.originalSz, chars);
+        }
+
+        if (nGramSize == 1) {
+            return Math.min(pattern.originalSz, matchedTokens);
+        }
+
+        long chars = (long) matchedTokens + nGramSize - 1L;
+        return (int) Math.min(pattern.originalSz, chars);
     }
 }

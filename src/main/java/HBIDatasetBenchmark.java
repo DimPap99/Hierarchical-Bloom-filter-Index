@@ -21,6 +21,8 @@ import java.util.stream.IntStream;
 import org.openjdk.jol.info.ClassLayout;
 import org.openjdk.jol.info.GraphLayout;
 
+import javax.xml.stream.FactoryConfigurationError;
+
 public class HBIDatasetBenchmark {
 
     /** Adjust to your file locations. */
@@ -31,7 +33,8 @@ public class HBIDatasetBenchmark {
     private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 74;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 2;        // set to 0 for a dry run
+    private static final int RUNS         = 10;        // set to 0 for a dry run
+    private static final boolean USE_STRIDES = false;
     private static int NGRAMS = 2;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
     private static int NUMQUERIES = 135;
@@ -69,7 +72,7 @@ public class HBIDatasetBenchmark {
         /* JIT warm-up so HotSpot reaches steady state */
         for (int i = 0; i < 1; i++) {
             HBI hbi = newHbi(0.999);
-
+            hbi.strides = USE_STRIDES;
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
@@ -84,7 +87,7 @@ public class HBIDatasetBenchmark {
         for (int i = 0; i < RUNS; i++) {
 
             HBI hbi = newHbi(0.99);
-
+            hbi.strides = USE_STRIDES;
             HbiStats stats = hbi.stats();
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);

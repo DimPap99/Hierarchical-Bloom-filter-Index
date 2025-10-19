@@ -232,6 +232,7 @@ public final class HBI implements IPMIndexing {
         ArrayList<Integer> results = new ArrayList<>();
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
+        this.searchAlgo.setStrides(this.strides);
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             pat.nGramToLong[nIdx] = tokenVal;
@@ -282,7 +283,7 @@ public final class HBI implements IPMIndexing {
             }
 
             pat.charStartLp = lps;
-            lp = this.lpOverride;//Collections.min(lps);
+            lp = Collections.min(lps);
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
                 stats.recordAlpha(cf.getAlpha());

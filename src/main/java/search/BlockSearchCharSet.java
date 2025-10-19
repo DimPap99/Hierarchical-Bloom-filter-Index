@@ -11,16 +11,18 @@ import java.util.Deque;
 public class BlockSearchCharSet implements SearchAlgorithm {
     public Estimator estimator;
     public int currentOffset;
+    private boolean strides;
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
-        Probe probe = probe(tree, f.level(), f.intervalIdx(), p.nGramToLong, p.charStartLp);
-        this.currentOffset = positionOffset;
-
         int currentIntervalSize  = tree.intervalSize(f.level());
         int childrenIntervalSize = currentIntervalSize / 2;
         int treeBaseInterval     = tree.baseIntervalSize();
         int intervalEndIdx       = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval - 1;
+
+        long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
+        Probe probe = probe(tree, f.level(), f.intervalIdx(), p, tokens, p.charStartLp, currentIntervalSize);
+        this.currentOffset = positionOffset;
 
         // Only skip when we truly saw a NO at the first symbol.
         if (probe.consumed() == 0 && probe.testedFirst()) {
@@ -58,50 +60,90 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         return matches;
     }
 
-    Probe probe(ImplicitTree tree, int level, int interval, long[] pattern, ArrayList<Integer> lp) {
-        long key;
-        boolean[] matchedArr = new boolean[pattern.length];
+    @Override
+    public void setStrides(boolean strides) {
+        this.strides = strides;
+    }
+
+    @Override
+    public boolean usesStrides() {
+        return strides;
+    }
+
+    Probe probe(ImplicitTree tree,
+                int level,
+                int interval,
+                Pattern pattern,
+                long[] tokens,
+                ArrayList<Integer> lp,
+                int currentIntervalSize) {
+        int limit = Math.min(tokens.length, maxTokensForInterval(currentIntervalSize, pattern));
+        boolean[] matchedArr = new boolean[limit];
         Arrays.fill(matchedArr, false);
 
         boolean testedFirst = false;   // NEW: did we actually test i==0?
         boolean contains = false;
-        for (int i = 0; i < pattern.length; i++) {
-            if (level >= lp.get(i)) {
-                // this position is enabled at this level
-                if (tree.codec.fitsOneWord(interval, pattern[i])) {
-                    long w = tree.codec.packWord(interval, pattern[i]);
-                    contains = tree.contains(level, w);
-                } else {
-                    long hi = Integer.toUnsignedLong(interval);
-                    long lo = pattern[i];
-                    contains = tree.contains(level, hi, lo);
-                }
-                if (i == 0) testedFirst = true;  // NEW
-
-                if (!contains) {
-                    // First observed mismatch at i → ensure we know the true prefix length:
-                    for (int j = 0; j < i; j++) {
-//                        int prefixSymbol = Math.toIntExact(pattern[j]);
-                        if (tree.codec.fitsOneWord(interval, pattern[j])) {
-                            long w = tree.codec.packWord(interval, pattern[j]);
-                            contains = tree.contains(level, w);
-                        } else {
-                            long hi = Integer.toUnsignedLong(interval);
-                            long lo = pattern[j];
-                            contains = tree.contains(level, hi, lo);
-                        }
-                        matchedArr[j] = contains;
-                        if (j == 0) testedFirst = true;
-                        if (!matchedArr[j]) break;             // stop at first NO in prefix
-                    }
-                    return new Probe(countStartConsecutiveMatches(matchedArr), false, testedFirst);
-                }
-                matchedArr[i] = true;
+        for (int i = 0; i < limit; i++) {
+            if (lp != null && lp.size() > i && level < lp.get(i)) {
+                continue;
             }
+            long token = tokens[i];
+            if (tree.codec.fitsOneWord(interval, token)) {
+                long w = tree.codec.packWord(interval, token);
+                contains = tree.contains(level, w);
+            } else {
+                long hi = Integer.toUnsignedLong(interval);
+                long lo = token;
+                contains = tree.contains(level, hi, lo);
+            }
+            if (i == 0) testedFirst = true;  // NEW
+
+            if (!contains) {
+                int prefixMatches = countStartConsecutiveMatches(matchedArr);
+                int consumed = charactersMatched(prefixMatches, pattern);
+                return new Probe(consumed, false, testedFirst);
+            }
+            matchedArr[i] = true;
         }
 
 
-        return new Probe(countStartConsecutiveMatches(matchedArr), true, testedFirst);
+        int prefixMatches = countStartConsecutiveMatches(matchedArr);
+        int consumed = charactersMatched(prefixMatches, pattern);
+        return new Probe(consumed, true, testedFirst);
+    }
+
+    private int charactersMatched(int matchedTokens, Pattern pattern) {
+        if (matchedTokens <= 0) {
+            return 0;
+        }
+
+        int nGramSize = Math.max(1, pattern.nGram);
+        if (strides) {
+            long chars = (long) matchedTokens * nGramSize;
+            return (int) Math.min(pattern.originalSz, chars);
+        }
+
+        if (nGramSize == 1) {
+            return Math.min(pattern.originalSz, matchedTokens);
+        }
+
+        long chars = (long) matchedTokens + nGramSize - 1L;
+        return (int) Math.min(pattern.originalSz, chars);
+    }
+
+    private int maxTokensForInterval(int intervalSize, Pattern pattern) {
+        if (!strides) {
+            return intervalSize;
+        }
+
+        int nGramSize = Math.max(1, pattern.nGram);
+        if (nGramSize <= 1) {
+            return intervalSize;
+        }
+
+        int full = intervalSize / nGramSize;
+        int rem = intervalSize % nGramSize;
+        return full + (rem > 0 ? 1 : 0);
     }
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
