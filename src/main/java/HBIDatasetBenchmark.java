@@ -24,17 +24,17 @@ import javax.xml.stream.FactoryConfigurationError;
 public class HBIDatasetBenchmark {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w_21/1_W21.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
 
 
     private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
     private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 89;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 5;        // set to 0 for a dry run
+    private static final int RUNS         = 2;        // set to 0 for a dry run
     private static final boolean USE_STRIDES = true;
     private static int NGRAMS = 4;
-    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/10.uniform.txt";
+    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
     private static int NUMQUERIES = 135;
     public static void main(String[] args) throws IOException {
 
@@ -63,7 +63,7 @@ public class HBIDatasetBenchmark {
         System.out.println("Window Size: " + WINDOW_LEN);
         System.out.println("Tree Length: " + TREE_LEN);
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
-//        ALPHABET = Math.min(ALPHABET, TREE_LEN);
+        ALPHABET = Math.min(ALPHABET, TREE_LEN);
         System.out.println("Alphabet: " + ALPHABET);
         System.out.println("\n");
         double avgAlpha = 0;
@@ -74,10 +74,10 @@ public class HBIDatasetBenchmark {
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
-            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
 
             IPMIndexing ipm = new RegexIndex();
-            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, true, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
             int b = 2;
         }
 

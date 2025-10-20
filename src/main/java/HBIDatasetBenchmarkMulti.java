@@ -19,6 +19,7 @@ import utilities.MultiQueryExperiment;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
@@ -28,6 +29,8 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import utilities.CsvUtil;
 
 public final class HBIDatasetBenchmarkMulti {
 
@@ -114,10 +117,34 @@ public final class HBIDatasetBenchmarkMulti {
         boolean includeRegex = aggregated.values().stream()
                 .anyMatch(stats -> stats.regexCount > 0);
 
+        List<List<?>> csvRows = new ArrayList<>();
+        if (includeRegex) {
+            csvRows.add(List.of("patternLength",
+                    "avgInsertMsPerSymbol",
+                    "avgInsertMs",
+                    "avgQueryMs",
+                    "datasetCount",
+                    "regexAvgInsertMs",
+                    "regexAvgQueryMs",
+                    "regexDatasetCount"));
+        } else {
+            csvRows.add(List.of("patternLength",
+                    "avgInsertMsPerSymbol",
+                    "avgInsertMs",
+                    "avgQueryMs",
+                    "datasetCount"));
+        }
+
         aggregated.forEach((patternLength, stats) -> {
             double avgInsertPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count;
             double avgInsertMs = stats.totalInsertMsSum / stats.count;
             double avgQueryMs = stats.totalQueryMsSum / stats.count;
+            double avgRegexInsert = stats.regexCount > 0
+                    ? stats.regexInsertMsSum / stats.regexCount
+                    : 0.0;
+            double avgRegexQuery = stats.regexCount > 0
+                    ? stats.regexQueryMsSum / stats.regexCount
+                    : 0.0;
             System.out.printf(Locale.ROOT,
                     "Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
                     patternLength,
@@ -127,15 +154,36 @@ public final class HBIDatasetBenchmarkMulti {
                     stats.count());
 
             if (includeRegex && stats.regexCount > 0) {
-                double avgRegexInsert = stats.regexInsertMsSum / stats.regexCount;
-                double avgRegexQuery = stats.regexQueryMsSum / stats.regexCount;
                 System.out.printf(Locale.ROOT,
                         "           Regex -> insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
                         avgRegexInsert,
                         avgRegexQuery,
                         stats.regexCount);
             }
+
+            if (includeRegex) {
+                csvRows.add(List.of(
+                        patternLength,
+                        avgInsertPerSymbol,
+                        avgInsertMs,
+                        avgQueryMs,
+                        stats.count(),
+                        avgRegexInsert,
+                        avgRegexQuery,
+                        stats.regexCount));
+            } else {
+                csvRows.add(List.of(
+                        patternLength,
+                        avgInsertPerSymbol,
+                        avgInsertMs,
+                        avgQueryMs,
+                        stats.count()));
+            }
         });
+
+        Path csvPath = options.csvOutputFile();
+        CsvUtil.writeRows(csvPath, csvRows);
+        System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
     }
 
     private static Map<Integer, RunAverages> runExperiments(BenchmarkOptions options,
@@ -222,7 +270,7 @@ public final class HBIDatasetBenchmarkMulti {
     }
 
     private static HBI newHbi(BenchmarkOptions options) {
-        int alphabetSize = options.alphabetSize();
+        int alphabetSize = options.alphabetSize(options.windowLength);
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
@@ -393,15 +441,15 @@ public final class HBIDatasetBenchmarkMulti {
             Path queryRoot = Path.of("queries");
             String window = "w21";
             QueryType queryType = QueryType.UNIFORM;
-            Integer ngram = 4;
+            Integer ngram = 2;
             Integer windowLength = null;
             Integer treeLength = null;
             Integer alphabetBase = 95;
             double fpRate = 0.001;
             double runConfidence = 0.99;
             int warmupRuns = 1;
-            int runs = 1;
-            boolean runRegexBaseline = false;
+            int runs = 3;
+            boolean runRegexBaseline = true;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -482,12 +530,18 @@ public final class HBIDatasetBenchmarkMulti {
                     runRegexBaseline);
         }
 
-        int alphabetSize() {
+        int alphabetSize(int windowLength) {
             double pow = Math.pow(alphabetBase, ngram);
             if (pow >= Integer.MAX_VALUE) {
                 return Integer.MAX_VALUE;
             }
-            return (int) pow;
+            double sigma = Math.min(pow, windowLength);
+            return (int) sigma;
+        }
+
+        Path csvOutputFile() {
+            String fileName = "%s_%s_%d.csv".formatted(window, queryType.fileToken(), ngram);
+            return Path.of(fileName);
         }
 
         static int deriveWindowLength(String window, int defaultValue) {
