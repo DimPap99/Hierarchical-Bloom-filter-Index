@@ -29,6 +29,7 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
     public CandidateRange next() {
         while (!stack.isEmpty()) {
             Frame f = stack.pop();
+//            System.out.println(f);
             CandidateRange r = this.searchAlgorithm.search(f, pattern, this.tree, this.stack, this.positionOffset);
             this.positionOffset = this.searchAlgorithm.getCurrentOffset();
             if (r == null) continue;

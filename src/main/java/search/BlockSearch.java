@@ -75,14 +75,14 @@ public class BlockSearch implements SearchAlgorithm{
         boolean contains = false;
         for (int i = 0; i < effectiveLookupRange; i+=1) {
             long token = tokens[i];
-            if (tree.codec.fitsOneWord(interval, token)) {
-                long w = tree.codec.packWord(interval, token);
-                contains = tree.contains(level, w);
-            } else {
+//            if (tree.codec.fitsOneWord(interval, token)) {
+//                long w = tree.codec.packWord(interval, token);
+//                contains = tree.contains(level, w);
+//            } else {
                 long hi = Integer.toUnsignedLong(interval);
                 long lo = token;
                 contains = tree.contains(level, hi, lo);
-            }
+//            }
 
             if (!contains) {
                 int consumed = charactersMatched(matches, pattern);

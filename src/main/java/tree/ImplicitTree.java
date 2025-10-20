@@ -63,20 +63,19 @@ public final class ImplicitTree< M extends Membership> {
         indexedItemsCounter++;
 
 
-        int span       = layout.intervalSize(layout.getEffectiveRootLevel());
+//        int span       = layout.intervalSize(layout.getEffectiveRootLevel());
         for (int level = layout.getEffectiveRootLevel(); level < layout.getEffectiveLeafLevel(); level++) {
-
+            int span       = layout.intervalSize(level);
             int intervalId = indexedItemsCounter / span;      // node id
-            if (codec.fitsOneWord(intervalId, symbol)) {
-                long w = codec.packWord(intervalId, symbol);
-                levels.insert(level, w);           // calls BloomFilter.insert(long)
-            } else {
-                long hi = Integer.toUnsignedLong(intervalId);
-                long lo = symbol;
-                levels.insert(level, hi, lo);      // calls BloomFilter.insert(long,long)
-            }
+//            if (codec.fitsOneWord(intervalId, symbol)) {
+//                long w = codec.packWord(intervalId, symbol);
+//                levels.insert(level, w);           // calls BloomFilter.insert(long)
+//            } else {
+            long hi = Integer.toUnsignedLong(intervalId);
+            long lo = symbol;
+            levels.insert(level, hi, lo);      // calls BloomFilter.insert(long,long)
+            //}
 
-            span = span / 2;
         }
     }
 
@@ -139,13 +138,13 @@ public final class ImplicitTree< M extends Membership> {
         Frame rightFrame = new Frame(nextLevel, rightChild);
         int maxDepth = this.maxDepth();
         //add right child
-        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
+//        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(rightFrame);
-        }
+        //}
         //add left child
-        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
+//        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
             framesStack.push(leftFrame);
-        }
+//        }
     }
 
 

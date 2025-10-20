@@ -32,7 +32,7 @@ public class HBIDatasetBenchmark {
     private static int ALPHABET     = 89;
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 5;        // set to 0 for a dry run
-    private static final boolean USE_STRIDES = false;
+    private static final boolean USE_STRIDES = true;
     private static int NGRAMS = 4;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/10.uniform.txt";
     private static int NUMQUERIES = 135;
@@ -77,8 +77,8 @@ public class HBIDatasetBenchmark {
             Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
 
             IPMIndexing ipm = new RegexIndex();
-            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-
+            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, true, false);
+            int b = 2;
         }
 
         ArrayList<Long> timings;
