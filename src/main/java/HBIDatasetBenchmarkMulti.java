@@ -21,11 +21,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.SortedSet;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -38,11 +41,13 @@ public final class HBIDatasetBenchmarkMulti {
 
     public static void main(String[] args) throws IOException {
         BenchmarkOptions options = BenchmarkOptions.parse(args);
-        Map<Integer, AggregateStats> aggregated = new TreeMap<>();
+        List<QueryType> queryTypes = options.orderedQueryTypes();
+        Map<QueryType, Map<Integer, AggregateStats>> aggregated = new EnumMap<>(QueryType.class);
+        queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
 
         System.out.printf(Locale.ROOT,
                 "Running window %s (%s) with datasets under %s%n",
-                options.window(), options.queryType().fileToken(), options.dataRoot());
+                options.window(), options.queryTypeLabel(), options.dataRoot());
 
         List<Path> datasetDirs = listDatasetDirectories(options.dataRoot());
         if (datasetDirs.isEmpty()) {
@@ -62,124 +67,167 @@ public final class HBIDatasetBenchmarkMulti {
             System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
                     datasetDir.getFileName(), datasetFile.getFileName());
 
-            List<Path> queryFiles = findQueryFiles(queryDir, options.queryType());
-            if (queryFiles.isEmpty()) {
-                System.out.printf(Locale.ROOT,
-                        "No %s queries in %s, skipping.%n",
-                        options.queryType().fileToken(), queryDir);
-                continue;
-            }
-
-            List<MultiQueryExperiment.QueryWorkload> workloads = queryFiles.stream()
-                    .map(path -> new MultiQueryExperiment.QueryWorkload(
-                            parsePatternLength(path.getFileName().toString()),
-                            path))
-                    .sorted(Comparator.comparingInt(MultiQueryExperiment.QueryWorkload::patternLength))
-                    .collect(Collectors.toList());
-
-            Map<Integer, RunAverages> resultsByPattern = runExperiments(options, datasetFile, workloads);
-
-            resultsByPattern.forEach((patternLength, averages) -> {
-                aggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                        .accumulate(averages);
-
-                System.out.printf(Locale.ROOT,
-                        "  Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms%n",
-                        patternLength,
-                        averages.avgInsertMsPerSymbol(),
-                        averages.totalInsertMs(),
-                        averages.totalQueryMs());
-
-                if (options.runRegexBaseline() && (averages.regexInsertMs() > 0 || averages.regexQueryMs() > 0)) {
+            for (QueryType type : queryTypes) {
+                List<Path> queryFiles = findQueryFiles(queryDir, type);
+                if (queryFiles.isEmpty()) {
                     System.out.printf(Locale.ROOT,
-                            "    Regex -> insert=%.3f ms, query=%.3f ms%n",
-                            averages.regexInsertMs(),
-                            averages.regexQueryMs());
+                            "No %s queries in %s, skipping.%n",
+                            type.fileToken(), queryDir);
+                    continue;
                 }
-            });
+
+                System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
+
+                List<MultiQueryExperiment.QueryWorkload> workloads = queryFiles.stream()
+                        .map(path -> new MultiQueryExperiment.QueryWorkload(
+                                parsePatternLength(path.getFileName().toString()),
+                                path))
+                        .sorted(Comparator.comparingInt(MultiQueryExperiment.QueryWorkload::patternLength))
+                        .collect(Collectors.toList());
+
+                Map<Integer, RunAverages> resultsByPattern = runExperiments(options, datasetFile, type, workloads);
+
+                Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
+
+                resultsByPattern.forEach((patternLength, averages) -> {
+                    perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
+                            .accumulate(averages);
+
+                    System.out.printf(Locale.ROOT,
+                            "    Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms%n",
+                            patternLength,
+                            averages.avgInsertMsPerSymbol(),
+                            averages.totalInsertMs(),
+                            averages.totalQueryMs());
+
+                    if (options.runRegexBaseline() && (averages.regexInsertMs() > 0 || averages.regexQueryMs() > 0)) {
+                        System.out.printf(Locale.ROOT,
+                                "      Regex -> insert=%.3f ms, query=%.3f ms%n",
+                                averages.regexInsertMs(),
+                                averages.regexQueryMs());
+                    }
+                });
+            }
         }
 
-        if (aggregated.isEmpty()) {
+        boolean anyResults = aggregated.values().stream().anyMatch(map -> !map.isEmpty());
+        if (!anyResults) {
             System.out.println("No runs executed.");
             return;
         }
 
         System.out.println();
-        int datasetCount = aggregated.values().stream()
-                .mapToInt(AggregateStats::count)
-                .max()
-                .orElse(0);
-
-        System.out.printf(Locale.ROOT,
-                "Aggregated averages across %d dataset(s):%n",
-                datasetCount);
 
         boolean includeRegex = aggregated.values().stream()
+                .flatMap(map -> map.values().stream())
                 .anyMatch(stats -> stats.regexCount > 0);
 
-        List<List<?>> csvRows = new ArrayList<>();
-        if (includeRegex) {
-            csvRows.add(List.of("patternLength",
-                    "avgInsertMsPerSymbol",
-                    "avgInsertMs",
-                    "avgQueryMs",
-                    "datasetCount",
-                    "regexAvgInsertMs",
-                    "regexAvgQueryMs",
-                    "regexDatasetCount"));
-        } else {
-            csvRows.add(List.of("patternLength",
-                    "avgInsertMsPerSymbol",
-                    "avgInsertMs",
-                    "avgQueryMs",
-                    "datasetCount"));
-        }
+        aggregated.forEach((type, statsByPattern) -> {
+            int datasetCount = statsByPattern.values().stream()
+                    .mapToInt(AggregateStats::count)
+                    .max()
+                    .orElse(0);
 
-        aggregated.forEach((patternLength, stats) -> {
-            double avgInsertPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count;
-            double avgInsertMs = stats.totalInsertMsSum / stats.count;
-            double avgQueryMs = stats.totalQueryMsSum / stats.count;
-            double avgRegexInsert = stats.regexCount > 0
-                    ? stats.regexInsertMsSum / stats.regexCount
-                    : 0.0;
-            double avgRegexQuery = stats.regexCount > 0
-                    ? stats.regexQueryMsSum / stats.regexCount
-                    : 0.0;
             System.out.printf(Locale.ROOT,
-                    "Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                    patternLength,
-                    avgInsertPerSymbol,
-                    avgInsertMs,
-                    avgQueryMs,
-                    stats.count());
+                    "Aggregated averages for %s across %d dataset(s):%n",
+                    type.fileToken(), datasetCount);
 
-            if (includeRegex && stats.regexCount > 0) {
-                System.out.printf(Locale.ROOT,
-                        "           Regex -> insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                        avgRegexInsert,
-                        avgRegexQuery,
-                        stats.regexCount);
+            if (statsByPattern.isEmpty()) {
+                System.out.println("  No data available.");
+                System.out.println();
+                return;
             }
 
+            statsByPattern.forEach((patternLength, stats) -> {
+                double avgInsertPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count();
+                double avgInsertMs = stats.totalInsertMsSum / stats.count();
+                double avgQueryMs = stats.totalQueryMsSum / stats.count();
+                System.out.printf(Locale.ROOT,
+                        "  Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
+                        patternLength,
+                        avgInsertPerSymbol,
+                        avgInsertMs,
+                        avgQueryMs,
+                        stats.count());
+
+                if (includeRegex && stats.regexCount > 0) {
+                    double avgRegexInsert = stats.regexInsertMsSum / stats.regexCount;
+                    double avgRegexQuery = stats.regexQueryMsSum / stats.regexCount;
+                    System.out.printf(Locale.ROOT,
+                            "         Regex -> insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
+                            avgRegexInsert,
+                            avgRegexQuery,
+                            stats.regexCount);
+                }
+            });
+
+            System.out.println();
+        });
+
+        List<Object> header = new ArrayList<>();
+        header.add("patternLength");
+
+        queryTypes.forEach(type -> {
+            header.add("avgInsertMsPerSymbol_" + type.fileToken());
+            header.add("insertMs_" + type.fileToken());
+            header.add("avgMs_" + type.fileToken());
+            header.add("datasetCount_" + type.fileToken());
             if (includeRegex) {
-                csvRows.add(List.of(
-                        patternLength,
-                        avgInsertPerSymbol,
-                        avgInsertMs,
-                        avgQueryMs,
-                        stats.count(),
-                        avgRegexInsert,
-                        avgRegexQuery,
-                        stats.regexCount));
-            } else {
-                csvRows.add(List.of(
-                        patternLength,
-                        avgInsertPerSymbol,
-                        avgInsertMs,
-                        avgQueryMs,
-                        stats.count()));
+                header.add("regexAvgInsertMs_" + type.fileToken());
+                header.add("regexAvgQueryMs_" + type.fileToken());
+                header.add("regexDatasetCount_" + type.fileToken());
             }
         });
+
+        List<List<?>> csvRows = new ArrayList<>();
+        csvRows.add(header);
+
+        SortedSet<Integer> allPatternLengths = new TreeSet<>();
+        aggregated.values().forEach(map -> allPatternLengths.addAll(map.keySet()));
+
+        for (Integer patternLength : allPatternLengths) {
+            List<Object> row = new ArrayList<>();
+            row.add(patternLength);
+
+            for (QueryType type : queryTypes) {
+                AggregateStats stats = aggregated.get(type).get(patternLength);
+                if (stats == null || stats.count() == 0) {
+                    row.add(null);
+                    row.add(null);
+                    row.add(null);
+                    row.add(0);
+                    if (includeRegex) {
+                        row.add(null);
+                        row.add(null);
+                        row.add(0);
+                    }
+                    continue;
+                }
+
+                double avgInsertMsPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count();
+                double insertMs = stats.totalInsertMsSum / stats.count();
+                double avgQueryMs = stats.totalQueryMsSum / stats.count();
+
+                row.add(avgInsertMsPerSymbol);
+                row.add(insertMs);
+                row.add(avgQueryMs);
+                row.add(stats.count());
+
+                if (includeRegex) {
+                    Double avgRegexInsert = stats.regexCount > 0
+                            ? stats.regexInsertMsSum / stats.regexCount
+                            : null;
+                    Double avgRegexQuery = stats.regexCount > 0
+                            ? stats.regexQueryMsSum / stats.regexCount
+                            : null;
+                    row.add(avgRegexInsert);
+                    row.add(avgRegexQuery);
+                    row.add(stats.regexCount);
+                }
+            }
+
+            csvRows.add(row);
+        }
 
         Path csvPath = options.csvOutputFile();
         CsvUtil.writeRows(csvPath, csvRows);
@@ -188,6 +236,7 @@ public final class HBIDatasetBenchmarkMulti {
 
     private static Map<Integer, RunAverages> runExperiments(BenchmarkOptions options,
                                                             Path datasetFile,
+                                                            QueryType queryType,
                                                             List<MultiQueryExperiment.QueryWorkload> workloads) throws IOException {
         if (workloads.isEmpty()) {
             return Map.of();
@@ -270,7 +319,7 @@ public final class HBIDatasetBenchmarkMulti {
     }
 
     private static HBI newHbi(BenchmarkOptions options) {
-        int alphabetSize = options.alphabetSize(options.windowLength);
+        int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
@@ -440,8 +489,8 @@ public final class HBIDatasetBenchmarkMulti {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
             String window = "w21";
-            QueryType queryType = QueryType.UNIFORM;
-            Integer ngram = 2;
+            QueryType queryType = null;
+            Integer ngram = 4;
             Integer windowLength = null;
             Integer treeLength = null;
             Integer alphabetBase = 95;
@@ -471,7 +520,9 @@ public final class HBIDatasetBenchmarkMulti {
                 }
                 switch (key) {
                     case "window" -> window = value;
-                    case "type" -> queryType = QueryType.fromString(value);
+                    case "type" -> queryType = "all".equalsIgnoreCase(value)
+                            ? null
+                            : QueryType.fromString(value);
                     case "data-root" -> dataRoot = Path.of(value);
                     case "query-root" -> queryRoot = Path.of(value);
                     case "ngrams" -> ngram = Integer.parseInt(value);
@@ -490,12 +541,9 @@ public final class HBIDatasetBenchmarkMulti {
             if (window == null) {
                 throw new IllegalArgumentException("--window is required");
             }
-            if (queryType == null) {
-                throw new IllegalArgumentException("--type is required");
-            }
 
             if (ngram == null) {
-                ngram = 5;
+                ngram = 4;
             }
             if (windowLength == null) {
                 windowLength = deriveWindowLength(window, 1 << 21);
@@ -530,7 +578,7 @@ public final class HBIDatasetBenchmarkMulti {
                     runRegexBaseline);
         }
 
-        int alphabetSize(int windowLength) {
+        int alphabetSize() {
             double pow = Math.pow(alphabetBase, ngram);
             if (pow >= Integer.MAX_VALUE) {
                 return Integer.MAX_VALUE;
@@ -539,8 +587,27 @@ public final class HBIDatasetBenchmarkMulti {
             return (int) sigma;
         }
 
+        String queryTypeLabel() {
+            return queryType != null ? queryType.fileToken() : "all";
+        }
+
+        List<QueryType> orderedQueryTypes() {
+            EnumSet<QueryType> selected = queryType != null
+                    ? EnumSet.of(queryType)
+                    : EnumSet.allOf(QueryType.class);
+
+            List<QueryType> preferredOrder = List.of(QueryType.UNIFORM, QueryType.MISSING, QueryType.RARE);
+            List<QueryType> entries = new ArrayList<>();
+            for (QueryType candidate : preferredOrder) {
+                if (selected.contains(candidate)) {
+                    entries.add(candidate);
+                }
+            }
+            return entries;
+        }
+
         Path csvOutputFile() {
-            String fileName = "%s_%s_%d.csv".formatted(window, queryType.fileToken(), ngram);
+            String fileName = "%s_%s_%d.csv".formatted(window, queryTypeLabel(), ngram);
             return Path.of(fileName);
         }
 
