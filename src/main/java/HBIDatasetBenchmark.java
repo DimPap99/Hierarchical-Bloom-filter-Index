@@ -33,7 +33,7 @@ public class HBIDatasetBenchmark {
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 3;        // set to 0 for a dry run
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS = 4;
+    private static int NGRAMS = 10;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
     private static int NUMQUERIES = 135;
     public static void main(String[] args) throws IOException {
@@ -74,10 +74,10 @@ public class HBIDatasetBenchmark {
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
-            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
 
             IPMIndexing ipm = new RegexIndex();
-            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
+            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, true, false);
             int b = 2;
         }
 
@@ -146,10 +146,10 @@ public class HBIDatasetBenchmark {
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
         Supplier<PruningPlan> prFactory =
-                () -> new MostFreqPruning(conf);
+                () -> new MultiLevelPruning(conf);
 
         Verifier v = new VerifierLinearLeafProbe();
-        return new HBI(new BlockSearch(),
+        return new HBI(new BlockSearchCharSet(),
 
                 WINDOW_LEN,
                 FP_RATE,

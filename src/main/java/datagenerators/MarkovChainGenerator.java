@@ -16,6 +16,10 @@ public final class MarkovChainGenerator {
     private MarkovChainGenerator() {
     }
 
+    public static void main(String[] args) throws Exception {
+        GenerateMarkovDataset.main(args);
+    }
+
     public static MarkovDataset generate(int length,
                                          int minDomain,
                                          int maxDomain,

@@ -26,6 +26,21 @@ public final class MultiQueryExperiment {
                                      boolean verbose,
                                      boolean queryResults) throws IOException {
         InsertStats insertStats = insertDataset(datasetPath, index, nGram);
+        return runQueries(workloads, index, nGram, insertStats, verbose, queryResults);
+    }
+
+    public static InsertStats populateIndex(String datasetPath,
+                                            IPMIndexing index,
+                                            int nGram) throws IOException {
+        return insertDataset(datasetPath, index, nGram);
+    }
+
+    public static MultiRunResult runQueries(List<QueryWorkload> workloads,
+                                            IPMIndexing index,
+                                            int nGram,
+                                            InsertStats insertStats,
+                                            boolean verbose,
+                                            boolean queryResults) throws IOException {
         Map<QueryWorkload, ExperimentRunResult> results = new LinkedHashMap<>();
 
         for (QueryWorkload workload : workloads) {
@@ -125,13 +140,13 @@ public final class MultiQueryExperiment {
         return queries;
     }
 
-    private record InsertStats(long insertDurationMs,
-                               double avgInsertMsPerSymbol) {
+    public record InsertStats(long insertDurationMs,
+                              double avgInsertMsPerSymbol) {
     }
 
-    private record QueryStats(long queryDurationMs,
-                              double avgQueryLength,
-                              ArrayList<PatternResult> patternResults) {
+    public record QueryStats(long queryDurationMs,
+                             double avgQueryLength,
+                             ArrayList<PatternResult> patternResults) {
     }
 
     public record QueryWorkload(int patternLength, Path queryFile) {

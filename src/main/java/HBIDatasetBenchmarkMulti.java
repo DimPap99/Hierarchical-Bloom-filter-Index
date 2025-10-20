@@ -7,11 +7,7 @@ import estimators.CSEstimator;
 import estimators.Estimator;
 import membership.BloomFilter;
 import membership.Membership;
-import search.BlockSearch;
-import search.MostFreqPruning;
-import search.PruningPlan;
-import search.Verifier;
-import search.VerifierLinearLeafProbe;
+import search.*;
 
 import utilities.ExperimentRunResult;
 import utilities.MultiQueryExperiment;
@@ -38,6 +34,8 @@ import utilities.CsvUtil;
 public final class HBIDatasetBenchmarkMulti {
 
     private static final boolean USE_STRIDES = true;
+
+
 
     public static void main(String[] args) throws IOException {
         BenchmarkOptions options = BenchmarkOptions.parse(args);
@@ -67,46 +65,111 @@ public final class HBIDatasetBenchmarkMulti {
             System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
                     datasetDir.getFileName(), datasetFile.getFileName());
 
+            Map<QueryType, List<MultiQueryExperiment.QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
+            boolean hasQueries = false;
             for (QueryType type : queryTypes) {
                 List<Path> queryFiles = findQueryFiles(queryDir, type);
                 if (queryFiles.isEmpty()) {
                     System.out.printf(Locale.ROOT,
                             "No %s queries in %s, skipping.%n",
                             type.fileToken(), queryDir);
+                    workloadsByType.put(type, List.of());
                     continue;
                 }
-
+                hasQueries = true;
                 System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
-
                 List<MultiQueryExperiment.QueryWorkload> workloads = queryFiles.stream()
                         .map(path -> new MultiQueryExperiment.QueryWorkload(
                                 parsePatternLength(path.getFileName().toString()),
                                 path))
                         .sorted(Comparator.comparingInt(MultiQueryExperiment.QueryWorkload::patternLength))
                         .collect(Collectors.toList());
+                workloadsByType.put(type, workloads);
+            }
 
-                Map<Integer, RunAverages> resultsByPattern = runExperiments(options, datasetFile, type, workloads);
+            if (!hasQueries) {
+                continue;
+            }
 
-                Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
-
-                resultsByPattern.forEach((patternLength, averages) -> {
-                    perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                            .accumulate(averages);
-
-                    System.out.printf(Locale.ROOT,
-                            "    Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms%n",
-                            patternLength,
-                            averages.avgInsertMsPerSymbol(),
-                            averages.totalInsertMs(),
-                            averages.totalQueryMs());
-
-                    if (options.runRegexBaseline() && (averages.regexInsertMs() > 0 || averages.regexQueryMs() > 0)) {
-                        System.out.printf(Locale.ROOT,
-                                "      Regex -> insert=%.3f ms, query=%.3f ms%n",
-                                averages.regexInsertMs(),
-                                averages.regexQueryMs());
+            for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
+                HBI warmupIndex = newHbi(options);
+                warmupIndex.strides = USE_STRIDES;
+                warmupIndex.stats().setCollecting(false);
+                warmupIndex.stats().setExperimentMode(false);
+                MultiQueryExperiment.InsertStats warmupInsert =
+                        MultiQueryExperiment.populateIndex(datasetFile.toString(), warmupIndex, options.ngram());
+                for (QueryType type : queryTypes) {
+                    List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                    if (workloads == null || workloads.isEmpty()) {
+                        continue;
                     }
-                });
+                    MultiQueryExperiment.runQueries(workloads, warmupIndex, options.ngram(), warmupInsert, false, false);
+                }
+
+                if (options.runRegexBaseline()) {
+                    IPMIndexing regexWarm = new RegexIndex();
+                    MultiQueryExperiment.InsertStats regexWarmInsert =
+                            MultiQueryExperiment.populateIndex(datasetFile.toString(), regexWarm, 1);
+                    for (QueryType type : queryTypes) {
+                        List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                        if (workloads == null || workloads.isEmpty()) {
+                            continue;
+                        }
+                        MultiQueryExperiment.runQueries(workloads, regexWarm, 1, regexWarmInsert, false, false);
+                    }
+                }
+            }
+
+            for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
+                HBI hbi = newHbi(options);
+                hbi.strides = USE_STRIDES;
+                hbi.stats().setCollecting(false);
+                hbi.stats().setExperimentMode(false);
+
+                MultiQueryExperiment.InsertStats hbiInsertStats =
+                        MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, options.ngram());
+
+                IPMIndexing regex = null;
+                MultiQueryExperiment.InsertStats regexInsertStats = null;
+                if (options.runRegexBaseline()) {
+                    regex = new RegexIndex();
+                    regexInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+                }
+
+                for (QueryType type : queryTypes) {
+                    List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                    if (workloads == null || workloads.isEmpty()) {
+                        continue;
+                    }
+
+                    MultiQueryExperiment.MultiRunResult hbiResults =
+                            MultiQueryExperiment.runQueries(workloads, hbi, options.ngram(), hbiInsertStats, false, false);
+
+                    MultiQueryExperiment.MultiRunResult regexResults;
+                    if (regex != null) {
+                        regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexInsertStats, false, false);
+                    } else {
+                        regexResults = null;
+                    }
+
+                    Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
+
+                    hbiResults.results().forEach((workload, result) -> {
+                        int patternLength = workload.patternLength();
+                        ExperimentRunResult regexResult =
+                                (regexResults != null) ? regexResults.results().get(workload) : null;
+
+                        RunAverages averages = new RunAverages(
+                                result.avgInsertMsPerSymbol(),
+                                result.totalInsertTimeMs(),
+                                result.totalRunTimeMs(),
+                                regexResult != null ? regexResult.totalInsertTimeMs() : 0.0,
+                                regexResult != null ? regexResult.totalRunTimeMs() : 0.0);
+
+                        perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
+                                .accumulate(averages);
+                    });
+                }
             }
         }
 
@@ -234,90 +297,6 @@ public final class HBIDatasetBenchmarkMulti {
         System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
     }
 
-    private static Map<Integer, RunAverages> runExperiments(BenchmarkOptions options,
-                                                            Path datasetFile,
-                                                            QueryType queryType,
-                                                            List<MultiQueryExperiment.QueryWorkload> workloads) throws IOException {
-        if (workloads.isEmpty()) {
-            return Map.of();
-        }
-
-        for (int i = 0; i < options.warmupRuns(); i++) {
-            HBI warmupIndex = newHbi(options);
-            warmupIndex.strides = USE_STRIDES;
-            warmupIndex.stats().setCollecting(false);
-            warmupIndex.stats().setExperimentMode(false);
-            MultiQueryExperiment.run(datasetFile.toString(), workloads, warmupIndex, options.ngram(), false, false);
-            if (options.runRegexBaseline()) {
-                IPMIndexing regexWarmup = new RegexIndex();
-                MultiQueryExperiment.run(datasetFile.toString(), workloads, regexWarmup, 1, false, false);
-            }
-        }
-
-        Map<Integer, SampleAccumulator> hbiSamples = new TreeMap<>();
-        Map<Integer, SampleAccumulator> regexSamples = new TreeMap<>();
-
-        for (int i = 0; i < options.runs(); i++) {
-            HBI hbi = newHbi(options);
-            hbi.strides = USE_STRIDES;
-            hbi.stats().setCollecting(false);
-            hbi.stats().setExperimentMode(false);
-            MultiQueryExperiment.MultiRunResult hbiResult = MultiQueryExperiment.run(
-                    datasetFile.toString(),
-                    workloads,
-                    hbi,
-                    options.ngram(),
-                    false,
-                    false);
-
-            hbiResult.results().forEach((workload, result) ->
-                    hbiSamples.computeIfAbsent(workload.patternLength(), ignored -> new SampleAccumulator())
-                            .add(result));
-
-            if (options.runRegexBaseline()) {
-                IPMIndexing regex = new RegexIndex();
-                MultiQueryExperiment.MultiRunResult regexResult = MultiQueryExperiment.run(
-                        datasetFile.toString(),
-                        workloads,
-                        regex,
-                        1,
-                        false,
-                        false);
-
-                regexResult.results().forEach((workload, result) ->
-                        regexSamples.computeIfAbsent(workload.patternLength(), ignored -> new SampleAccumulator())
-                                .add(result));
-            }
-        }
-
-        Map<Integer, RunAverages> averages = new TreeMap<>();
-        hbiSamples.forEach((patternLength, sample) -> {
-            if (sample.count == 0) {
-                return;
-            }
-            double avgInsertMsPerSymbol = sample.avgInsertMsPerSymbolSum / sample.count;
-            double avgInsertMs = sample.totalInsertMsSum / sample.count;
-            double avgQueryMs = sample.totalQueryMsSum / sample.count;
-
-            SampleAccumulator regexSample = regexSamples.get(patternLength);
-            double regexInsert = regexSample == null || regexSample.count == 0
-                    ? 0.0
-                    : regexSample.totalInsertMsSum / regexSample.count;
-            double regexQuery = regexSample == null || regexSample.count == 0
-                    ? 0.0
-                    : regexSample.totalQueryMsSum / regexSample.count;
-
-            averages.put(patternLength, new RunAverages(
-                    avgInsertMsPerSymbol,
-                    avgInsertMs,
-                    avgQueryMs,
-                    regexInsert,
-                    regexQuery));
-        });
-
-        return averages;
-    }
-
     private static HBI newHbi(BenchmarkOptions options) {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
@@ -399,20 +378,6 @@ public final class HBIDatasetBenchmarkMulti {
         }
     }
 
-    private static final class SampleAccumulator {
-        private double avgInsertMsPerSymbolSum;
-        private double totalInsertMsSum;
-        private double totalQueryMsSum;
-        private int count;
-
-        void add(ExperimentRunResult result) {
-            avgInsertMsPerSymbolSum += result.avgInsertMsPerSymbol();
-            totalInsertMsSum += result.totalInsertTimeMs();
-            totalQueryMsSum += result.totalRunTimeMs();
-            count++;
-        }
-    }
-
     private static final class AggregateStats {
         private double avgInsertMsPerSymbolSum;
         private double totalInsertMsSum;
@@ -488,12 +453,12 @@ public final class HBIDatasetBenchmarkMulti {
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "w21";
+            String window = "w23";
             QueryType queryType = null;
-            Integer ngram = 10;
+            Integer ngram = 2;
             Integer windowLength = null;
             Integer treeLength = null;
-            Integer alphabetBase = 95;
+            Integer alphabetBase = 130;
             double fpRate = 0.001;
             double runConfidence = 0.99;
             int warmupRuns = 1;
