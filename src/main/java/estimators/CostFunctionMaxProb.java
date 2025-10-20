@@ -4,6 +4,7 @@ import tree.ImplicitTree;
 import utilities.MathUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 
 public class CostFunctionMaxProb extends AbstractCostFunction {
@@ -14,6 +15,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         final int r;
         final int maxLevel;
         final int Ldesc;
+        final int minLevel;
+        final int upperLevel;
         final long[] keySeqRef;
         final double[] probsRef;
         final double[] beta;
@@ -29,6 +32,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
                     int r,
                     int maxLevel,
                     int Ldesc,
+                    int minLevel,
+                    int upperLevel,
                     long[] keySeqRef,
                     double[] probsRef,
                     double[] beta,
@@ -43,6 +48,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             this.r = r;
             this.maxLevel = maxLevel;
             this.Ldesc = Ldesc;
+            this.minLevel = minLevel;
+            this.upperLevel = upperLevel;
             this.keySeqRef = keySeqRef;
             this.probsRef = probsRef;
             this.beta = beta;
@@ -53,6 +60,34 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             this.childCanHostFrom = childCanHostFrom;
             this.firstIdx = firstIdx;
             this.segMult = segMult;
+        }
+
+        boolean covers(int level) {
+            return level >= minLevel && level <= upperLevel;
+        }
+
+        int offset(int level) {
+            return level - minLevel;
+        }
+
+        double HUncond(int level) {
+            return this.H_uncond[offset(level)];
+        }
+
+        double FUncond(int level) {
+            return this.F_uncond[offset(level)];
+        }
+
+        double HCond(int level) {
+            return this.H_cond[offset(level)];
+        }
+
+        double FCond(int level) {
+            return this.F_cond[offset(level)];
+        }
+
+        boolean childCanHostFrom(int level) {
+            return this.childCanHostFrom[offset(level)];
         }
     }
 
@@ -86,8 +121,9 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             || lpCache.width != tree.baseIntervalSize()
             || lpCache.r != keySeq.length
             || lpCache.keySeqRef != keySeq
-            || lpCache.probsRef != probs) {
-            buildLpCache(tree, probs, keySeq);
+            || lpCache.probsRef != probs
+            || !lpCache.covers(Lp)) {
+            buildLpCache(tree, probs, keySeq, Lp);
         }
 
         if (lpCache == null) {
@@ -95,79 +131,103 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         }
 
         final int maxLevel = lpCache.maxLevel;
-        if (Lp < 0 || Lp > maxLevel) {
+        if (Lp < lpCache.minLevel || Lp > maxLevel || !lpCache.covers(Lp)) {
             return 0.0;
         }
 
         final int Ldesc = lpCache.Ldesc;
 
         double nodesAtLp = (double) (1L << Lp);
-        double total = lpCache.H_uncond[Lp] * nodesAtLp;
+        double total = lpCache.HUncond(Lp) * nodesAtLp;
 
-        if (!lpCache.childCanHostFrom[Lp] || Lp >= Ldesc) {
+        if (!lpCache.childCanHostFrom(Lp) || Lp >= Ldesc) {
             return total;
         }
 
         int level = Lp + 1;
-        if (level > maxLevel) {
+        if (level > lpCache.upperLevel) {
             return total;
         }
 
-        double nodesAtLevel = 2.0 * nodesAtLp * lpCache.F_uncond[Lp];
+        double nodesAtLevel = 2.0 * nodesAtLp * lpCache.FUncond(Lp);
         if (nodesAtLevel <= 0.0) {
             return total;
         }
 
-        total += lpCache.H_cond[level] * nodesAtLevel;
+        total += lpCache.HCond(level) * nodesAtLevel;
 
-        while (level < Ldesc && lpCache.childCanHostFrom[level]) {
+        while (level < Ldesc && lpCache.childCanHostFrom(level)) {
             double parents = nodesAtLevel;
             int next = level + 1;
-            nodesAtLevel = 2.0 * parents * lpCache.F_cond[level];
-            if (nodesAtLevel <= 0.0 || next > maxLevel) {
+            nodesAtLevel = 2.0 * parents * lpCache.FCond(level);
+            if (nodesAtLevel <= 0.0 || next > lpCache.upperLevel) {
                 break;
             }
-            total += lpCache.H_cond[next] * nodesAtLevel;
+            total += lpCache.HCond(next) * nodesAtLevel;
             level = next;
         }
 
         return total;
     }
 
-    private void buildLpCache(ImplicitTree<?> tree, double[] probs, long[] keySeq) {
+    private void buildLpCache(ImplicitTree<?> tree, double[] probs, long[] keySeq, int requestedLp) {
         final int width = tree.baseIntervalSize();
         final int maxLevel = Math.max(0, tree.maxDepth() - 1);
         final int r = keySeq.length;
-        final int Ldesc = Math.min(MathUtils.deepestVisitedLevel(width, r), maxLevel);
 
-        final double[] beta = new double[maxLevel + 1];
-        for (int level = 0; level <= maxLevel; level++) {
+        double minProb = Arrays.stream(probs).min().orElse(0.0);
+        int minCandidate = MathUtils.pruningLevel(tree, 0.99, minProb);
+        int maxCandidate = MathUtils.pruningLevel(tree, 0.05, minProb);
+
+        // Convert to level indices and clamp to valid range
+        minCandidate = clampLevel(minCandidate, maxLevel);
+        maxCandidate = clampLevel(maxCandidate, maxLevel);
+
+        final int Ldesc = Math.min(MathUtils.deepestVisitedLevel(width, r), maxLevel);
+        maxCandidate = Math.min(maxCandidate, Ldesc);
+        if (maxCandidate < minCandidate) {
+            maxCandidate = minCandidate;
+        }
+
+        int desired = clampLevel(requestedLp, Ldesc);
+        int minLevel = Math.min(minCandidate, desired);
+        int upperLevel = Math.max(Math.max(minCandidate, maxCandidate), desired);
+        upperLevel = Math.min(upperLevel, Ldesc);
+        if (upperLevel < minLevel) {
+            upperLevel = minLevel;
+        }
+
+        final double[] beta = new double[upperLevel + 1];
+        for (int level = 0; level <= upperLevel; level++) {
             beta[level] = tree.getMembershipFpRate(level);
         }
 
-        final double[] H_uncond = new double[maxLevel + 1];
-        final double[] F_uncond = new double[maxLevel + 1];
-        final double[] H_cond = new double[maxLevel + 1];
-        final double[] F_cond = new double[maxLevel + 1];
-        final boolean[] childCanHostFrom = new boolean[maxLevel + 1];
-        final int[][] firstIdx = new int[maxLevel + 1][];
-        final int[][] segMult = new int[maxLevel + 1][];
+        final int range = upperLevel - minLevel + 1;
+        final double[] H_uncond = new double[range];
+        final double[] F_uncond = new double[range];
+        final double[] H_cond = new double[range];
+        final double[] F_cond = new double[range];
+        final boolean[] childCanHostFrom = new boolean[range];
+        final int[][] firstIdx = new int[range][];
+        final int[][] segMult = new int[range][];
 
-        for (int level = 0; level <= maxLevel; level++) {
+        int startLevel = minLevel;
+        for (int level = startLevel; level <= upperLevel; level++) {
+            int idx = level - startLevel;
             final int bL = width >> level;
             final int ell = Math.min(r, bL);
 
-            childCanHostFrom[level] = MathUtils.childCanHost(width, level, r);
+            childCanHostFrom[idx] = MathUtils.childCanHost(width, level, r);
 
             final int[] first = firstOccurrencePositions(keySeq, ell);
             final int[] mult = segmentMultiplicities(ell, first);
-            firstIdx[level] = first;
-            segMult[level] = mult;
+            firstIdx[idx] = first;
+            segMult[idx] = mult;
 
             final double[] qUn = MathUtils.qUncondAtLevel(probs, width, level, beta[level]);
             HF hfUn = HF_from_q_preindexed(ell, first, mult, qUn);
-            H_uncond[level] = hfUn.H;
-            F_uncond[level] = hfUn.F;
+            H_uncond[idx] = hfUn.H;
+            F_uncond[idx] = hfUn.F;
 
             if (level >= 1) {
                 final double[] qCond = MathUtils.qCondChildGivenParent(probs,
@@ -176,11 +236,11 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
                                                                        beta[level - 1],
                                                                        beta[level]);
                 HF hfCond = HF_from_q_preindexed(ell, first, mult, qCond);
-                H_cond[level] = hfCond.H;
-                F_cond[level] = hfCond.F;
+                H_cond[idx] = hfCond.H;
+                F_cond[idx] = hfCond.F;
             } else {
-                H_cond[0] = 0.0;
-                F_cond[0] = 1.0;
+                H_cond[idx] = 0.0;
+                F_cond[idx] = 1.0;
             }
         }
 
@@ -188,6 +248,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
                                        r,
                                        maxLevel,
                                        Ldesc,
+                                       minLevel,
+                                       upperLevel,
                                        keySeq,
                                        probs,
                                        beta,
@@ -198,6 +260,16 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
                                        childCanHostFrom,
                                        firstIdx,
                                        segMult);
+    }
+
+    private static int clampLevel(int level, int maxLevel) {
+        if (level < 0) {
+            return 0;
+        }
+        if (level > maxLevel) {
+            return maxLevel;
+        }
+        return level;
     }
 
     private static HF HF_from_q_preindexed(int ell,

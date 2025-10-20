@@ -31,7 +31,7 @@ public class HBIDatasetBenchmark {
     private static final int TREE_LEN     = 1 << 21;
     private static int ALPHABET     = 89;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 2;        // set to 0 for a dry run
+    private static final int RUNS         = 3;        // set to 0 for a dry run
     private static final boolean USE_STRIDES = true;
     private static int NGRAMS = 4;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";

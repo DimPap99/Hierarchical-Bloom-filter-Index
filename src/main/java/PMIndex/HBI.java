@@ -260,7 +260,7 @@ public final class HBI implements IPMIndexing {
             Deque<Frame> stack = new ArrayDeque<>();
 
             long lpStart = System.nanoTime();
-            ArrayList<Integer> lps = null;
+            ArrayList<Integer> lps = new ArrayList<>();
 //            lp = Collections.min(lps);
             totalLpTimeNanos += System.nanoTime() - lpStart;
             //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
@@ -278,6 +278,8 @@ public final class HBI implements IPMIndexing {
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
                 stats.recordMinCostLpTime(System.nanoTime() - minCostStart);
             } else {
+//                int s = cf.minCostLp(tree, 0.05, pat, 97, 26, false);
+//                lps.add(cf.minCostLp(tree, 0.05, pat, 97, 26, false));
                 lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
 //                lp = lpCf;
             }

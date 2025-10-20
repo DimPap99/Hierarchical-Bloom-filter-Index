@@ -490,7 +490,7 @@ public final class HBIDatasetBenchmarkMulti {
             Path queryRoot = Path.of("queries");
             String window = "w21";
             QueryType queryType = null;
-            Integer ngram = 4;
+            Integer ngram = 10;
             Integer windowLength = null;
             Integer treeLength = null;
             Integer alphabetBase = 95;
@@ -580,10 +580,11 @@ public final class HBIDatasetBenchmarkMulti {
 
         int alphabetSize() {
             double pow = Math.pow(alphabetBase, ngram);
-            if (pow >= Integer.MAX_VALUE) {
+
+            double sigma = Math.min(pow, windowLength);
+            if (sigma >= Integer.MAX_VALUE) {
                 return Integer.MAX_VALUE;
             }
-            double sigma = Math.min(pow, windowLength);
             return (int) sigma;
         }
 
