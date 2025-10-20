@@ -382,10 +382,17 @@ public final class HBI implements IPMIndexing {
     }
 
     private TreeLayout makeLayout() {
-        int levels = Integer.SIZE - Integer.numberOfLeadingZeros(treeLength);
-        levels = levels - (nGram/2);
+        int totalLevels = Integer.SIZE - Integer.numberOfLeadingZeros(treeLength);
+        int levels = 1;
+        int span = Math.max(1, treeLength);
+        int target = Math.max(1, nGram);
 
-        int leafSpan = treeLength >>> (levels - 1);
+        while (levels < totalLevels && span % 2 == 0 && span / 2 >= target) {
+            span /= 2;
+            levels++;
+        }
+
+        int leafSpan = Math.max(1, span);
         return new TreeLayout(levels, leafSpan);
 
     }

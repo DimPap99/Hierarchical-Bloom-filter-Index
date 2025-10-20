@@ -30,7 +30,8 @@ public class BlockSearch implements SearchAlgorithm{
             return null;
         } else {
             //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-            if (probe.complete() && childrenIntervalSize >= p.size) {
+            boolean canDescend = f.level() + 1 < tree.maxDepth();
+            if (probe.complete() && childrenIntervalSize >= p.size && canDescend) {
                 //we just generate children as theres a chance that the pattern is in both of them
                 tree.generateChildren(f, stack, positionOffset, tree.id);
                 return null;
