@@ -69,12 +69,12 @@ public final class GenerateMarkovDataset {
         }
 
         static CliOptions parse(String[] args) {
-            int length = 100_000;
-            int alphabetSize = 26;
-            int startCodePoint = 'a';
+            int length = 1 << 16;
+            int alphabetSize = 40;
+            int startCodePoint = 70;
             int order = 1;
             long seed = System.nanoTime();
-            Path output = Path.of("markov_dataset.txt");
+            Path output = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/wmarkov/1/"+order+"_Wmarkov.txt");
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
