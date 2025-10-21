@@ -47,6 +47,14 @@ public class MemUtil {
         return sb.toString();
     }
 
+    /** Same as {@link #jolMemoryReport} but also returns the total MiB as a numeric value. */
+    public MemoryUsageReport jolMemoryReportWithTotal(boolean includePerTree, boolean includeFootprintTable, HBI hbi) {
+        String txt = jolMemoryReport(includePerTree, includeFootprintTable, hbi);
+        long totalBytes = GraphLayout.parseInstance(hbi).totalSize();
+        double totalMiB = totalBytes / (1024.0 * 1024.0);
+        return new MemoryUsageReport(txt, totalMiB);
+    }
+
     public String jolMemoryReportPartitioned(HBI hbi) {
         // Build a report; keep exactly four lines of results for easy parsing/printing.
         StringBuilder sb = new StringBuilder(1024);
@@ -103,6 +111,14 @@ public class MemUtil {
                 }
             }
         }
+    }
+
+    /** Same as {@link #jolMemoryReportPartitioned(HBI)} but also returns the total MiB as a numeric value. */
+    public MemoryUsageReport jolMemoryReportPartitionedWithTotal(HBI hbi) {
+        String txt = jolMemoryReportPartitioned(hbi);
+        long totalBytes = org.openjdk.jol.info.GraphLayout.parseInstance(hbi).totalSize();
+        double totalMiB = totalBytes / (1024.0 * 1024.0);
+        return new MemoryUsageReport(txt, totalMiB);
     }
 
 

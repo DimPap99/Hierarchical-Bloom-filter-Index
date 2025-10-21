@@ -1,5 +1,7 @@
 package PMIndex;
 
+import org.openjdk.jol.info.GraphLayout;
+import org.openjdk.jol.vm.VM;
 import search.Pattern;
 import utilities.PatternResult;
 import utilities.StringKeyMapper;
@@ -7,6 +9,7 @@ import utilities.StringKeyMapper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -16,18 +19,27 @@ import java.util.function.Consumer;
  * matches the numeric token stream used by HBI. Ukkonen's algorithm keeps the tree
  * in sync as tokens arrive, allowing pattern queries to execute in linear time with
  * respect to the number of tokens in the query.
+ *
+ * Memory optimizations included:
+ *  - Four-inline-slot ChildMap before upgrading to a hash table
+ *  - Integer edge ends with a single global leafEndValue (no per-node End objects)
+ *  - Optional compaction pass after build
+ *  - JOL memory reports (full and partitioned)
  */
-public class SuffixTreeIndex implements IPMIndexing {
+public class SuffixTreeIndex implements IPMIndexing { // keep your original interface name if different
 
     private final StringKeyMapper keyMapper;
     private final LongSequence tokenStream = new LongSequence();
     private final Node root;
 
+    // Ukkonen active point
     private Node activeNode;
     private int activeEdge = -1;
     private int activeLength = 0;
+
+    // Ukkonen bookkeeping
     private int remainingSuffixCount = 0;
-    private End leafEnd = new End(-1);
+    private int leafEndValue = -1;                // global, shared end for all leaves
     private Node lastCreatedInternalNode = null;
 
     public SuffixTreeIndex() {
@@ -40,7 +52,7 @@ public class SuffixTreeIndex implements IPMIndexing {
 
     public SuffixTreeIndex(StringKeyMapper mapper) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
-        this.root = new Node(-1, new End(-1), null);
+        this.root = new Node(-1, -1);
         this.root.suffixLink = this.root;
         this.activeNode = this.root;
     }
@@ -56,7 +68,8 @@ public class SuffixTreeIndex implements IPMIndexing {
     }
 
     private void extendSuffixTree(int pos) {
-        leafEnd.value = pos;
+        // advance the global leaf end
+        leafEndValue = pos;
         remainingSuffixCount++;
         lastCreatedInternalNode = null;
 
@@ -66,8 +79,10 @@ public class SuffixTreeIndex implements IPMIndexing {
             }
             long currentEdgeToken = tokenStream.get(activeEdge);
             Node next = activeNode.children.get(currentEdgeToken);
+
             if (next == null) {
-                Node leaf = new Node(pos, leafEnd, activeNode);
+                // create a new leaf with LEAF_SENTINEL end
+                Node leaf = new Node(pos, Node.LEAF_SENTINEL);
                 leaf.suffixIndex = pos - remainingSuffixCount + 1;
                 activeNode.children.put(currentEdgeToken, leaf);
 
@@ -90,16 +105,18 @@ public class SuffixTreeIndex implements IPMIndexing {
                     break;
                 }
 
-                End splitEnd = new End(next.start + activeLength - 1);
-                Node split = new Node(next.start, splitEnd, activeNode);
+                // split the edge
+                int splitEndVal = next.start + activeLength - 1;
+                Node split = new Node(next.start, splitEndVal);
                 activeNode.children.put(currentEdgeToken, split);
 
-                Node leaf = new Node(pos, leafEnd, split);
+                // new leaf from current position
+                Node leaf = new Node(pos, Node.LEAF_SENTINEL);
                 leaf.suffixIndex = pos - remainingSuffixCount + 1;
                 split.children.put(currentToken, leaf);
 
+                // advance 'next' to start after the split
                 next.start = next.start + activeLength;
-                next.parent = split;
                 long nextEdgeToken = tokenStream.get(next.start);
                 split.children.put(nextEdgeToken, next);
 
@@ -116,13 +133,13 @@ public class SuffixTreeIndex implements IPMIndexing {
                 activeLength--;
                 activeEdge = pos - remainingSuffixCount + 1;
             } else if (activeNode != root) {
-                activeNode = activeNode.suffixLink != null ? activeNode.suffixLink : root;
+                activeNode = (activeNode.suffixLink != null) ? activeNode.suffixLink : root;
             }
         }
     }
 
     private boolean walkDown(Node next) {
-        int edgeLength = next.edgeLength();
+        int edgeLength = next.edgeLength(leafEndValue);
         if (activeLength >= edgeLength) {
             activeEdge += edgeLength;
             activeLength -= edgeLength;
@@ -174,16 +191,26 @@ public class SuffixTreeIndex implements IPMIndexing {
         return tokens;
     }
 
+    /**
+     * Aligns with Java regex semantics for empty patterns.
+     * Reports matches at all N+1 boundaries when the pattern has zero tokens.
+     * Keeps exact path-length accounting when we finish mid-edge.
+     */
     private ArrayList<Integer> reportInternal(long[] patternTokens) {
         ArrayList<Integer> result = new ArrayList<>();
+
+        // empty pattern: report every boundary including the one after the last token
         if (patternTokens.length == 0) {
-            for (int i = 0; i < tokenStream.size(); i++) {
+            int n = tokenStream.size();
+            for (int i = 0; i <= n; i++) {
                 result.add(i);
             }
             return result;
         }
+
         Node current = root;
         int patternIndex = 0;
+        int pathLength = 0;
 
         while (patternIndex < patternTokens.length) {
             long searchToken = patternTokens[patternIndex];
@@ -193,8 +220,10 @@ public class SuffixTreeIndex implements IPMIndexing {
             }
 
             int edgeStart = next.start;
-            int edgeEnd = next.end.value;
+            int edgeEnd   = next.effectiveEnd(leafEndValue);
             int edgeIndex = edgeStart;
+
+            // walk along this edge while tokens match
             while (patternIndex < patternTokens.length && edgeIndex <= edgeEnd) {
                 if (patternTokens[patternIndex] != tokenStream.get(edgeIndex)) {
                     return new ArrayList<>();
@@ -203,31 +232,49 @@ public class SuffixTreeIndex implements IPMIndexing {
                 edgeIndex++;
             }
 
+            // if we consumed the entire pattern, collect answers under 'next'
             if (patternIndex == patternTokens.length) {
-                collectSuffixIndices(next, result);
+                int consumedOnThisEdge = edgeIndex - edgeStart;
+                int nextPathLength = pathLength + consumedOnThisEdge;
+
+                collectSuffixIndices(next, nextPathLength, result);
                 Collections.sort(result);
                 return result;
             }
 
+            // otherwise, if we consumed the whole edge, descend to child
             if (edgeIndex > edgeEnd) {
+                int consumedOnThisEdge = edgeEnd - edgeStart + 1;
+                pathLength += consumedOnThisEdge;
                 current = next;
             } else {
                 return new ArrayList<>();
             }
         }
+
         Collections.sort(result);
         return result;
     }
 
-    private void collectSuffixIndices(Node node, ArrayList<Integer> result) {
+    private void collectSuffixIndices(Node node, int pathLength, ArrayList<Integer> result) {
         if (node == null) {
             return;
         }
-        if (node.suffixIndex >= 0) {
-            result.add(node.suffixIndex);
+
+        if (node.children.isEmpty()) {
+            int start = node.suffixIndex >= 0 ? node.suffixIndex : tokenStream.size() - pathLength;
+            if (start >= 0) {
+                node.suffixIndex = start;
+                result.add(start);
+            }
             return;
         }
-        node.children.forEach(child -> collectSuffixIndices(child, result));
+
+        if (node.suffixIndex >= 0) {
+            result.add(node.suffixIndex);
+        }
+
+        node.children.forEach(child -> collectSuffixIndices(child, pathLength + child.edgeLength(leafEndValue), result));
     }
 
     @Override
@@ -235,15 +282,33 @@ public class SuffixTreeIndex implements IPMIndexing {
         tokenStream.clear();
         root.children.clear();
         root.start = -1;
-        root.end = new End(-1);
+        root.end = -1;
         root.suffixLink = root;
-        root.parent = null;
         activeNode = root;
         activeEdge = -1;
         activeLength = 0;
         remainingSuffixCount = 0;
-        leafEnd = new End(-1);
+        leafEndValue = -1;
         lastCreatedInternalNode = null;
+    }
+
+    /**
+     * Optional compaction step to reduce memory after all insertions are complete.
+     * Trims all child maps to minimal capacity, clears construction-only pointers,
+     * and shrinks the token stream backing array to exact size.
+     * Invoke only when you will not insert more tokens.
+     */
+    public void compactForQuerying() {
+        tokenStream.shrinkToFit();
+        trimDfs(root);
+        lastCreatedInternalNode = null;
+    }
+
+    private void trimDfs(Node node) {
+        if (node == null) return;
+        node.children.trimToSize();
+        node.dropConstructionOnlyPointers();
+        node.children.forEach(this::trimDfs);
     }
 
     @Override
@@ -261,33 +326,126 @@ public class SuffixTreeIndex implements IPMIndexing {
         return -2;
     }
 
-    private static final class Node {
-        private final LongNodeMap children = new LongNodeMap();
-        private Node suffixLink;
-        private int start;
-        private End end;
-        private Node parent;
-        private int suffixIndex = -1;
+    // =========================
+    // === JOL memory reports ==
+    // =========================
 
-        private Node(int start, End end, Node parent) {
-            this.start = start;
-            this.end = end;
-            this.parent = parent;
+    /**
+     * Produce a memory footprint report for the suffix tree index using JOL.
+     *
+     * @param includeFootprintTable when true, append the full class histogram for the index root.
+     * @return human-readable report string in mebibytes
+     */
+    public String jolMemoryReport(boolean includeFootprintTable) {
+        StringBuilder sb = new StringBuilder(4_096);
+
+        sb.append("=== JOL / VM details ===\n");
+        sb.append(VM.current().details()).append('\n');
+
+        GraphLayout totalLayout = GraphLayout.parseInstance(this);
+        sb.append("\n=== SuffixTree total (index as root) ===\n");
+        appendLayout(sb, "Total", totalLayout.totalSize());
+
+        GraphLayout nodesLayout = GraphLayout.parseInstance(root);
+        appendLayout(sb, "Node graph (root)", nodesLayout.totalSize());
+
+        GraphLayout tokenLayout = GraphLayout.parseInstance(tokenStream);
+        appendLayout(sb, "Token stream", tokenLayout.totalSize());
+
+        GraphLayout mapperLayout = GraphLayout.parseInstance(keyMapper);
+        appendLayout(sb, "StringKeyMapper", mapperLayout.totalSize());
+
+        long remainder = totalLayout.totalSize()
+                - nodesLayout.totalSize()
+                - tokenLayout.totalSize()
+                - mapperLayout.totalSize();
+        if (remainder < 0) {
+            remainder = 0;
+        }
+        appendLayout(sb, "Other fields", remainder);
+
+        if (includeFootprintTable) {
+            sb.append("\n--- Class footprint (SuffixTree root) ---\n");
+            sb.append(totalLayout.toFootprint()).append('\n');
         }
 
-        private int edgeLength() {
+        return sb.toString();
+    }
+
+    /** Same report as {@link #jolMemoryReport(boolean)} plus the numeric total MiB. */
+    public utilities.MemoryUsageReport jolMemoryReportWithTotal(boolean includeFootprintTable) {
+        String txt = jolMemoryReport(includeFootprintTable);
+        long totalBytes = GraphLayout.parseInstance(this).totalSize();
+        double totalMiB = totalBytes / (1024.0 * 1024.0);
+        return new utilities.MemoryUsageReport(txt, totalMiB);
+    }
+
+    private static void appendLayout(StringBuilder sb, String label, long bytes) {
+        sb.append(String.format(Locale.ROOT,
+                "%s: %d B (%.3f MiB)%n",
+                label,
+                bytes,
+                bytes / (1024.0 * 1024.0)));
+    }
+
+    /**
+     * Compact, partitioned report to compare directly with HBI's partitioned JOL report.
+     * Returns exactly four lines: Total, Nodes, TokenStream, Mapper.
+     */
+    public String jolMemoryReportPartitioned() {
+        long totalBytes  = GraphLayout.parseInstance(this).totalSize();
+        long nodesBytes  = GraphLayout.parseInstance(root).totalSize();
+        long streamBytes = GraphLayout.parseInstance(tokenStream).totalSize();
+        long mapperBytes = GraphLayout.parseInstance(keyMapper).totalSize();
+
+        Locale L = Locale.ROOT;
+        String totalLine  = String.format(L, "Total: %d B (%.3f MiB)",  totalBytes,  totalBytes  / (1024.0 * 1024.0));
+        String nodesLine  = String.format(L, "Nodes: %d B (%.3f MiB)",  nodesBytes,  nodesBytes  / (1024.0 * 1024.0));
+        String streamLine = String.format(L, "TokenStream: %d B (%.3f MiB)", streamBytes, streamBytes / (1024.0 * 1024.0));
+        String mapLine    = String.format(L, "Mapper: %d B (%.3f MiB)", mapperBytes, mapperBytes / (1024.0 * 1024.0));
+
+        return totalLine + "\n" + nodesLine + "\n" + streamLine + "\n" + mapLine;
+    }
+
+    /** Same as {@link #jolMemoryReportPartitioned()} but also returns the numeric total MiB. */
+    public utilities.MemoryUsageReport jolMemoryReportPartitionedWithTotal() {
+        String txt = jolMemoryReportPartitioned();
+        long totalBytes = GraphLayout.parseInstance(this).totalSize();
+        double totalMiB = totalBytes / (1024.0 * 1024.0);
+        return new utilities.MemoryUsageReport(txt, totalMiB);
+    }
+
+    // =========================
+    // ==== Compact node type ==
+    // =========================
+    private static final class Node {
+        private final ChildMap children = new ChildMap(); // compact and lazy
+        private Node suffixLink;
+        private int start;
+        private int end;                 // explicit end or LEAF_SENTINEL
+        private int suffixIndex = -1;
+
+        private static final int LEAF_SENTINEL = Integer.MIN_VALUE;
+
+        private Node(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+
+        private int effectiveEnd(int leafEndValue) {
+            return (end == LEAF_SENTINEL) ? leafEndValue : end;
+        }
+
+        private int edgeLength(int leafEndValue) {
             if (start == -1) {
                 return 0;
             }
-            return end.value - start + 1;
+            return effectiveEnd(leafEndValue) - start + 1;
         }
-    }
 
-    private static final class End {
-        private int value;
-
-        private End(int value) {
-            this.value = value;
+        /** Release construction-only pointer to reduce memory after build. */
+        private void dropConstructionOnlyPointers() {
+            this.suffixLink = null;
         }
     }
 
@@ -316,6 +474,13 @@ public class SuffixTreeIndex implements IPMIndexing {
             size = 0;
         }
 
+        /** Shrink the backing array to the exact logical size. Call after all insertions. */
+        void shrinkToFit() {
+            if (data.length != size) {
+                data = Arrays.copyOf(data, size);
+            }
+        }
+
         private void ensureCapacity(int capacity) {
             if (capacity <= data.length) {
                 return;
@@ -328,17 +493,115 @@ public class SuffixTreeIndex implements IPMIndexing {
         }
     }
 
+    // ===========================================================
+    // === Compact child container with 4-inline fast path     ===
+    // ===========================================================
+    private static final class ChildMap {
+        // mode 0 empty, 1..4 number of inline entries, 5 upgraded hash table
+        private byte mode = 0;
+
+        private long k1, k2, k3, k4;
+        private Node v1, v2, v3, v4;
+
+        private LongNodeMap map;
+
+        boolean isEmpty() {
+            return mode == 0;
+        }
+
+        Node get(long key) {
+            switch (mode) {
+                case 0:  return null;
+                case 1:  return k1 == key ? v1 : null;
+                case 2:  return (k1 == key ? v1 : (k2 == key ? v2 : null));
+                case 3:  return (k1 == key ? v1 : (k2 == key ? v2 : (k3 == key ? v3 : null)));
+                case 4:  return (k1 == key ? v1 : (k2 == key ? v2 : (k3 == key ? v3 : (k4 == key ? v4 : null))));
+                default: return map.get(key);
+            }
+        }
+
+        void put(long key, Node value) {
+            switch (mode) {
+                case 0:
+                    k1 = key; v1 = value; mode = 1; return;
+                case 1:
+                    if (k1 == key) { v1 = value; return; }
+                    k2 = key; v2 = value; mode = 2; return;
+                case 2:
+                    if (k1 == key) { v1 = value; return; }
+                    if (k2 == key) { v2 = value; return; }
+                    k3 = key; v3 = value; mode = 3; return;
+                case 3:
+                    if (k1 == key) { v1 = value; return; }
+                    if (k2 == key) { v2 = value; return; }
+                    if (k3 == key) { v3 = value; return; }
+                    k4 = key; v4 = value; mode = 4; return;
+                case 4:
+                    if (k1 == key) { v1 = value; return; }
+                    if (k2 == key) { v2 = value; return; }
+                    if (k3 == key) { v3 = value; return; }
+                    if (k4 == key) { v4 = value; return; }
+                    // upgrade
+                    map = new LongNodeMap(8);
+                    map.put(k1, v1); map.put(k2, v2); map.put(k3, v3); map.put(k4, v4);
+                    // free inline slots
+                    v1 = v2 = v3 = v4 = null;
+                    mode = 5;
+                    map.put(key, value);
+                    return;
+                default:
+                    map.put(key, value);
+            }
+        }
+
+        void clear() {
+            mode = 0;
+            v1 = v2 = v3 = v4 = null;
+            map = null;
+        }
+
+        void trimToSize() {
+            if (mode == 5 && map != null) {
+                map.trimToSize();
+            }
+        }
+
+        void forEach(Consumer<Node> consumer) {
+            switch (mode) {
+                case 0: return;
+                case 1: consumer.accept(v1); return;
+                case 2: consumer.accept(v1); consumer.accept(v2); return;
+                case 3: consumer.accept(v1); consumer.accept(v2); consumer.accept(v3); return;
+                case 4: consumer.accept(v1); consumer.accept(v2); consumer.accept(v3); consumer.accept(v4); return;
+                default:
+                    map.forEach(consumer);
+            }
+        }
+    }
+
+    // ============================================
+    // === Hash map for the upgraded child table ===
+    // ============================================
     private static final class LongNodeMap {
         private static final float LOAD_FACTOR = 0.75f;
+
         private long[] keys;
         private Node[] values;
-        private byte[] states; // 0 = empty, 1 = occupied, 2 = deleted
+        private byte[] states; // 0 empty, 1 occupied, 2 deleted
         private int mask;
         private int size;
         private int threshold;
 
         LongNodeMap() {
             initialise(16);
+        }
+
+        LongNodeMap(int initialCapacity) {
+            initialise(Math.max(4, initialCapacity));
+        }
+
+        boolean isEmpty() {
+            return size == 0;
         }
 
         Node get(long key) {
@@ -365,6 +628,20 @@ public class SuffixTreeIndex implements IPMIndexing {
             Arrays.fill(states, (byte) 0);
             Arrays.fill(values, null);
             size = 0;
+        }
+
+        /** Reduce arrays to the smallest power-of-two capacity that satisfies the load factor. */
+        void trimToSize() {
+            if (size == 0) {
+                initialise(4);
+                return;
+            }
+            int minNeeded = (int) Math.ceil(size / (double) LOAD_FACTOR);
+            int target = 1;
+            while (target < minNeeded) target <<= 1;
+            if (keys.length != target) {
+                rehash(target);
+            }
         }
 
         void forEach(Consumer<Node> consumer) {

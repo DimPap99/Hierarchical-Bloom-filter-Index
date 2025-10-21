@@ -25,6 +25,7 @@ public final class StringKeyMapper {
     public enum Algo { MURMUR3_APACHE, CARTER_WEGMAN }
 
     private final Algo algo;
+    public boolean verbose = false;
     private final long expectedDistinct;
     private final double epsilon;
     private final int requiredBits;     // computed from epsilon and n
@@ -131,7 +132,7 @@ public final class StringKeyMapper {
 
     /** Map a string to a long in the range [0, 2^{requiredBits}-1]. Always valid and honors epsilon. */
     public long mapToLong(String s) {
-        if (!warnedOnce) {
+        if (!warnedOnce && this.verbose) {
             double err31 = birthdayCollisionProbability(this.expectedDistinct, 63);
             System.out.println(
                     "Mapper requires " + requiredBits +
