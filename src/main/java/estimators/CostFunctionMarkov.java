@@ -393,7 +393,7 @@ public class CostFunctionMarkov extends AbstractCostFunction {
 //    Time taken: 4187
 
     private static final class ContextModel {
-        private static final int CONTEXT_STEPS_LIMIT = 15;
+        private static final int CONTEXT_STEPS_LIMIT = 10;
         private final int sigma;
         private final int ctxCard;
         private final double[] p0;
