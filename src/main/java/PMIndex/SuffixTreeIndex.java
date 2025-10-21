@@ -14,22 +14,22 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Suffix tree that stores hashed n-gram tokens instead of raw characters. Incoming
- * strings are mapped to longs via {@link StringKeyMapper} so the representation
- * matches the numeric token stream used by HBI. Ukkonen's algorithm keeps the tree
- * in sync as tokens arrive, allowing pattern queries to execute in linear time with
- * respect to the number of tokens in the query.
+ * Suffix tree that stores hashed n-gram tokens as longs. Incoming strings are mapped to longs via
+ * {@link StringKeyMapper} so the representation matches the numeric token stream used by HBI.
+ * Ukkonen's algorithm keeps the tree in sync as tokens arrive, allowing pattern queries to execute
+ * in linear time w.r.t. number of tokens in the query.
  *
  * Memory optimizations included:
+ *  - Lazy children: Node.children is null until the first child is inserted (big leaf savings)
  *  - Four-inline-slot ChildMap before upgrading to a hash table
  *  - Integer edge ends with a single global leafEndValue (no per-node End objects)
  *  - Optional compaction pass after build
  *  - JOL memory reports (full and partitioned)
  */
-public class SuffixTreeIndex implements IPMIndexing { // keep your original interface name if different
+public class SuffixTreeIndex implements IPMIndexing {
 
     private final StringKeyMapper keyMapper;
-    private final LongSequence tokenStream = new LongSequence();
+    private final LongSequence tokenStream;
     private final Node root;
 
     // Ukkonen active point
@@ -50,8 +50,27 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
         this(new StringKeyMapper(expectedDistinctTokens, epsilon));
     }
 
+    /** Construct with a provided mapper and a dynamically-resizable token stream. */
     public SuffixTreeIndex(StringKeyMapper mapper) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
+        this.tokenStream = new LongSequence();
+        this.root = new Node(-1, -1);
+        this.root.suffixLink = this.root;
+        this.activeNode = this.root;
+    }
+
+    /** Fixed-capacity token stream, preallocating space for the full text to index. */
+    public SuffixTreeIndex(long expectedDistinctTokens, double epsilon, int totalTokens) {
+        this(new StringKeyMapper(expectedDistinctTokens, epsilon), totalTokens);
+    }
+
+    /** Construct with a provided mapper and a fixed-capacity token stream. */
+    public SuffixTreeIndex(StringKeyMapper mapper, int totalTokens) {
+        this.keyMapper = Objects.requireNonNull(mapper, "mapper");
+        if (totalTokens <= 0) {
+            throw new IllegalArgumentException("totalTokens must be positive");
+        }
+        this.tokenStream = new LongSequence(totalTokens, true);
         this.root = new Node(-1, -1);
         this.root.suffixLink = this.root;
         this.activeNode = this.root;
@@ -78,13 +97,13 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
                 activeEdge = pos;
             }
             long currentEdgeToken = tokenStream.get(activeEdge);
-            Node next = activeNode.children.get(currentEdgeToken);
+            Node next = getChild(activeNode, currentEdgeToken);
 
             if (next == null) {
                 // create a new leaf with LEAF_SENTINEL end
                 Node leaf = new Node(pos, Node.LEAF_SENTINEL);
                 leaf.suffixIndex = pos - remainingSuffixCount + 1;
-                activeNode.children.put(currentEdgeToken, leaf);
+                putChild(activeNode, currentEdgeToken, leaf);
 
                 if (lastCreatedInternalNode != null) {
                     lastCreatedInternalNode.suffixLink = activeNode;
@@ -108,17 +127,17 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
                 // split the edge
                 int splitEndVal = next.start + activeLength - 1;
                 Node split = new Node(next.start, splitEndVal);
-                activeNode.children.put(currentEdgeToken, split);
+                putChild(activeNode, currentEdgeToken, split);
 
                 // new leaf from current position
                 Node leaf = new Node(pos, Node.LEAF_SENTINEL);
                 leaf.suffixIndex = pos - remainingSuffixCount + 1;
-                split.children.put(currentToken, leaf);
+                putChild(split, currentToken, leaf);
 
                 // advance 'next' to start after the split
                 next.start = next.start + activeLength;
                 long nextEdgeToken = tokenStream.get(next.start);
-                split.children.put(nextEdgeToken, next);
+                putChild(split, nextEdgeToken, next);
 
                 if (lastCreatedInternalNode != null) {
                     lastCreatedInternalNode.suffixLink = split;
@@ -151,6 +170,7 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
 
     @Override
     public boolean exists(String key) {
+        // Not implemented in this index; report() is the primary query op.
         return false;
     }
 
@@ -192,8 +212,8 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
     }
 
     /**
-     * Aligns with Java regex semantics for empty patterns.
-     * Reports matches at all N+1 boundaries when the pattern has zero tokens.
+     * Aligns with Java regex semantics for empty patterns:
+     * reports matches at all N+1 boundaries when the pattern has zero tokens.
      * Keeps exact path-length accounting when we finish mid-edge.
      */
     private ArrayList<Integer> reportInternal(long[] patternTokens) {
@@ -214,7 +234,7 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
 
         while (patternIndex < patternTokens.length) {
             long searchToken = patternTokens[patternIndex];
-            Node next = current.children.get(searchToken);
+            Node next = getChild(current, searchToken);
             if (next == null) {
                 return result;
             }
@@ -253,16 +273,25 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
         }
 
         Collections.sort(result);
+        // deduplicate in-place
+        if (!result.isEmpty()) {
+            int w = 1;
+            for (int r = 1; r < result.size(); r++) {
+                if (!result.get(r).equals(result.get(w - 1))) {
+                    result.set(w++, result.get(r));
+                }
+            }
+            while (result.size() > w) result.remove(result.size() - 1);
+        }
         return result;
     }
 
     private void collectSuffixIndices(Node node, int pathLength, ArrayList<Integer> result) {
-        if (node == null) {
-            return;
-        }
+        if (node == null) return;
 
-        if (node.children.isEmpty()) {
-            int start = node.suffixIndex >= 0 ? node.suffixIndex : tokenStream.size() - pathLength;
+        if (!hasChildren(node)) {
+            // For leaves, the suffix start is the leaf's start position. Prefer recorded suffixIndex if present.
+            int start = (node.suffixIndex >= 0) ? node.suffixIndex : node.start;
             if (start >= 0) {
                 node.suffixIndex = start;
                 result.add(start);
@@ -270,17 +299,18 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
             return;
         }
 
-        if (node.suffixIndex >= 0) {
-            result.add(node.suffixIndex);
-        }
-
-        node.children.forEach(child -> collectSuffixIndices(child, pathLength + child.edgeLength(leafEndValue), result));
+        forEachChild(node, child ->
+                collectSuffixIndices(child, pathLength + child.edgeLength(leafEndValue), result)
+        );
     }
 
     @Override
     public void expire() {
         tokenStream.clear();
-        root.children.clear();
+        if (root.children != null) {
+            root.children.clear();
+            root.children = null;
+        }
         root.start = -1;
         root.end = -1;
         root.suffixLink = root;
@@ -294,7 +324,7 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
 
     /**
      * Optional compaction step to reduce memory after all insertions are complete.
-     * Trims all child maps to minimal capacity, clears construction-only pointers,
+     * Trims all child maps to minimal capacity (or drops if leaf), clears construction-only pointers,
      * and shrinks the token stream backing array to exact size.
      * Invoke only when you will not insert more tokens.
      */
@@ -306,9 +336,13 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
 
     private void trimDfs(Node node) {
         if (node == null) return;
-        node.children.trimToSize();
+        if (!hasChildren(node)) {
+            node.children = null; // ensure leaves hold no ChildMap at all
+        } else {
+            node.children.trimToSize();
+            forEachChild(node, this::trimDfs);
+        }
         node.dropConstructionOnlyPointers();
-        node.children.forEach(this::trimDfs);
     }
 
     @Override
@@ -415,11 +449,136 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
         return new utilities.MemoryUsageReport(txt, totalMiB);
     }
 
+    // =====================
+    // === Debug helpers ===
+    // =====================
+
+    /**
+     * Debug: Walk the tree for the given query, printing traversed edges and the leaf starts
+     * under the matched node. Limits leaf printing to the tailWindow of the stream for focus.
+     */
+    public void debugDumpForQuery(String query, int nGram, int tailWindow) {
+        long[] patternTokens = mapQueryToTokens(query, nGram);
+        System.out.printf("DEBUG[SuffixTree]: query=\"%s\" tokens=%d tailWindow=%d%n",
+                query, patternTokens.length, tailWindow);
+
+        Node current = root;
+        int i = 0;
+        while (i < patternTokens.length) {
+            long token = patternTokens[i];
+            Node next = getChild(current, token);
+            if (next == null) {
+                System.out.printf("DEBUG: no edge for token[%d], abort.%n", i);
+                return;
+            }
+
+            int s = next.start;
+            int e = next.effectiveEnd(leafEndValue);
+            int elen = next.edgeLength(leafEndValue);
+            System.out.printf("DEBUG: edge start=%d end=%d len=%d%n", s, e, elen);
+
+            int idx = s;
+            while (i < patternTokens.length && idx <= e) {
+                long t = tokenStream.get(idx);
+                if (t != patternTokens[i]) {
+                    System.out.printf("DEBUG: mismatch at token[%d] streamIdx=%d%n", i, idx);
+                    return;
+                }
+                i++; idx++;
+            }
+
+            if (i == patternTokens.length) {
+                System.out.println("DEBUG: pattern fully consumed; collecting leaves under matched node...");
+                debugPrintLeaves(next, tailWindow);
+                return;
+            }
+
+            if (idx > e) {
+                current = next; // descend
+            } else {
+                System.out.println("DEBUG: stopped mid-edge unexpectedly.");
+                return;
+            }
+        }
+    }
+
+    private long[] mapQueryToTokens(String query, int nGram) {
+        search.Pattern p = new search.Pattern(query, nGram);
+        long[] tokens = new long[p.nGramArr.length];
+        for (int i = 0; i < p.nGramArr.length; i++) {
+            tokens[i] = keyMapper.mapToLong(p.nGramArr[i]);
+        }
+        return tokens;
+    }
+
+    private void debugPrintLeaves(Node node, int tailWindow) {
+        int n = tokenStream.size();
+        int tailCutoff = Math.max(0, n - Math.max(0, tailWindow));
+        int[] counter = new int[1];
+        System.out.printf("DEBUG: streamSize=%d tailCutoff=%d%n", n, tailCutoff);
+        debugPrintLeavesDfs(node, tailCutoff, counter);
+        System.out.printf("DEBUG: totalLeavesVisited=%d%n", counter[0]);
+    }
+
+    private void debugPrintLeavesDfs(Node node, int tailCutoff, int[] counter) {
+        if (!hasChildren(node)) {
+            int start = (node.suffixIndex >= 0) ? node.suffixIndex : node.start;
+            int end = node.effectiveEnd(leafEndValue);
+            if (start >= tailCutoff) {
+                System.out.printf("DEBUG: leaf start=%d end=%d%n", start, end);
+            }
+            counter[0]++;
+            return;
+        }
+        forEachChild(node, child -> debugPrintLeavesDfs(child, tailCutoff, counter));
+    }
+
+    /** Quick check: does the token stream match the query tokens at a given start? */
+    public boolean debugCheckAt(String query, int nGram, int start) {
+        long[] tokens = mapQueryToTokens(query, nGram);
+        int n = tokenStream.size();
+        if (start < 0 || start + tokens.length > n) {
+            System.out.printf("DEBUG: start %d out of range [0,%d) for %d tokens%n", start, n, tokens.length);
+            return false;
+        }
+        for (int j = 0; j < tokens.length; j++) {
+            long t = tokenStream.get(start + j);
+            if (t != tokens[j]) {
+                System.out.printf("DEBUG: mismatch at start=%d, j=%d (stream=%d, queryToken=%d)\n",
+                        start, j, t, tokens[j]);
+                return false;
+            }
+        }
+        System.out.printf("DEBUG: exact token match at start=%d for query=\"%s\" (nGram=%d)\n", start, query, nGram);
+        return true;
+    }
+
+    /** Scan a range [from, to] and print all token-exact matches for the query. */
+    public void debugScanRange(String query, int nGram, int from, int to) {
+        long[] tokens = mapQueryToTokens(query, nGram);
+        int n = tokenStream.size();
+        int m = tokens.length;
+        from = Math.max(0, from);
+        to = Math.min(n - m, to);
+        System.out.printf("DEBUG: scanRange query=\"%s\" nGram=%d from=%d to=%d (n=%d, m=%d)\n",
+                query, nGram, from, to, n, m);
+        for (int s = from; s <= to; s++) {
+            boolean ok = true;
+            for (int j = 0; j < m; j++) {
+                if (tokenStream.get(s + j) != tokens[j]) { ok = false; break; }
+            }
+            if (ok) {
+                System.out.printf("DEBUG: scan match at start=%d\n", s);
+            }
+        }
+    }
+
     // =========================
     // ==== Compact node type ==
     // =========================
     private static final class Node {
-        private final ChildMap children = new ChildMap(); // compact and lazy
+        // LAZY: null until first child is inserted
+        private ChildMap children;
         private Node suffixLink;
         private int start;
         private int end;                 // explicit end or LEAF_SENTINEL
@@ -449,9 +608,49 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
         }
     }
 
+    // =========================
+    // === Child helpers =======
+    // =========================
+    private static Node getChild(Node n, long key) {
+        return (n.children == null) ? null : n.children.get(key);
+    }
+
+    private static void putChild(Node n, long key, Node child) {
+        if (n.children == null) n.children = new ChildMap();
+        n.children.put(key, child);
+    }
+
+    private static boolean hasChildren(Node n) {
+        return n.children != null && !n.children.isEmpty();
+    }
+
+    private static void forEachChild(Node n, Consumer<Node> c) {
+        if (n.children != null) n.children.forEach(c);
+    }
+
+    // =========================
+    // === Token storage =======
+    // =========================
     private static final class LongSequence {
-        private long[] data = new long[16];
+        private long[] data;
         private int size = 0;
+        private final boolean fixedCapacity;
+
+        LongSequence() {
+            this(16, false);
+        }
+
+        LongSequence(int capacity) {
+            this(capacity, false);
+        }
+
+        LongSequence(int capacity, boolean fixed) {
+            if (capacity <= 0) {
+                throw new IllegalArgumentException("capacity must be positive");
+            }
+            this.data = new long[capacity];
+            this.fixedCapacity = fixed;
+        }
 
         int add(long value) {
             ensureCapacity(size + 1);
@@ -476,19 +675,20 @@ public class SuffixTreeIndex implements IPMIndexing { // keep your original inte
 
         /** Shrink the backing array to the exact logical size. Call after all insertions. */
         void shrinkToFit() {
+            if (fixedCapacity) return; // preserve single-allocation guarantee
             if (data.length != size) {
                 data = Arrays.copyOf(data, size);
             }
         }
 
         private void ensureCapacity(int capacity) {
-            if (capacity <= data.length) {
-                return;
+            if (capacity <= data.length) return;
+            if (fixedCapacity) {
+                throw new IllegalStateException("LongSequence capacity exceeded: requested " + capacity +
+                        " > allocated " + data.length);
             }
             int newCapacity = data.length << 1;
-            while (newCapacity < capacity) {
-                newCapacity <<= 1;
-            }
+            while (newCapacity < capacity) newCapacity <<= 1;
             data = Arrays.copyOf(data, newCapacity);
         }
     }
