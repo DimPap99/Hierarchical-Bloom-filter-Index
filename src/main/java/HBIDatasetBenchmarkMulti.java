@@ -2,6 +2,7 @@ import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
+import PMIndex.SuffixTreeIndex;
 import estimators.CostFunctionMaxProb;
 import estimators.CSEstimator;
 import estimators.Estimator;
@@ -40,6 +41,7 @@ public final class HBIDatasetBenchmarkMulti {
     public static void main(String[] args) throws IOException {
         BenchmarkOptions options = BenchmarkOptions.parse(args);
         List<QueryType> queryTypes = options.orderedQueryTypes();
+        List<IndexType> activeIndexes = options.activeIndexes();
         Map<QueryType, Map<Integer, AggregateStats>> aggregated = new EnumMap<>(QueryType.class);
         queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
 
@@ -92,18 +94,33 @@ public final class HBIDatasetBenchmarkMulti {
             }
 
             for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
-                HBI warmupIndex = newHbi(options);
-                warmupIndex.strides = USE_STRIDES;
-                warmupIndex.stats().setCollecting(false);
-                warmupIndex.stats().setExperimentMode(false);
-                MultiQueryExperiment.InsertStats warmupInsert =
-                        MultiQueryExperiment.populateIndex(datasetFile.toString(), warmupIndex, options.ngram());
-                for (QueryType type : queryTypes) {
-                    List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
-                    if (workloads == null || workloads.isEmpty()) {
-                        continue;
+                if (options.runHbi()) {
+                    HBI warmupIndex = newHbi(options);
+                    warmupIndex.strides = USE_STRIDES;
+                    warmupIndex.stats().setCollecting(false);
+                    warmupIndex.stats().setExperimentMode(false);
+                    MultiQueryExperiment.InsertStats warmupInsert =
+                            MultiQueryExperiment.populateIndex(datasetFile.toString(), warmupIndex, options.ngram());
+                    for (QueryType type : queryTypes) {
+                        List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                        if (workloads == null || workloads.isEmpty()) {
+                            continue;
+                        }
+                        MultiQueryExperiment.runQueries(workloads, warmupIndex, options.ngram(), warmupInsert, false, false);
                     }
-                    MultiQueryExperiment.runQueries(workloads, warmupIndex, options.ngram(), warmupInsert, false, false);
+                }
+
+                if (options.runSuffix()) {
+                    IPMIndexing suffixWarm = newSuffixTree(options);
+                    MultiQueryExperiment.InsertStats suffixWarmInsert =
+                            MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, options.ngram());
+                    for (QueryType type : queryTypes) {
+                        List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                        if (workloads == null || workloads.isEmpty()) {
+                            continue;
+                        }
+                        MultiQueryExperiment.runQueries(workloads, suffixWarm, options.ngram(), suffixWarmInsert, false, false);
+                    }
                 }
 
                 if (options.runRegexBaseline()) {
@@ -121,13 +138,22 @@ public final class HBIDatasetBenchmarkMulti {
             }
 
             for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
-                HBI hbi = newHbi(options);
-                hbi.strides = USE_STRIDES;
-                hbi.stats().setCollecting(false);
-                hbi.stats().setExperimentMode(false);
+                HBI hbi = null;
+                MultiQueryExperiment.InsertStats hbiInsertStats = null;
+                if (options.runHbi()) {
+                    hbi = newHbi(options);
+                    hbi.strides = USE_STRIDES;
+                    hbi.stats().setCollecting(false);
+                    hbi.stats().setExperimentMode(false);
+                    hbiInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, options.ngram());
+                }
 
-                MultiQueryExperiment.InsertStats hbiInsertStats =
-                        MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, options.ngram());
+                IPMIndexing suffix = null;
+                MultiQueryExperiment.InsertStats suffixInsertStats = null;
+                if (options.runSuffix()) {
+                    suffix = newSuffixTree(options);
+                    suffixInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, options.ngram());
+                }
 
                 IPMIndexing regex = null;
                 MultiQueryExperiment.InsertStats regexInsertStats = null;
@@ -142,38 +168,62 @@ public final class HBIDatasetBenchmarkMulti {
                         continue;
                     }
 
-                    MultiQueryExperiment.MultiRunResult hbiResults =
-                            MultiQueryExperiment.runQueries(workloads, hbi, options.ngram(), hbiInsertStats, false, false);
+                    MultiQueryExperiment.MultiRunResult hbiResults = null;
+                    if (hbi != null) {
+                        hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, options.ngram(), hbiInsertStats, false, false);
+                    }
 
-                    MultiQueryExperiment.MultiRunResult regexResults;
+                    MultiQueryExperiment.MultiRunResult suffixResults = null;
+                    if (suffix != null) {
+                        suffixResults = MultiQueryExperiment.runQueries(workloads, suffix, options.ngram(), suffixInsertStats, false, false);
+                    }
+
+                    MultiQueryExperiment.MultiRunResult regexResults = null;
                     if (regex != null) {
                         regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexInsertStats, false, false);
-                    } else {
-                        regexResults = null;
                     }
 
                     Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
 
-                    hbiResults.results().forEach((workload, result) -> {
-                        int patternLength = workload.patternLength();
-                        ExperimentRunResult regexResult =
-                                (regexResults != null) ? regexResults.results().get(workload) : null;
+                    if (hbiResults != null) {
+                        hbiResults.results().forEach((workload, result) -> {
+                            int patternLength = workload.patternLength();
+                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
+                                    .accumulate(IndexType.HBI,
+                                            result.avgInsertMsPerSymbol(),
+                                            result.totalInsertTimeMs(),
+                                            result.totalRunTimeMs());
+                        });
+                    }
 
-                        RunAverages averages = new RunAverages(
-                                result.avgInsertMsPerSymbol(),
-                                result.totalInsertTimeMs(),
-                                result.totalRunTimeMs(),
-                                regexResult != null ? regexResult.totalInsertTimeMs() : 0.0,
-                                regexResult != null ? regexResult.totalRunTimeMs() : 0.0);
+                    if (suffixResults != null) {
+                        suffixResults.results().forEach((workload, result) -> {
+                            int patternLength = workload.patternLength();
+                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
+                                    .accumulate(IndexType.SUFFIX,
+                                            result.avgInsertMsPerSymbol(),
+                                            result.totalInsertTimeMs(),
+                                            result.totalRunTimeMs());
+                        });
+                    }
 
-                        perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                                .accumulate(averages);
-                    });
+                    if (regexResults != null) {
+                        regexResults.results().forEach((workload, result) -> {
+                            int patternLength = workload.patternLength();
+                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
+                                    .accumulate(IndexType.REGEX,
+                                            result.avgInsertMsPerSymbol(),
+                                            result.totalInsertTimeMs(),
+                                            result.totalRunTimeMs());
+                        });
+                    }
                 }
             }
         }
 
-        boolean anyResults = aggregated.values().stream().anyMatch(map -> !map.isEmpty());
+        boolean anyResults = aggregated.values().stream()
+                .flatMap(map -> map.values().stream())
+                .anyMatch(AggregateStats::hasData);
         if (!anyResults) {
             System.out.println("No runs executed.");
             return;
@@ -181,13 +231,12 @@ public final class HBIDatasetBenchmarkMulti {
 
         System.out.println();
 
-        boolean includeRegex = aggregated.values().stream()
-                .flatMap(map -> map.values().stream())
-                .anyMatch(stats -> stats.regexCount > 0);
-
         aggregated.forEach((type, statsByPattern) -> {
-            int datasetCount = statsByPattern.values().stream()
-                    .mapToInt(AggregateStats::count)
+            int datasetCount = activeIndexes.stream()
+                    .mapToInt(index -> statsByPattern.values().stream()
+                            .mapToInt(stats -> stats.count(index))
+                            .max()
+                            .orElse(0))
                     .max()
                     .orElse(0);
 
@@ -202,26 +251,22 @@ public final class HBIDatasetBenchmarkMulti {
             }
 
             statsByPattern.forEach((patternLength, stats) -> {
-                double avgInsertPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count();
-                double avgInsertMs = stats.totalInsertMsSum / stats.count();
-                double avgQueryMs = stats.totalQueryMsSum / stats.count();
-                System.out.printf(Locale.ROOT,
-                        "  Pattern %d -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                        patternLength,
-                        avgInsertPerSymbol,
-                        avgInsertMs,
-                        avgQueryMs,
-                        stats.count());
-
-                if (includeRegex && stats.regexCount > 0) {
-                    double avgRegexInsert = stats.regexInsertMsSum / stats.regexCount;
-                    double avgRegexQuery = stats.regexQueryMsSum / stats.regexCount;
+                System.out.printf(Locale.ROOT, "  Pattern %d%n", patternLength);
+                for (IndexType index : activeIndexes) {
+                    StatsSnapshot snapshot = stats.snapshot(index);
+                    if (snapshot == null || snapshot.count() == 0) {
+                        System.out.printf(Locale.ROOT, "    %s -> no data%n", index.displayName());
+                        continue;
+                    }
                     System.out.printf(Locale.ROOT,
-                            "         Regex -> insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                            avgRegexInsert,
-                            avgRegexQuery,
-                            stats.regexCount);
+                            "    %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
+                            index.displayName(),
+                            snapshot.avgInsertMsPerSymbol(),
+                            snapshot.avgInsertMs(),
+                            snapshot.avgQueryMs(),
+                            snapshot.count());
                 }
+                System.out.println();
             });
 
             System.out.println();
@@ -231,14 +276,12 @@ public final class HBIDatasetBenchmarkMulti {
         header.add("patternLength");
 
         queryTypes.forEach(type -> {
-            header.add("avgInsertMsPerSymbol_" + type.fileToken());
-            header.add("insertMs_" + type.fileToken());
-            header.add("avgMs_" + type.fileToken());
-            header.add("datasetCount_" + type.fileToken());
-            if (includeRegex) {
-                header.add("regexAvgInsertMs_" + type.fileToken());
-                header.add("regexAvgQueryMs_" + type.fileToken());
-                header.add("regexDatasetCount_" + type.fileToken());
+            for (IndexType index : activeIndexes) {
+                String suffix = type.fileToken() + "_" + index.csvLabel();
+                header.add("avgInsertMsPerSymbol_" + suffix);
+                header.add("insertMs_" + suffix);
+                header.add("avgMs_" + suffix);
+                header.add("datasetCount_" + suffix);
             }
         });
 
@@ -254,38 +297,19 @@ public final class HBIDatasetBenchmarkMulti {
 
             for (QueryType type : queryTypes) {
                 AggregateStats stats = aggregated.get(type).get(patternLength);
-                if (stats == null || stats.count() == 0) {
-                    row.add(null);
-                    row.add(null);
-                    row.add(null);
-                    row.add(0);
-                    if (includeRegex) {
+                for (IndexType index : activeIndexes) {
+                    StatsSnapshot snapshot = stats != null ? stats.snapshot(index) : null;
+                    if (snapshot == null || snapshot.count() == 0) {
+                        row.add(null);
                         row.add(null);
                         row.add(null);
                         row.add(0);
+                        continue;
                     }
-                    continue;
-                }
-
-                double avgInsertMsPerSymbol = stats.avgInsertMsPerSymbolSum / stats.count();
-                double insertMs = stats.totalInsertMsSum / stats.count();
-                double avgQueryMs = stats.totalQueryMsSum / stats.count();
-
-                row.add(avgInsertMsPerSymbol);
-                row.add(insertMs);
-                row.add(avgQueryMs);
-                row.add(stats.count());
-
-                if (includeRegex) {
-                    Double avgRegexInsert = stats.regexCount > 0
-                            ? stats.regexInsertMsSum / stats.regexCount
-                            : null;
-                    Double avgRegexQuery = stats.regexCount > 0
-                            ? stats.regexQueryMsSum / stats.regexCount
-                            : null;
-                    row.add(avgRegexInsert);
-                    row.add(avgRegexQuery);
-                    row.add(stats.regexCount);
+                    row.add(snapshot.avgInsertMsPerSymbol());
+                    row.add(snapshot.avgInsertMs());
+                    row.add(snapshot.avgQueryMs());
+                    row.add(snapshot.count());
                 }
             }
 
@@ -322,6 +346,12 @@ public final class HBIDatasetBenchmarkMulti {
                 .build();
 
         return new HBI(configuration);
+    }
+
+    private static SuffixTreeIndex newSuffixTree(BenchmarkOptions options) {
+        long expectedDistinct = Math.max(1L, (long) options.windowLength());
+        double epsilon = 0.0001;
+        return new SuffixTreeIndex(expectedDistinct, epsilon);
     }
 
     private static List<Path> listDatasetDirectories(Path root) throws IOException {
@@ -379,37 +409,74 @@ public final class HBIDatasetBenchmarkMulti {
     }
 
     private static final class AggregateStats {
-        private double avgInsertMsPerSymbolSum;
-        private double totalInsertMsSum;
-        private double totalQueryMsSum;
-        private int count;
-        private double regexInsertMsSum;
-        private double regexQueryMsSum;
-        private int regexCount;
+        private final EnumMap<IndexType, StatsSum> sums = new EnumMap<>(IndexType.class);
 
-        void accumulate(RunAverages averages) {
-            avgInsertMsPerSymbolSum += averages.avgInsertMsPerSymbol();
-            totalInsertMsSum += averages.totalInsertMs();
-            totalQueryMsSum += averages.totalQueryMs();
-            count++;
-
-            if (averages.regexInsertMs() > 0 || averages.regexQueryMs() > 0) {
-                regexInsertMsSum += averages.regexInsertMs();
-                regexQueryMsSum += averages.regexQueryMs();
-                regexCount++;
-            }
+        void accumulate(IndexType indexType,
+                        double avgInsertMsPerSymbol,
+                        double totalInsertMs,
+                        double totalQueryMs) {
+            StatsSum sum = sums.computeIfAbsent(indexType, ignored -> new StatsSum());
+            sum.avgInsertMsPerSymbolSum += avgInsertMsPerSymbol;
+            sum.totalInsertMsSum += totalInsertMs;
+            sum.totalQueryMsSum += totalQueryMs;
+            sum.count++;
         }
 
-        int count() {
-            return count;
+        StatsSnapshot snapshot(IndexType indexType) {
+            StatsSum sum = sums.get(indexType);
+            if (sum == null || sum.count == 0) {
+                return null;
+            }
+            return new StatsSnapshot(
+                    sum.avgInsertMsPerSymbolSum / sum.count,
+                    sum.totalInsertMsSum / sum.count,
+                    sum.totalQueryMsSum / sum.count,
+                    sum.count);
+        }
+
+        int count(IndexType indexType) {
+            StatsSum sum = sums.get(indexType);
+            return sum == null ? 0 : sum.count;
+        }
+
+        boolean hasData() {
+            return sums.values().stream().anyMatch(sum -> sum.count > 0);
+        }
+
+        private static final class StatsSum {
+            private double avgInsertMsPerSymbolSum;
+            private double totalInsertMsSum;
+            private double totalQueryMsSum;
+            private int count;
         }
     }
 
-    private record RunAverages(double avgInsertMsPerSymbol,
-                               double totalInsertMs,
-                               double totalQueryMs,
-                               double regexInsertMs,
-                               double regexQueryMs) {
+    private record StatsSnapshot(double avgInsertMsPerSymbol,
+                                 double avgInsertMs,
+                                 double avgQueryMs,
+                                 int count) {
+    }
+
+    private enum IndexType {
+        HBI("HBI", "hbi"),
+        SUFFIX("SuffixTree", "suffix"),
+        REGEX("Regex", "regex");
+
+        private final String displayName;
+        private final String csvLabel;
+
+        IndexType(String displayName, String csvLabel) {
+            this.displayName = displayName;
+            this.csvLabel = csvLabel;
+        }
+
+        String displayName() {
+            return displayName;
+        }
+
+        String csvLabel() {
+            return csvLabel;
+        }
     }
 
     private enum QueryType {
@@ -448,12 +515,14 @@ public final class HBIDatasetBenchmarkMulti {
                                     double runConfidence,
                                     int warmupRuns,
                                     int runs,
-                                    boolean runRegexBaseline) {
+                                    boolean runRegexBaseline,
+                                    boolean runHbi,
+                                    boolean runSuffix) {
 
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "w23";
+            String window = "w21";
             QueryType queryType = null;
             Integer ngram = 2;
             Integer windowLength = null;
@@ -462,8 +531,10 @@ public final class HBIDatasetBenchmarkMulti {
             double fpRate = 0.001;
             double runConfidence = 0.99;
             int warmupRuns = 1;
-            int runs = 3;
-            boolean runRegexBaseline = true;
+            int runs = 2;
+            boolean runRegexBaseline = false;
+            boolean runHbi = true;
+            boolean runSuffix = true;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -498,7 +569,9 @@ public final class HBIDatasetBenchmarkMulti {
                     case "confidence" -> runConfidence = Double.parseDouble(value);
                     case "warmup" -> warmupRuns = Integer.parseInt(value);
                     case "runs" -> runs = Integer.parseInt(value);
-                    case "regex" -> runRegexBaseline = Boolean.parseBoolean(value);
+                    case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
+                    case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
+                    case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -527,6 +600,10 @@ public final class HBIDatasetBenchmarkMulti {
                 throw new IllegalArgumentException("Query directory not found: " + resolvedQueryRoot);
             }
 
+            if (!runRegexBaseline && !runHbi && !runSuffix) {
+                throw new IllegalArgumentException("At least one index must be enabled (HBI, suffix, or regex).");
+            }
+
             return new BenchmarkOptions(
                     resolvedDataRoot,
                     resolvedQueryRoot,
@@ -540,7 +617,9 @@ public final class HBIDatasetBenchmarkMulti {
                     runConfidence,
                     warmupRuns,
                     runs,
-                    runRegexBaseline);
+                    runRegexBaseline,
+                    runHbi,
+                    runSuffix);
         }
 
         int alphabetSize() {
@@ -570,6 +649,20 @@ public final class HBIDatasetBenchmarkMulti {
                 }
             }
             return entries;
+        }
+
+        List<IndexType> activeIndexes() {
+            List<IndexType> indexes = new ArrayList<>(3);
+            if (runHbi) {
+                indexes.add(IndexType.HBI);
+            }
+            if (runSuffix) {
+                indexes.add(IndexType.SUFFIX);
+            }
+            if (runRegexBaseline) {
+                indexes.add(IndexType.REGEX);
+            }
+            return indexes;
         }
 
         Path csvOutputFile() {

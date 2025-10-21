@@ -1,7 +1,7 @@
 import PMIndex.HBI;
 import PMIndex.HbiStats;
 import PMIndex.IPMIndexing;
-import PMIndex.RegexIndex;
+import PMIndex.SuffixTreeIndex;
 import estimators.*;
 import membership.BloomFilter;
 import membership.Membership;
@@ -13,7 +13,9 @@ import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.openjdk.jol.info.ClassLayout;
@@ -24,8 +26,7 @@ import javax.xml.stream.FactoryConfigurationError;
 public class HBIDatasetBenchmark {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
-
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
 
     private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
     private static final int TREE_LEN     = 1 << 21;
@@ -33,18 +34,58 @@ public class HBIDatasetBenchmark {
     private static final double FP_RATE   = 0.001;
     private static final int RUNS         = 3;        // set to 0 for a dry run
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS = 10;
-    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
+    private static int NGRAMS = 3;
+    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
+
     private static int NUMQUERIES = 135;
 
-    public void compared(ArrayList<ArrayList<Integer>> arr1, ArrayList<ArrayList<Integer>> arr2){
+    public static void compared(ArrayList<ArrayList<Integer>> arr1, ArrayList<ArrayList<Integer>> arr2) {
+        Objects.requireNonNull(arr1, "First index results must not be null.");
+        Objects.requireNonNull(arr2, "Second index results must not be null.");
 
+        boolean resultsMatch = arr1.size() == arr2.size();
+        if (!resultsMatch) {
+            System.out.printf(
+                    "Query count mismatch: first=%d second=%d%n",
+                    arr1.size(),
+                    arr2.size());
+        }
 
-        for(int i =0; i<arr1.size(); i++){
-            ArrayList<Integer> row1 = arr1.get(i);
-            ArrayList<Integer> row2 = arr2.get(i);
+        int comparisons = Math.min(arr1.size(), arr2.size());
+        for (int i = 0; i < comparisons; i++) {
+            List<Integer> row1 = arr1.get(i);
+            List<Integer> row2 = arr2.get(i);
 
+            List<Integer> a = (row1 == null) ? new ArrayList<>() : new ArrayList<>(row1);
+            List<Integer> b = (row2 == null) ? new ArrayList<>() : new ArrayList<>(row2);
+            Collections.sort(a);
+            Collections.sort(b);
 
+            if (!a.equals(b)) {
+                resultsMatch = false;
+                ArrayList<Integer> onlyInFirst = new ArrayList<>();
+                ArrayList<Integer> onlyInSecond = new ArrayList<>();
+                int i1 = 0, i2 = 0;
+                while (i1 < a.size() || i2 < b.size()) {
+                    if (i1 >= a.size()) { onlyInSecond.add(b.get(i2++)); continue; }
+                    if (i2 >= b.size()) { onlyInFirst.add(a.get(i1++)); continue; }
+                    int va = a.get(i1), vb = b.get(i2);
+                    if (va == vb) { i1++; i2++; }
+                    else if (va < vb) { onlyInFirst.add(va); i1++; }
+                    else { onlyInSecond.add(vb); i2++; }
+                }
+                System.out.printf(
+                        "Mismatch at query %d: onlyInFirst=%s onlyInSecond=%s%n",
+                        i,
+                        onlyInFirst,
+                        onlyInSecond);
+            }
+        }
+
+        if (resultsMatch) {
+            System.out.println("Indexes returned identical match results for all compared queries.");
+        } else {
+            System.out.println("Indexes produced differing results.");
         }
     }
     public static void main(String[] args) throws IOException {
@@ -56,15 +97,15 @@ public class HBIDatasetBenchmark {
         rows.add(header);
 
         ExperimentRunResult runResult;
-        double ipmTotalMs = 0;
-        double ipmTotalMsInsert = 0;
+        double suffixTotalMs = 0;
+        double suffixTotalMsInsert = 0;
 
 
         System.out.println("Running queries for " + QUERY_FILE);
         double hbiTotalMs = 0;
-        ipmTotalMs = 0;
+        suffixTotalMs = 0;
         double hbiTotalMsInsert = 0;
-        ipmTotalMsInsert = 0;
+        suffixTotalMsInsert = 0;
         double avgLp = 0;
         double lpShareSum = 0;
         double avgQueryTimeSum = 0;
@@ -85,11 +126,14 @@ public class HBIDatasetBenchmark {
             hbi.stats().setCollecting(false);
             hbi.stats().setExperimentMode(false);
 
-            Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, true, false);
+            ArrayList<ArrayList<Integer>> warmHbi =
+                    Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false).matchRes();
 
-            IPMIndexing ipm = new RegexIndex();
-            Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, true, false);
-            int b = 2;
+            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001);
+            ArrayList<ArrayList<Integer>> warmSuffix =
+                    Experiment.run(DATA_FILE, QUERY_FILE, suffix, NGRAMS, false, false).matchRes();
+
+            compared(warmHbi, warmSuffix);
         }
 
         ArrayList<Long> timings;
@@ -102,6 +146,7 @@ public class HBIDatasetBenchmark {
             hbi.stats().setExperimentMode(false);
 //            stats.setCollecting(true);
             runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
+            ArrayList<ArrayList<Integer>> hbiMatches = runResult.matchRes();
             hbiTotalMs += runResult.totalRunTimeMs();
             hbiTotalMsInsert += runResult.totalInsertTimeMs();
             if (stats.totalQueryCount() > 0) {
@@ -110,12 +155,13 @@ public class HBIDatasetBenchmark {
                 avgLpTimeSum += stats.averageLpTimeMillis();
                 statsSamples++;
             }
-            IPMIndexing ipm = new RegexIndex();
-            runResult = Experiment.run(DATA_FILE, QUERY_FILE, ipm, 1, false, false);
-            ipmTotalMs += runResult.totalRunTimeMs();
-            ipmTotalMsInsert += runResult.totalInsertTimeMs();
+            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001);
+            runResult = Experiment.run(DATA_FILE, QUERY_FILE, suffix, 1, false, false);
+            ArrayList<ArrayList<Integer>> suffixMatches = runResult.matchRes();
+            suffixTotalMs += runResult.totalRunTimeMs();
+            suffixTotalMsInsert += runResult.totalInsertTimeMs();
             MemUtil memUtil = new MemUtil();
-
+            compared(hbiMatches, suffixMatches);
 
         }
 
@@ -132,8 +178,8 @@ public class HBIDatasetBenchmark {
             System.out.println("Avg LP: " + avgLp);
             System.out.println("Avg Alpha: " + avgAlpha);
 
-            System.out.printf("RegexIndex avg (ms): %.3f%n", ipmTotalMs / RUNS);
-            System.out.printf("RegexIndex Insert avg (ms): %.3f%n", ipmTotalMsInsert / RUNS);
+            System.out.printf("SuffixTreeIndex avg (ms): %.3f%n", suffixTotalMs / RUNS);
+            System.out.printf("SuffixTreeIndex Insert avg (ms): %.3f%n", suffixTotalMsInsert / RUNS);
             System.out.println("\n");
 
         }
@@ -157,10 +203,10 @@ public class HBIDatasetBenchmark {
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
         Supplier<PruningPlan> prFactory =
-                () -> new MultiLevelPruning(conf);
+                () -> new MostFreqPruning(conf);
 
         Verifier v = new VerifierLinearLeafProbe();
-        return new HBI(new BlockSearchCharSet(),
+        return new HBI(new BlockSearch(),
 
                 WINDOW_LEN,
                 FP_RATE,
