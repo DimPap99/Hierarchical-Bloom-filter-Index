@@ -82,7 +82,7 @@ public class ProcessStream {
         double totalQueryMs = sumQueryLoadMs;
         double avgQueryLoadMs = queryLoads == 0 ? 0.0 : (totalQueryMs / queryLoads);
 
-        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs);
+        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs, null);
     }
 
 

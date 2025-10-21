@@ -8,6 +8,8 @@ public record ExperimentRunResult (
         ArrayList<PatternResult> patternResults,
         double avgQuerySize,                // average query length (ngrams)
         double avgInsertMsPerSymbol,        // average time per insertion symbol (ms)
-        double avgQueryLoadMs               // average time per query load (ms); for single-load experiments equals totalRunTimeMs
+        double avgQueryLoadMs ,              // average time per query load (ms); for single-load experiments equals totalRunTimeMs
+        ArrayList<ArrayList<Integer>> matchRes
+
 ) {
 }

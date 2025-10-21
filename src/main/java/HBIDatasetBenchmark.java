@@ -36,6 +36,17 @@ public class HBIDatasetBenchmark {
     private static int NGRAMS = 10;
     private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
     private static int NUMQUERIES = 135;
+
+    public void compared(ArrayList<ArrayList<Integer>> arr1, ArrayList<ArrayList<Integer>> arr2){
+
+
+        for(int i =0; i<arr1.size(); i++){
+            ArrayList<Integer> row1 = arr1.get(i);
+            ArrayList<Integer> row2 = arr2.get(i);
+
+
+        }
+    }
     public static void main(String[] args) throws IOException {
 
         List<String> queryFiles = new ArrayList<>();

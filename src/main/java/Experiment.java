@@ -55,6 +55,7 @@ public class Experiment {
         startTime = System.currentTimeMillis();
         int avgQueryLength = 0;
         int i = 0;
+        ArrayList<ArrayList<Integer>> matchRes = new ArrayList<>();
         for(String query : queries){
             Pattern qPat = new Pattern(query, Ngram);
 
@@ -75,6 +76,7 @@ public class Experiment {
                     System.out.println(query + ":" + report.size());
                 }
             }
+            matchRes.add(report);
             i++;
         }
         if(!queries.isEmpty()){
@@ -89,6 +91,6 @@ public class Experiment {
         }
         double avgInsertMsPerSymbol = insertionCount == 0 ? 0.0 : (insertDuration / (double) insertionCount);
         double avgQueryLoadMs = (double) queryDuration; // single load
-        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs);
+        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs, matchRes);
     }
 }

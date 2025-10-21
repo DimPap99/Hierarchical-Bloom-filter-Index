@@ -52,7 +52,7 @@ public final class MultiQueryExperiment {
                     queryStats.patternResults(),
                     queryStats.avgQueryLength(),
                     insertStats.avgInsertMsPerSymbol(),
-                    queryStats.queryDurationMs());
+                    queryStats.queryDurationMs(),null);
 
             results.put(workload, runResult);
         }
