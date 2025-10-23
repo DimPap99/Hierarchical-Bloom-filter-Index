@@ -71,6 +71,7 @@ public final class HBI implements IPMIndexing {
     public NgramModel.Builder modelBuilder;
     public boolean memoryPolicy = false;
     public boolean isMarkov = false;
+
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
@@ -280,7 +281,11 @@ public final class HBI implements IPMIndexing {
             } else {
 //                int s = cf.minCostLp(tree, 0.05, pat, 97, 26, false);
 //                lps.add(cf.minCostLp(tree, 0.05, pat, 97, 26, false));
-                lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+
+                if(this.cf != null) lps.add(cf.minCostLp(tree, 0.95, pat, this.bfCost, this.leafCost, this.strides));
+                else{
+                    lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+                }
 //                lp = lpCf;
             }
 

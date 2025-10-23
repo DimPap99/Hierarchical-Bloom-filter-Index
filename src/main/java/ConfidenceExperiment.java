@@ -441,7 +441,6 @@ public class ConfidenceExperiment {
         }
     }
 
-    // Helper: fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;

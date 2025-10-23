@@ -20,8 +20,6 @@ import search.Verifier;
 import search.VerifierLinearLeafProbe;
 
 import utilities.CsvUtil;
-import utilities.MemUtil;
-import utilities.MemoryUsageReport;
 import utilities.MultiQueryExperiment;
 
 import java.io.IOException;
@@ -38,10 +36,12 @@ import java.util.stream.Stream;
 /**
  * MemoryBenchmark
  *
- * Build each index exactly once on a single dataset file and record total retained memory in MiB.
- * Columns: ngram, hbi_mem_mib, suffix_mem_mib, regexp_mem_mib, hbifp_rate.
+ * Builds each index exactly once on a single dataset file and records total retained memory in MiB,
+ * measured uniformly via JOL: GraphLayout.parseInstance(index).totalSize()
  *
- * Dataset selection follows HBIDatasetBenchmarkMulti helpers:
+ * CSV columns: ngram, hbi_mem_mib, suffix_mem_mib, regexp_mem_mib, hbifp_rate
+ *
+ * Dataset selection mirrors HBIDatasetBenchmarkMulti helpers:
  * it lists dataset subdirectories under --data-root/<window> and picks the first by natural order.
  */
 public final class MemoryBenchmark {
@@ -50,7 +50,6 @@ public final class MemoryBenchmark {
 
     public static void main(String[] args) throws IOException {
         MemoryOptions options = MemoryOptions.parse(args);
-        MemUtil memUtil = new MemUtil();
 
         System.out.printf(Locale.ROOT,
                 "Running memory benchmark on window %s under %s%n",
@@ -76,21 +75,21 @@ public final class MemoryBenchmark {
         hbi.strides = USE_STRIDES;
         MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, options.ngram());
 
-        MemoryUsageReport hbiReport = memUtil.jolMemoryReportPartitionedWithTotal(hbi);
-        System.out.println("\n=== HBI JOL partitioned report ===");
-        System.out.println(hbiReport.report());
-        double hbiMiB = hbiReport.totalMiB();
-        System.out.printf(Locale.ROOT, "HBI total MiB: %.3f%n", hbiMiB);
+        long hbiBytes = GraphLayout.parseInstance(hbi).totalSize();
+        double hbiMiB = hbiBytes / 1_048_576d;
+        System.out.println("\n=== HBI JOL footprint ===");
+        System.out.println(GraphLayout.parseInstance(hbi).toFootprint());
+        System.out.printf(Locale.ROOT, "HBI total: %d B (%.3f MiB)%n", hbiBytes, hbiMiB);
 
         // ===== Suffix tree =====
         SuffixTreeIndex suffix = newSuffixTree(options);
         MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, options.ngram());
 
-        MemoryUsageReport suffixReport = suffix.jolMemoryReportPartitionedWithTotal();
-        System.out.println("\n=== SuffixTree JOL partitioned report ===");
-        System.out.println(suffixReport.report());
-        double suffixMiB = suffixReport.totalMiB();
-        System.out.printf(Locale.ROOT, "SuffixTree total MiB: %.3f%n", suffixMiB);
+        long suffixBytes = GraphLayout.parseInstance(suffix).totalSize();
+        double suffixMiB = suffixBytes / 1_048_576d;
+        System.out.println("\n=== SuffixTree JOL footprint ===");
+        System.out.println(GraphLayout.parseInstance(suffix).toFootprint());
+        System.out.printf(Locale.ROOT, "SuffixTree total: %d B (%.3f MiB)%n", suffixBytes, suffixMiB);
 
         // ===== Regex baseline =====
         RegexIndex regex = new RegexIndex();
@@ -101,7 +100,7 @@ public final class MemoryBenchmark {
         double regexMiB = regexBytes / 1_048_576d;
         System.out.println("\n=== Regex baseline JOL footprint ===");
         System.out.println(GraphLayout.parseInstance(regex).toFootprint());
-        System.out.printf(Locale.ROOT, "Regex total MiB: %.3f%n", regexMiB);
+        System.out.printf(Locale.ROOT, "Regex total: %d B (%.3f MiB)%n", regexBytes, regexMiB);
 
         // ===== CSV row =====
         csvRows.add(List.of(options.ngram(), hbiMiB, suffixMiB, regexMiB, options.fpRate()));
@@ -188,12 +187,13 @@ public final class MemoryBenchmark {
                                  double runConfidence) {
 
         static MemoryOptions parse(String[] args) {
+            int ng = 2;
             Path dataRoot = Path.of("data");
             String window = "w21";
-            Integer ngram = 5;
+            Integer ngram = ng;
             Integer windowLength = null;
             Integer treeLength = null;
-            Integer alphabetBase = 130;
+            Integer alphabetBase = 32;
             double fpRate = 0.001;
             double runConfidence = 0.99;
 
@@ -224,7 +224,7 @@ public final class MemoryBenchmark {
                 }
             }
 
-            if (ngram == null) ngram = 5;
+            if (ngram == null) ngram = ng;
             if (windowLength == null) windowLength = deriveWindowLength(window, 1 << 21);
             if (treeLength == null) treeLength = windowLength;
 

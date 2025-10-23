@@ -26,17 +26,17 @@ import javax.xml.stream.FactoryConfigurationError;
 public class HBIDatasetBenchmark {
 
     /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
+    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/wzipf20_e1/1/1_Wzipf20_e1.txt";
 
-    private static final int WINDOW_LEN   = 1 << 21;//1 << 21;
-    private static final int TREE_LEN     = 1 << 21;
-    private static int ALPHABET     = 89;
+
+    private static final int WINDOW_LEN   = 1 << 20;//1 << 21;
+    private static final int TREE_LEN     = 1 << 20;
+    private static int ALPHABET     = 32;
     private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 3;        // set to 0 for a dry run
+    private static final int RUNS         = 2;        // set to 0 for a dry run
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS = 3;
-    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
-
+    private static int NGRAMS = 1;
+    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/wzipf20_e1/1/10.missing.txt";
     private static int NUMQUERIES = 135;
 
     public static void compared(ArrayList<ArrayList<Integer>> arr1, ArrayList<ArrayList<Integer>> arr2) {
@@ -120,6 +120,7 @@ public class HBIDatasetBenchmark {
         System.out.println("\n");
         double avgAlpha = 0;
         /* JIT warm-up so HotSpot reaches steady state */
+
         for (int i = 0; i < 1; i++) {
             HBI hbi = newHbi(0.999);
             hbi.strides = USE_STRIDES;
@@ -129,14 +130,17 @@ public class HBIDatasetBenchmark {
             ArrayList<ArrayList<Integer>> warmHbi =
                     Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false).matchRes();
 
-            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001);
+            SuffixTreeIndex suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
             ArrayList<ArrayList<Integer>> warmSuffix =
                     Experiment.run(DATA_FILE, QUERY_FILE, suffix, NGRAMS, false, false).matchRes();
-
+////            suffix.debugDumpForQuery(" the repub", 3, 2048);
+////            System.out.println(new MemUtil().jolMemoryReportPartitioned(hbi));
+//            suffix.compactForQuerying();
+//            System.out.println(suffix.jolMemoryReportPartitioned());
             compared(warmHbi, warmSuffix);
+            int b = 2;
         }
-
-        ArrayList<Long> timings;
+                ArrayList<Long> timings;
         for (int i = 0; i < RUNS; i++) {
 
             HBI hbi = newHbi(0.99);
@@ -155,13 +159,13 @@ public class HBIDatasetBenchmark {
                 avgLpTimeSum += stats.averageLpTimeMillis();
                 statsSamples++;
             }
-            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001);
+            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
             runResult = Experiment.run(DATA_FILE, QUERY_FILE, suffix, 1, false, false);
             ArrayList<ArrayList<Integer>> suffixMatches = runResult.matchRes();
             suffixTotalMs += runResult.totalRunTimeMs();
             suffixTotalMsInsert += runResult.totalInsertTimeMs();
-            MemUtil memUtil = new MemUtil();
-            compared(hbiMatches, suffixMatches);
+//            MemUtil memUtil = new MemUtil();
+//            compared(hbiMatches, suffixMatches);
 
         }
 
@@ -198,7 +202,7 @@ public class HBIDatasetBenchmark {
     // Helper that builds a fresh HBI wired to suppliers each time
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory =
-                () -> new CSEstimator(TREE_LEN, 5, 16384 );//new HashMapEstimator(TREE_LEN);
+                () -> new HashMapEstimator(TREE_LEN);
 
         Supplier<Membership> memFactory =
                 () -> new BloomFilter();
@@ -215,7 +219,7 @@ public class HBIDatasetBenchmark {
                 estFactory,
                 memFactory,
                 prFactory,
-                v, new CostFunctionMaxProb(), conf, NGRAMS);
+                v, new CostFunctionDefaultRoot(), conf, NGRAMS);
     }
 
 

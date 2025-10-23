@@ -84,6 +84,9 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         boolean testedFirst = false;   // NEW: did we actually test i==0?
         boolean contains = false;
         for (int i = 0; i < limit; i++) {
+            if(i > 0){
+                int b = 1;
+            }
             if (lp != null && lp.size() > i && level < lp.get(i)) {
                 continue;
             }

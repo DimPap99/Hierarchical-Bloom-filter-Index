@@ -3,15 +3,14 @@ import PMIndex.HbiConfiguration;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 import PMIndex.SuffixTreeIndex;
+import estimators.CSEstimator;
 import estimators.CostFunctionDefaultRoot;
 import estimators.CostFunctionMaxProb;
-import estimators.CSEstimator;
 import estimators.Estimator;
 import membership.BloomFilter;
 import membership.Membership;
 import search.*;
 
-import utilities.ExperimentRunResult;
 import utilities.MultiQueryExperiment;
 
 import java.io.IOException;
@@ -33,10 +32,10 @@ import java.util.stream.Stream;
 
 import utilities.CsvUtil;
 
-public final class HBIDatasetBenchmarkMulti {
+public final class HBIDatasetBenchmarkPerDataset {
 
     private static final boolean USE_STRIDES = true;
-    private static String algo = "bs2";
+    private static String algo = "root";
 
     private record BenchmarkOptions(Path dataRoot,
                                     Path queryRoot,
@@ -57,12 +56,12 @@ public final class HBIDatasetBenchmarkMulti {
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "w21";
+            String window = "wzipf20_e1";
             QueryType queryType = QueryType.UNIFORM;
-            Integer ngram = 4;
+            Integer ngram = 2;
             Integer windowLength = null;
             Integer treeLength = null;
-            Integer alphabetBase = 64;
+            Integer alphabetBase = 128;
             double fpRate = 0.001;
             double runConfidence = 0.99;
             int warmupRuns = 1;
@@ -223,12 +222,14 @@ public final class HBIDatasetBenchmarkMulti {
             return defaultValue;
         }
     }
+
     public static void main(String[] args) throws IOException {
         BenchmarkOptions options = BenchmarkOptions.parse(args);
         List<QueryType> queryTypes = options.orderedQueryTypes();
         List<IndexType> activeIndexes = options.activeIndexes();
-        Map<QueryType, Map<Integer, AggregateStats>> aggregated = new EnumMap<>(QueryType.class);
-        queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
+
+        // New aggregation: per dataset number -> per query type -> per pattern length
+        Map<Integer, Map<QueryType, Map<Integer, AggregateStats>>> aggregatedByDataset = new TreeMap<>();
 
         System.out.printf(Locale.ROOT,
                 "Running window %s (%s) with datasets under %s%n",
@@ -239,7 +240,17 @@ public final class HBIDatasetBenchmarkMulti {
             throw new IllegalStateException("No dataset folders found under " + options.dataRoot());
         }
 
-        for (Path datasetDir : datasetDirs) {
+        for (int dsIdx = 0; dsIdx < datasetDirs.size(); dsIdx++) {
+            int datasetNumber = dsIdx + 1; // one-based for reporting
+            Path datasetDir = datasetDirs.get(dsIdx);
+
+            // Initialize buckets for this dataset
+            Map<QueryType, Map<Integer, AggregateStats>> perTypeMap = new EnumMap<>(QueryType.class);
+            for (QueryType qt : queryTypes) {
+                perTypeMap.put(qt, new TreeMap<>());
+            }
+            aggregatedByDataset.put(datasetNumber, perTypeMap);
+
             Path datasetFile = findSingleDatasetFile(datasetDir);
             Path queryDir = options.queryRoot().resolve(datasetDir.getFileName());
             if (!Files.isDirectory(queryDir)) {
@@ -249,8 +260,8 @@ public final class HBIDatasetBenchmarkMulti {
                 continue;
             }
 
-            System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
-                    datasetDir.getFileName(), datasetFile.getFileName());
+            System.out.printf(Locale.ROOT, "Dataset #%d %s -> %s%n",
+                    datasetNumber, datasetDir.getFileName(), datasetFile.getFileName());
 
             Map<QueryType, List<MultiQueryExperiment.QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
             boolean hasQueries = false;
@@ -278,6 +289,7 @@ public final class HBIDatasetBenchmarkMulti {
                 continue;
             }
 
+            // Warmups
             for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                 if (options.runHbi()) {
                     HBI warmupIndex = newHbi(options);
@@ -322,6 +334,7 @@ public final class HBIDatasetBenchmarkMulti {
                 }
             }
 
+            // Measured runs for this dataset
             for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
                 HBI hbi = null;
                 MultiQueryExperiment.InsertStats hbiInsertStats = null;
@@ -368,7 +381,7 @@ public final class HBIDatasetBenchmarkMulti {
                         regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexInsertStats, false, false);
                     }
 
-                    Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
+                    Map<Integer, AggregateStats> perTypeAggregated = aggregatedByDataset.get(datasetNumber).get(type);
 
                     if (hbiResults != null) {
                         hbiResults.results().forEach((workload, result) -> {
@@ -406,9 +419,11 @@ public final class HBIDatasetBenchmarkMulti {
             }
         }
 
-        boolean anyResults = aggregated.values().stream()
+        boolean anyResults = aggregatedByDataset.values().stream()
                 .flatMap(map -> map.values().stream())
+                .flatMap(m -> m.values().stream())
                 .anyMatch(AggregateStats::hasData);
+
         if (!anyResults) {
             System.out.println("No runs executed.");
             return;
@@ -416,94 +431,101 @@ public final class HBIDatasetBenchmarkMulti {
 
         System.out.println();
 
-        aggregated.forEach((type, statsByPattern) -> {
-            int datasetCount = activeIndexes.stream()
-                    .mapToInt(index -> statsByPattern.values().stream()
-                            .mapToInt(stats -> stats.count(index))
-                            .max()
-                            .orElse(0))
-                    .max()
-                    .orElse(0);
+        // Human readable summaries per dataset
+        for (Map.Entry<Integer, Map<QueryType, Map<Integer, AggregateStats>>> dsEntry : aggregatedByDataset.entrySet()) {
+            int datasetNumber = dsEntry.getKey();
+            Map<QueryType, Map<Integer, AggregateStats>> perType = dsEntry.getValue();
 
-            System.out.printf(Locale.ROOT,
-                    "Aggregated averages for %s across %d dataset(s):%n",
-                    type.fileToken(), datasetCount);
+            System.out.printf(Locale.ROOT, "Aggregated averages for dataset #%d:%n", datasetNumber);
 
-            if (statsByPattern.isEmpty()) {
-                System.out.println("  No data available.");
-                System.out.println();
-                return;
-            }
-
-            statsByPattern.forEach((patternLength, stats) -> {
-                System.out.printf(Locale.ROOT, "  Pattern %d%n", patternLength);
-                for (IndexType index : activeIndexes) {
-                    StatsSnapshot snapshot = stats.snapshot(index);
-                    if (snapshot == null || snapshot.count() == 0) {
-                        System.out.printf(Locale.ROOT, "    %s -> no data%n", index.displayName());
-                        continue;
-                    }
-                    System.out.printf(Locale.ROOT,
-                            "    %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                            index.displayName(),
-                            snapshot.avgInsertMsPerSymbol(),
-                            snapshot.avgInsertMs(),
-                            snapshot.avgQueryMs(),
-                            snapshot.count());
+            for (QueryType type : perType.keySet()) {
+                Map<Integer, AggregateStats> statsByPattern = perType.get(type);
+                if (statsByPattern == null || statsByPattern.isEmpty()) {
+                    System.out.printf(Locale.ROOT, "  %s -> No data available.%n", type.fileToken());
+                    continue;
                 }
-                System.out.println();
-            });
+                System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
 
+                statsByPattern.forEach((patternLength, stats) -> {
+                    System.out.printf(Locale.ROOT, "    Pattern %d%n", patternLength);
+                    for (IndexType index : activeIndexes) {
+                        StatsSnapshot snapshot = stats.snapshot(index);
+                        if (snapshot == null || snapshot.count() == 0) {
+                            System.out.printf(Locale.ROOT, "      %s -> no data%n", index.displayName());
+                            continue;
+                        }
+                        System.out.printf(Locale.ROOT,
+                                "      %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d run(s)%n",
+                                index.displayName(),
+                                snapshot.avgInsertMsPerSymbol(),
+                                snapshot.avgInsertMs(),
+                                snapshot.avgQueryMs(),
+                                snapshot.count());
+                    }
+                });
+            }
             System.out.println();
-        });
+        }
 
+        // CSV export per dataset
         List<Object> header = new ArrayList<>();
+        header.add("dataset");
         header.add("patternLength");
 
-        queryTypes.forEach(type -> {
+        for (QueryType type : queryTypes) {
             for (IndexType index : activeIndexes) {
                 String suffix = type.fileToken() + "_" + index.csvLabel();
                 header.add("avgInsertMsPerSymbol_" + suffix);
                 header.add("insertMs_" + suffix);
                 header.add("avgMs_" + suffix);
-                header.add("datasetCount_" + suffix);
+                header.add("datasetCount_" + suffix); // now equals number of runs contributing for this dataset
             }
-        });
-        header.add(algo);
+        }
+        header.add("algorithm");
+
         List<List<?>> csvRows = new ArrayList<>();
         csvRows.add(header);
 
-        SortedSet<Integer> allPatternLengths = new TreeSet<>();
-        aggregated.values().forEach(map -> allPatternLengths.addAll(map.keySet()));
+        for (Map.Entry<Integer, Map<QueryType, Map<Integer, AggregateStats>>> dsEntry : aggregatedByDataset.entrySet()) {
+            int datasetNumber = dsEntry.getKey();
+            Map<QueryType, Map<Integer, AggregateStats>> perType = dsEntry.getValue();
 
-        for (Integer patternLength : allPatternLengths) {
-            List<Object> row = new ArrayList<>();
-            row.add(patternLength);
+            // Collect all pattern lengths present in this dataset
+            SortedSet<Integer> patternLengths = new TreeSet<>();
+            perType.values().forEach(map -> patternLengths.addAll(map.keySet()));
 
-            for (QueryType type : queryTypes) {
-                AggregateStats stats = aggregated.get(type).get(patternLength);
-                for (IndexType index : activeIndexes) {
-                    StatsSnapshot snapshot = stats != null ? stats.snapshot(index) : null;
-                    if (snapshot == null || snapshot.count() == 0) {
-                        row.add(null);
-                        row.add(null);
-                        row.add(null);
-                        row.add(0);
-                        continue;
+            for (Integer patternLength : patternLengths) {
+                List<Object> row = new ArrayList<>();
+                row.add(datasetNumber);
+                row.add(patternLength);
+
+                for (QueryType type : queryTypes) {
+                    Map<Integer, AggregateStats> statsByPattern = perType.getOrDefault(type, Map.of());
+                    AggregateStats stats = statsByPattern.get(patternLength);
+
+                    for (IndexType index : activeIndexes) {
+                        StatsSnapshot snapshot = (stats != null) ? stats.snapshot(index) : null;
+                        if (snapshot == null || snapshot.count() == 0) {
+                            row.add(null);
+                            row.add(null);
+                            row.add(null);
+                            row.add(0);
+                        } else {
+                            row.add(snapshot.avgInsertMsPerSymbol());
+                            row.add(snapshot.avgInsertMs());
+                            row.add(snapshot.avgQueryMs());
+                            row.add(snapshot.count());
+                        }
                     }
-                    row.add(snapshot.avgInsertMsPerSymbol());
-                    row.add(snapshot.avgInsertMs());
-                    row.add(snapshot.avgQueryMs());
-                    row.add(snapshot.count());
                 }
+                row.add(algo);
+                csvRows.add(row);
             }
-            row.add(algo);
-            csvRows.add(row);
         }
 
         Path csvPath = options.csvOutputFile();
         CsvUtil.writeRows(csvPath, csvRows);
-        System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
+        System.out.printf(Locale.ROOT, "Wrote per-dataset results to %s%n", csvPath);
     }
 
     private static HBI newHbi(BenchmarkOptions options) {
@@ -523,7 +545,7 @@ public final class HBIDatasetBenchmarkMulti {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(verifier)
-                .costFunction(null)
+                .costFunction(new CostFunctionDefaultRoot())
                 .confidence(options.runConfidence())
                 .experimentMode(false)
                 .collectStats(false)
@@ -544,7 +566,7 @@ public final class HBIDatasetBenchmarkMulti {
         try (Stream<Path> stream = Files.list(root)) {
             return stream
                     .filter(Files::isDirectory)
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), HBIDatasetBenchmarkMulti::compareNaturally))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), HBIDatasetBenchmarkPerDataset::compareNaturally))
                     .collect(Collectors.toList());
         }
     }
@@ -566,7 +588,7 @@ public final class HBIDatasetBenchmarkMulti {
             return stream
                     .filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().endsWith(suffix))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), HBIDatasetBenchmarkMulti::compareNaturally))
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), HBIDatasetBenchmarkPerDataset::compareNaturally))
                     .collect(Collectors.toList());
         }
     }
@@ -618,11 +640,6 @@ public final class HBIDatasetBenchmarkMulti {
                     sum.totalInsertMsSum / sum.count,
                     sum.totalQueryMsSum / sum.count,
                     sum.count);
-        }
-
-        int count(IndexType indexType) {
-            StatsSum sum = sums.get(indexType);
-            return sum == null ? 0 : sum.count;
         }
 
         boolean hasData() {
@@ -688,6 +705,4 @@ public final class HBIDatasetBenchmarkMulti {
                             "Unknown query type: " + value));
         }
     }
-
-
 }

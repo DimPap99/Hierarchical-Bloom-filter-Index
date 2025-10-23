@@ -41,7 +41,7 @@ public final class HbiConfiguration {
         this.membershipSupplier = Objects.requireNonNull(builder.membershipSupplier, "membershipSupplier");
         this.pruningPlanSupplier = Objects.requireNonNull(builder.pruningPlanSupplier, "pruningPlanSupplier");
         this.verifier = Objects.requireNonNull(builder.verifier, "verifier");
-        this.costFunction = Objects.requireNonNull(builder.costFunction, "costFunction");
+        this.costFunction = builder.costFunction;
         this.confidence = builder.confidence;
         this.experimentMode = builder.experimentMode;
         this.collectStats = builder.collectStats;
