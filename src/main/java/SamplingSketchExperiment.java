@@ -23,7 +23,7 @@
         // =========================
 
         private enum Dist {UNIFORM, ZIPF}
-
+        private static double EXPONENT;
         // =========================
         //  Core utilities
         // =========================
@@ -50,12 +50,12 @@
                     "nb_BK","eps_DKW_BK","x_lo_BK","x_hi_BK",
                     "BK_xhat","BK_value_error_pct","BK_achieved_percentile","BK_rank_error",
                     "ns_per_insert_BK","ns_close_BK",
-                    "truth_x_p","mpq_time_ms","bk_time_ms"
+                    "truth_x_p","mpq_time_ms","bk_time_ms","exponent"
             );
         }
 
         // --- replace suiteACsvRow(...) with this ---
-        private static List<?> suiteACsvRow(TrialResult r) {
+        private static List<?> suiteACsvRow(TrialResult r, double exponent) {
             // design fields (when auto-design is ON)
             int    B_suggested = (r.design != null) ? r.design.Bsuggested : r.Bused;
             int    n_req       = (r.design != null) ? r.design.nReq       : -1;
@@ -90,7 +90,7 @@
                     r.xBK, r.pctErrBK, r.pAchBK, r.rankErrBK,
                     r.nsPerInsertBK, r.closeNsPerItemBK,
                     // truth + times
-                    r.xTrue, (int) r.tMPQMs, (int) r.tBKMs
+                    r.xTrue, (int) r.tMPQMs, (int) r.tBKMs, exponent
             );
         }
 
@@ -106,7 +106,7 @@
 
             List<List<?>> rows = new ArrayList<>(rs.size() + 1);
             if (needHeader) rows.add(suiteACsvHeader());
-            for (TrialResult r : rs) rows.add(suiteACsvRow(r));
+            for (TrialResult r : rs) rows.add(suiteACsvRow(r, EXPONENT));
 
             try (OutputStream os = Files.newOutputStream(out, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 CsvUtil.writeRows(os, rows, CsvUtil.Config.defaults());
@@ -702,19 +702,38 @@
         /**
          * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
          */
+        /**
+         * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
+         * NOW ALSO prints the average achieved epsilon (DKW band half-width) for MPQ and BK.
+         */
+        /**
+         * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
+         * Now also prints:
+         *  - avg achieved percentile p̂ (MPQ and BK)
+         *  - avg rank error |p̂ - p| (MPQ and BK) with clearer labels
+         *  - avg achieved epsilon from DKW (epsMPQ, epsBK)
+         */
         private static void summarize(List<TrialResult> rs, double p, double delta) {
             int T = rs.size();
             if (T == 0) return;
 
             double avgS = 0, avgB = 0, avgNbMPQ = 0, avgNbBK = 0;
+
+            // value error (in count space, %)
             double avgValErrMPQ = 0, avgValErrBK = 0;
+
+            // rank stuff
             double avgRankErrMPQ = 0, avgRankErrBK = 0;
+            double avgPAchMPQ    = 0, avgPAchBK    = 0; // achieved percentiles p̂
+            double avgEpsMPQ     = 0, avgEpsBK     = 0; // DKW half-widths ε
+
             double insideMPQ = 0, insideBK = 0;
             double occOK = 0, occTotal = 0;
             double unionOK = 0, unionTotal = 0;
+
             double avgTruthMs = 0, avgMPQMs = 0, avgBKMs = 0;
 
-            // NEW: per-item cost aggregates
+            // per-item costs
             double avgNsInsMPQ = 0, avgNsCloseMPQ = 0, avgNsInsBK = 0, avgNsCloseBK = 0;
 
             for (TrialResult r : rs) {
@@ -724,82 +743,110 @@
                 avgNbBK += r.nbBK;
 
                 avgValErrMPQ += r.pctErrMPQ;
-                avgValErrBK += r.pctErrBK;
+                avgValErrBK  += r.pctErrBK;
 
                 avgRankErrMPQ += r.rankErrMPQ;
-                avgRankErrBK += r.rankErrBK;
+                avgRankErrBK  += r.rankErrBK;
+
+                avgPAchMPQ += r.pAchMPQ;
+                avgPAchBK  += r.pAchBK;
+
+                avgEpsMPQ  += r.epsMPQ;
+                avgEpsBK   += r.epsBK;
 
                 insideMPQ += r.mpqInDKWValueBand ? 1 : 0;
-                insideBK += r.bkInDKWValueBand ? 1 : 0;
+                insideBK  += r.bkInDKWValueBand ? 1 : 0;
 
                 if (r.nLB >= 0) {
                     occTotal += 1;
                     occOK += r.occLBMet ? 1 : 0;
 
-                    // Union success is meaningful only when the occupancy LB is defined by design
                     unionTotal += 1;
                     boolean unionSuccess = r.occLBMet && r.mpqInDKWValueBand;
                     unionOK += unionSuccess ? 1 : 0;
                 }
 
                 avgTruthMs += r.tTruthMs;
-                avgMPQMs += r.tMPQMs;
-                avgBKMs += r.tBKMs;
+                avgMPQMs   += r.tMPQMs;
+                avgBKMs    += r.tBKMs;
 
-                // NEW: per-item costs
-                avgNsInsMPQ += r.nsPerInsertMPQ;
-                avgNsCloseMPQ += r.closeNsPerItemMPQ;
-                avgNsInsBK += r.nsPerInsertBK;
-                avgNsCloseBK += r.closeNsPerItemBK;
+                avgNsInsMPQ    += r.nsPerInsertMPQ;
+                avgNsCloseMPQ  += r.closeNsPerItemMPQ;
+                avgNsInsBK     += r.nsPerInsertBK;
+                avgNsCloseBK   += r.closeNsPerItemBK;
             }
 
+            // divide by T to get averages
             avgS /= T;
             avgB /= T;
             avgNbMPQ /= T;
             avgNbBK /= T;
-            avgValErrMPQ /= T;
-            avgValErrBK /= T;
-            avgRankErrMPQ /= T;
-            avgRankErrBK /= T;
-            double rateMPQ = 100.0 * insideMPQ / T;
-            double rateBK = 100.0 * insideBK / T;
-            double rateOcc = (occTotal > 0) ? 100.0 * occOK / occTotal : Double.NaN;
-            double rateUnion = (unionTotal > 0) ? 100.0 * unionOK / unionTotal : Double.NaN;
-            avgTruthMs /= T;
-            avgMPQMs /= T;
-            avgBKMs /= T;
 
-            avgNsInsMPQ /= T;
-            avgNsCloseMPQ /= T;
-            avgNsInsBK /= T;
-            avgNsCloseBK /= T;
+            avgValErrMPQ /= T;
+            avgValErrBK  /= T;
+
+            avgRankErrMPQ /= T;
+            avgRankErrBK  /= T;
+
+            avgPAchMPQ /= T;
+            avgPAchBK  /= T;
+
+            avgEpsMPQ /= T;
+            avgEpsBK  /= T;
+
+            double rateMPQ = 100.0 * insideMPQ / T;
+            double rateBK  = 100.0 * insideBK  / T;
+
+            double rateOcc   = (occTotal   > 0) ? 100.0 * occOK   / occTotal   : Double.NaN;
+            double rateUnion = (unionTotal > 0) ? 100.0 * unionOK / unionTotal : Double.NaN;
+
+            avgTruthMs /= T;
+            avgMPQMs   /= T;
+            avgBKMs    /= T;
+
+            avgNsInsMPQ    /= T;
+            avgNsCloseMPQ  /= T;
+            avgNsInsBK     /= T;
+            avgNsCloseBK   /= T;
 
             System.out.println("\n=== Aggregate over " + T + " trials ===");
-            System.out.printf("Avg Sactive = %.1f, Avg Bused = %.1f%n", avgS, avgB);
-            System.out.printf("Avg sample sizes: MPQ nb=%.1f, BK nb=%.1f%n", avgNbMPQ, avgNbBK);
+            System.out.printf("Target percentile p = %.5f (delta_q = %.3f)\n", p, delta);
 
-            System.out.printf("Avg VALUE error vs truth x_p:  MPQ=%.3f%%, BK=%.3f%%%n",
+            System.out.printf("Avg Sactive = %.1f, Avg Bused = %.1f\n", avgS, avgB);
+            System.out.printf("Avg sample sizes: MPQ nb=%.1f, BK nb=%.1f\n", avgNbMPQ, avgNbBK);
+
+            // Value error (count space)
+            System.out.printf("Avg VALUE error vs truth x_p (%%):  MPQ=%.3f%%, BK=%.3f%%\n",
                     avgValErrMPQ, avgValErrBK);
-            System.out.printf("Avg RANK error |p̂−p|:        MPQ=%.5f,  BK=%.5f%n",
+
+            // Achieved percentile and rank error
+            System.out.printf("Avg achieved percentile p̂:        MPQ=%.5f, BK=%.5f\n",
+                    avgPAchMPQ, avgPAchBK);
+            System.out.printf("Avg RANK error |p̂−p|:             MPQ=%.5f, BK=%.5f\n",
                     avgRankErrMPQ, avgRankErrBK);
 
-            System.out.printf("Inside DKW→value band (p=%.5f, delta=%.3f): MPQ=%.1f%%, BK=%.1f%%%n",
-                    p, delta, rateMPQ, rateBK);
+            // Certified epsilon from DKW given nb per trial
+            System.out.printf("Avg certified DKW ε (half-width):  MPQ=%.5f, BK=%.5f\n",
+                    avgEpsMPQ, avgEpsBK);
+
+            // Band success
+            System.out.printf("Inside DKW→value band:             MPQ=%.1f%% of trials, BK=%.1f%% of trials\n",
+                    rateMPQ, rateBK);
 
             if (!Double.isNaN(rateOcc)) {
-                System.out.printf("Occupancy LB satisfied (design check): %.1f%%%n", rateOcc);
+                System.out.printf("Occupancy LB satisfied:            %.1f%% of trials\n", rateOcc);
             }
             if (!Double.isNaN(rateUnion)) {
-                System.out.printf("Union success (occupancy LB AND DKW band): %.1f%%%n", rateUnion);
+                System.out.printf("Union success (occ LB && band):    %.1f%% of trials\n", rateUnion);
             }
 
-            System.out.printf("Avg times (ms): Truth=%.1f, MPQ=%.1f, Bottom-k=%.1f%n",
+            System.out.printf("Avg times (ms): Truth=%.1f, MPQ=%.1f, Bottom-k=%.1f\n",
                     avgTruthMs, avgMPQMs, avgBKMs);
 
-            // NEW: per-item costs
-            System.out.printf("Avg per-item cost (ns): MPQ insert=%.1f, MPQ close=%.3f, BK insert=%.1f, BK close=%.3f%n",
+            System.out.printf("Avg per-item cost (ns): MPQ insert=%.1f, MPQ close=%.3f, BK insert=%.1f, BK close=%.3f\n",
                     avgNsInsMPQ, avgNsCloseMPQ, avgNsInsBK, avgNsCloseBK);
         }
+
 
         /**
          * Print Suite-A CSV header (exactly the columns you asked for).
@@ -872,15 +919,16 @@
             int B = 2500;             // buckets (also k for Bottom-k)
             Dist dist = Dist.ZIPF;  // UNIFORM or ZIPF
             double s = 1.5;           // Zipf exponent if ZIPF
+            EXPONENT = s;
             double p = 0.05;        // target quantile
             long seed = 123456789L; // RNG seed
-            int trials = 20;         // trials
+            int trials = 50;         // trials
             boolean verbose = false; // per-trial prints
 
             boolean autoDesignB = true;     // compute B from rank target if true
             Integer distinctGuess = A;   // if null, we will use Sactive from the stream
 
-            Double rankEpsTarget = 0.025;   // eps_target
+            Double rankEpsTarget = 0.05;   // eps_target
             double delta = 0.01;    // DKW delta (delta_q)
             Double deltaSamp = 0.09;        // delta_samp
 //            # (δ_q, δ_samp) = (0.01, 0.09)  [sampling-heavy]
@@ -907,14 +955,16 @@
             if (args.length >= 14) deltaSamp = Double.parseDouble(args[13]);
 
             // NEW: optional CSV out path and append flag
-            String csvPath = "/home/dimpap/Desktop/util_scripts/mpq_res_auto.csv";             // if null, no file output
+            String csvPath = "/home/dimpap/Desktop/util_scripts/mpq_res_auto"+EXPONENT+".csv";             // if null, no file output
             boolean csvAppend = true;          // we always append; header handled automatically
 
             // CLI: N A B dist s p seed delta trials verbose autoB distinctGuess rankEpsTarget deltaSamp [csvPath] [append]
             if (args.length >= 15) csvPath = args[14];
             if (args.length >= 16) csvAppend = Boolean.parseBoolean(args[15]); // kept for symmetry; we still append
-            List<Double> delta_samp    = new ArrayList<>(Arrays.asList(0.001, 0.025, 0.05, 0.075, 0.09));
-            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.099, 0.075, 0.05, 0.025, 0.01));
+//            List<Double> delta_samp    = new ArrayList<>(Arrays.asList(0.001, 0.025, 0.05, 0.075, 0.09));
+//            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.099, 0.075, 0.05, 0.025, 0.01));
+            List<Double> delta_samp    = new ArrayList<>(Arrays.asList(0.05, 0.025, 0.09));
+            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.05, 0.075,  0.01));
 //            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.05, 0.05, 0.05, 0.05, 0.05));
 
             List<TrialResult> results = new ArrayList<>(trials);

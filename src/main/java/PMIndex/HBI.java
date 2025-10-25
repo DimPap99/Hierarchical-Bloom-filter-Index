@@ -2,6 +2,7 @@ package PMIndex;
 
 import estimators.CostFunction;
 import estimators.Estimator;
+import estimators.HOPS;
 import jdk.jshell.execution.Util;
 import membership.Key64;
 import membership.KeyPackingService;
@@ -19,10 +20,7 @@ import search.Verifier;
 import tree.ImplicitTree;
 import tree.StreamBuffer;
 import tree.TreeLayout;
-import utilities.AlphabetMapper;
-import utilities.MemUtil;
-import utilities.PatternResult;
-import utilities.StringKeyMapper;
+import utilities.*;
 
 import java.util.*;
 import java.util.function.IntFunction;
@@ -32,6 +30,7 @@ import static utilities.MathUtils.pruningLevel;
 
 
 public final class HBI implements IPMIndexing {
+
 
     private static final int DEFAULT_BC_COST_ESTIM_ITER = 1_000_000;
     private static final int DEFAULT_LC_COST_ESTIM_ITER = 1_000_000;
@@ -64,13 +63,15 @@ public final class HBI implements IPMIndexing {
     private int bcCostEstimIter = DEFAULT_BC_COST_ESTIM_ITER;
     private int lcCostEstimIter = DEFAULT_LC_COST_ESTIM_ITER;
 
-
+    public HOPS pctEstimator = null;
     private double bfCost = 97;
     private double leafCost = 26;
     private int lpOverride;
     public NgramModel.Builder modelBuilder;
     public boolean memoryPolicy = false;
     public boolean isMarkov = false;
+
+    public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
 
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
@@ -86,16 +87,6 @@ public final class HBI implements IPMIndexing {
             this.modelBuilder = new NgramModel.Builder(sigma, 3);
         }
     }
-//    Avg overallRelError = 0.0052
-//    Avg MAPE            = 0.0069
-//    Avg RMSE (probes)   = 1450.40
-//    Predicted optimal Lp matches actual best: 167/199 (83.92%)
-//    Predicted optimal Lp exactly ±1 level: 25/199 (12.56%)
-//    Predicted optimal Lp within {0,±1}: 192/199 (96.48%)
-//    Avg probe reduction (CF vs arbitrary): 18381.38 over 171 patterns
-//    Avg probe reduction (arbitrary vs Lp=0): 26674.27 over 199 patterns
-//    Mispredicted cases (>|1| off optimal): 7  with arbitrary comparison: 0  cf better: 0.00%  arbitrary better: 0.00%
-//    Overall Overestimation: 0.7406249999999999 Underestimation: 0.25937500000000013
 
     public HBI(HbiConfiguration config) {
         this.config = Objects.requireNonNull(config, "config");
@@ -118,6 +109,8 @@ public final class HBI implements IPMIndexing {
         if(isMarkov) {
             ensureMarkovBuilder();
         }
+
+        this.memPolicy = config.memPolicy();
     }
 
     public HBI(SearchAlgorithm algo,
@@ -263,7 +256,7 @@ public final class HBI implements IPMIndexing {
             long lpStart = System.nanoTime();
             ArrayList<Integer> lps = new ArrayList<>();
 //            lp = Collections.min(lps);
-            totalLpTimeNanos += System.nanoTime() - lpStart;
+
             //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
 //
             if (stats.isExperimentMode()) {
@@ -278,22 +271,25 @@ public final class HBI implements IPMIndexing {
                 long minCostStart = System.nanoTime();
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
                 stats.recordMinCostLpTime(System.nanoTime() - minCostStart);
+                lps.add(lp);
             } else {
 //                int s = cf.minCostLp(tree, 0.05, pat, 97, 26, false);
 //                lps.add(cf.minCostLp(tree, 0.05, pat, 97, 26, false));
 
-                if(this.cf != null) lps.add(cf.minCostLp(tree, 0.95, pat, this.bfCost, this.leafCost, this.strides));
+                if(this.cf != null) {
+                    lps.add(cf.minCostLp(tree, 0.95, pat, this.bfCost, this.leafCost, this.strides));
+                }
                 else{
                     lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
                 }
 //                lp = lpCf;
             }
-
+            totalLpTimeNanos += System.nanoTime() - lpStart;
             pat.charStartLp = lps;
             lp = Collections.min(lps);
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
-                stats.recordAlpha(cf.getAlpha());
+                if(this.cf != null) {                stats.recordAlpha(cf.getAlpha());}
             }
             fillStackLp(lp, stack);
             scn.seedStack(stack);
@@ -317,6 +313,10 @@ public final class HBI implements IPMIndexing {
 
             this.verifier.reset();
             stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
+        }
+        long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
+        if (stats.isCollecting()) {
+            stats.recordQueryTiming(totalQueryTimeNanos, totalLpTimeNanos);
         }
 
         return results;

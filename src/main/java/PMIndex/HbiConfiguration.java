@@ -6,6 +6,7 @@ import membership.Membership;
 import search.PruningPlan;
 import search.SearchAlgorithm;
 import search.Verifier;
+import utilities.Utils;
 
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -26,6 +27,8 @@ public final class HbiConfiguration {
     private final Verifier verifier;
     private final CostFunction costFunction;
     private final double confidence;
+
+    private final Utils.MemPolicy memPolicy;
     private final boolean experimentMode;
     private final boolean collectStats;
 
@@ -46,6 +49,7 @@ public final class HbiConfiguration {
         this.experimentMode = builder.experimentMode;
         this.collectStats = builder.collectStats;
         this.nGram = builder.nGram;
+        this.memPolicy = builder.memPolicy;
         validate();
     }
 
@@ -84,12 +88,17 @@ public final class HbiConfiguration {
     public int nGram(){return nGram;}
     public boolean collectStats() { return collectStats; }
 
+    public Utils.MemPolicy memPolicy() {
+        return memPolicy;
+    }
+
     public static final class Builder {
         private SearchAlgorithm searchAlgorithm;
         private int windowLength;
         private double fpRate;
         private int alphabetSize;
         private int treeLength;
+        private Utils.MemPolicy memPolicy;
         private Supplier<Estimator> estimatorSupplier;
         private Supplier<Membership> membershipSupplier;
         private Supplier<PruningPlan> pruningPlanSupplier;
@@ -104,6 +113,10 @@ public final class HbiConfiguration {
         private Builder() {
         }
 
+        public Builder memPolicy(Utils.MemPolicy memPolicy) {
+            this.memPolicy = memPolicy;
+            return this;
+        }
         public Builder searchAlgorithm(SearchAlgorithm searchAlgorithm) {
             this.searchAlgorithm = searchAlgorithm;
             return this;

@@ -20,6 +20,12 @@ public class Utils {
 //        return (value & mask) >>> level;
         return value >>> domainTotalBits - level;
     }
+
+    public static enum MemPolicy {
+        NONE,
+        REACTIVE,
+        PREDICTIVE
+    }
     /**
      * Formats an integer into  "bitinterval<interval_bits><remaining_bits>".
      *

@@ -58,10 +58,7 @@ public class ProcessStream {
             }
             long t0 = System.nanoTime();
             String s = window.snapshot().toString();
-            if(s.equals("tcp:smtp:c->s:L0:R:T0")) {
-                int b=2;
-                System.out.println(insertionEvents);
-            }
+
 
             index.insert(s);
             long t1 = System.nanoTime();

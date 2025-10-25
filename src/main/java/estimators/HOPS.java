@@ -38,7 +38,7 @@ public final class HOPS {
      * Create with a given number of buckets. Seeds are random.
      */
     public HOPS(int bucketNum) {
-        this(bucketNum, 0 /*effectiveSigma unused*/, new Random());
+        this(bucketNum, 0 , new Random());
     }
 
     /**
@@ -234,6 +234,7 @@ public final class HOPS {
                     ", prio=0x" + Long.toUnsignedString(priority, 16) + "}";
         }
     }
+
 
 
 
