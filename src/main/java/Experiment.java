@@ -16,6 +16,7 @@ public class Experiment {
         long insertionCount = 0L;
         ArrayList<String> queries = new ArrayList<>();
         int totalSymbols = 0;
+        int _i = 0;
         try (DatasetReader reader = new DatasetReader(inputFilePath, queriesFilePath, false)) {
             for (char cChar : reader) {
                 window.append(cChar);
@@ -23,11 +24,17 @@ public class Experiment {
 
                 /* Only once we have k chars -> emit the N-gram */
                 if (window.isFilled()) {
-                    index.insert(window.snapshot().toString());   // the whole k-gram
+                    String s = window.snapshot().toString();
+                    if(_i == 50){
+                        int b = 2;
+                    }
+                    // ranks, bu
+                    index.insert(s);   // the whole k-gram
                     insertionCount++;
                 }
+                _i++;
             }
-
+//            index.insert("$"); //needed for suffix tree
             insertDuration = System.currentTimeMillis() - startTime;
             double avgMsPerSymbol = totalSymbols == 0 ? 0.0 : insertDuration / (double) totalSymbols;
             System.out.println("Avg Insertion Time: " + avgMsPerSymbol);

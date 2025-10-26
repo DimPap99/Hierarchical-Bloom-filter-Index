@@ -45,8 +45,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/10.uniform.txt";
 
     private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -61,7 +61,7 @@ public class ConfidenceExperiment {
     private static int NGRAMS = 1;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
-    private static int ALPHABET = 74;
+    private static int ALPHABET = 121574;
 
     /** ---------------------------------------
      *  Data structures for accuracy reporting
@@ -291,7 +291,7 @@ public class ConfidenceExperiment {
         System.out.println("Starting experiment…");
 
         // Default mode is character streaming, which is your current behavior
-        String mode = "chars";
+        String mode = "segments";//modes are chars/segments
 
         // Allow minimal override via command line: --mode chars|segments
         for (int i = 0; i < args.length - 1; i += 2) {
@@ -301,7 +301,7 @@ public class ConfidenceExperiment {
         }
 
         // Expand ALPHABET to n-gram space (same as your current code does with ALPHABET, NGRAMS)
-        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
+        ALPHABET = (int) 121574;//Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf(
                 "Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
@@ -376,6 +376,7 @@ public class ConfidenceExperiment {
                         false,   // verbose
                         true     // collect PatternResult objects
                 );
+                int b = 2;
             } else {
                 // chars mode (original behavior)
                 result = Experiment.run(

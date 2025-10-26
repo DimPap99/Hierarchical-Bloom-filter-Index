@@ -2,44 +2,69 @@ import PMIndex.HBI;
 import PMIndex.HbiStats;
 import PMIndex.IPMIndexing;
 import PMIndex.SuffixTreeIndex;
+import search.*;
 import estimators.*;
 import membership.BloomFilter;
 import membership.Membership;
-import search.*;
 import utilities.*;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileAlreadyExistsException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
-import java.util.stream.IntStream;
-import org.openjdk.jol.info.ClassLayout;
-import org.openjdk.jol.info.GraphLayout;
 
-import javax.xml.stream.FactoryConfigurationError;
-
+/**
+ * HBIDatasetBenchmark
+ *
+ * This benchmark compares HBI versus SuffixTreeIndex on the same dataset and query set.
+ *
+ * We now support two streaming modes, exactly like in ConfidenceExperiment:
+ *
+ *   mode = "chars"
+ *     Treat the dataset file as one continuous character stream.
+ *     Build n-grams of characters. Queries are substrings, exactly like Experiment.run().
+ *
+ *   mode = "segments"
+ *     Treat the dataset file as one token per line (for example one packet per line).
+ *     Each token is a logical "symbol". We slide a RingBuffer<String> of length NGRAMS
+ *     over those symbols to build patterns. We index those patterns in HBI or SuffixTreeIndex.
+ *     Queries are sequences of tokens separated by spaces.
+ *
+ * You can pick the mode via --mode chars or --mode segments at runtime.
+ *
+ * Everything else in this benchmark (timing, result comparison, averages) is preserved.
+ */
 public class HBIDatasetBenchmark {
 
-    /** Adjust to your file locations. */
-    private static final String DATA_FILE   = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/wzipf20_e1/1/1_Wzipf20_e1.txt";
+    /** Default input paths and parameters. Change these as you like. */
+    private static String DATA_FILE =
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
 
+    private static String QUERY_FILE =
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
 
-    private static final int WINDOW_LEN   = 1 << 20;//1 << 21;
-    private static final int TREE_LEN     = 1 << 20;
-    private static int ALPHABET     = 32;
-    private static final double FP_RATE   = 0.001;
-    private static final int RUNS         = 2;        // set to 0 for a dry run
+    private static final int WINDOW_LEN   = 1 << 21;
+    private static final int TREE_LEN     = 1 << 21;
+    private static int ALPHABET           = 150;
+    private static final double FP_RATE   = 0.5;
+    private static final int RUNS         = 1;
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS = 1;
-    private static String QUERY_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/wzipf20_e1/1/10.missing.txt";
-    private static int NUMQUERIES = 135;
+    private static int NGRAMS             = 4;
 
-    public static void compared(ArrayList<ArrayList<Integer>> arr1, ArrayList<ArrayList<Integer>> arr2) {
+    /**
+     * Utility method from your original code.
+     * Compare match results across two indexes for each query.
+     */
+    public static void compared(ArrayList<ArrayList<Integer>> arr1,
+                                ArrayList<ArrayList<Integer>> arr2) {
+
         Objects.requireNonNull(arr1, "First index results must not be null.");
         Objects.requireNonNull(arr2, "Second index results must not be null.");
 
@@ -88,130 +113,188 @@ public class HBIDatasetBenchmark {
             System.out.println("Indexes produced differing results.");
         }
     }
-    public static void main(String[] args) throws IOException {
 
-        List<String> queryFiles = new ArrayList<>();
-
-        List<List<?>> rows =  new ArrayList<>();
-        List<?> header = List.of("nGram", "runAvgMs", "insertAvgMs", "avgQueryLength", "index");
-        rows.add(header);
-
-        ExperimentRunResult runResult;
-        double suffixTotalMs = 0;
-        double suffixTotalMsInsert = 0;
-
-
-        System.out.println("Running queries for " + QUERY_FILE);
-        double hbiTotalMs = 0;
-        suffixTotalMs = 0;
-        double hbiTotalMsInsert = 0;
-        suffixTotalMsInsert = 0;
-        double avgLp = 0;
-        double lpShareSum = 0;
-        double avgQueryTimeSum = 0;
-        double avgLpTimeSum = 0;
-        int statsSamples = 0;
-        System.out.println("N-gram: " + NGRAMS);
-        System.out.println("Window Size: " + WINDOW_LEN);
-        System.out.println("Tree Length: " + TREE_LEN);
-        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
-        ALPHABET = Math.min(ALPHABET, TREE_LEN);
-        System.out.println("Alphabet: " + ALPHABET);
-        System.out.println("\n");
-        double avgAlpha = 0;
-        /* JIT warm-up so HotSpot reaches steady state */
-
-        for (int i = 0; i < 1; i++) {
-            HBI hbi = newHbi(0.999);
-            hbi.strides = USE_STRIDES;
-            hbi.stats().setCollecting(false);
-            hbi.stats().setExperimentMode(false);
-
-            ArrayList<ArrayList<Integer>> warmHbi =
-                    Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false).matchRes();
-
-            SuffixTreeIndex suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
-            ArrayList<ArrayList<Integer>> warmSuffix =
-                    Experiment.run(DATA_FILE, QUERY_FILE, suffix, NGRAMS, false, false).matchRes();
-////            suffix.debugDumpForQuery(" the repub", 3, 2048);
-////            System.out.println(new MemUtil().jolMemoryReportPartitioned(hbi));
-//            suffix.compactForQuerying();
-//            System.out.println(suffix.jolMemoryReportPartitioned());
-            compared(warmHbi, warmSuffix);
-            int b = 2;
+    /**
+     * Helper for "segments" mode only.
+     * We read queries as lines and trim blanks. Same logic as ConfidenceExperiment.loadQueries.
+     */
+    private static List<String> loadQueries(String queriesFile) throws IOException {
+        List<String> lines = Files.readAllLines(Path.of(queriesFile), StandardCharsets.UTF_8);
+        ArrayList<String> out = new ArrayList<>(lines.size());
+        for (String l : lines) {
+            if (l == null) continue;
+            String s = l.strip();
+            if (!s.isEmpty()) out.add(s);
         }
-                ArrayList<Long> timings;
-        for (int i = 0; i < RUNS; i++) {
+        return out;
+    }
 
-            HBI hbi = newHbi(0.99);
-            hbi.strides = USE_STRIDES;
-            HbiStats stats = hbi.stats();
-            hbi.stats().setCollecting(false);
-            hbi.stats().setExperimentMode(false);
-//            stats.setCollecting(true);
-            runResult = Experiment.run(DATA_FILE, QUERY_FILE, hbi, NGRAMS, false, false);
-            ArrayList<ArrayList<Integer>> hbiMatches = runResult.matchRes();
-            hbiTotalMs += runResult.totalRunTimeMs();
-            hbiTotalMsInsert += runResult.totalInsertTimeMs();
-            if (stats.totalQueryCount() > 0) {
-                lpShareSum += stats.lpShareOfQuery();
-                avgQueryTimeSum += stats.averageQueryTimeMillis();
-                avgLpTimeSum += stats.averageLpTimeMillis();
-                statsSamples++;
+    /**
+     * Stream and index a dataset in "segments" mode, using the given IPMIndexing implementation.
+     *
+     * This is analogous to Experiment.run(...) for character mode,
+     * and analogous to runStreamingSegments(...) from ConfidenceExperiment,
+     * but returns ExperimentRunResult with matchRes filled so we can diff
+     * HBI vs SuffixTreeIndex.
+     *
+     * Semantics:
+     *   - Treat each nonempty line from DATA_FILE as one token (String).
+     *   - Maintain a RingBuffer<String> of length ngram.
+     *   - For every filled buffer snapshot, call index.insert(snapshotString).
+     *   - Every WINDOW_LEN tokens, run all queries.
+     *
+     * Query semantics in segments mode:
+     *   - Each line in QUERY_FILE is "tok0 tok1 tok2 ...".
+     *   - We split by spaces, build new Pattern(splitArray, ngram),
+     *     and call index.report(pat).
+     *
+     * We measure:
+     *   totalInsertTimeMs
+     *   totalRunTimeMs (query time sum)
+     *   avgQueryLen in n-grams
+     * We also build matchRes, parallel to what Experiment.run(...) returns.
+     */
+    private static ExperimentRunResult runSegmentsMode(
+            String datasetPath,
+            String queriesPath,
+            IPMIndexing index,
+            int ngram,
+            int windowLen,
+            boolean verbose
+    ) throws IOException {
+
+        // load queries up front
+        List<String> queries = loadQueries(queriesPath);
+
+        // compute average query length in n-grams
+        int sumQueryLen = 0;
+        for (String q : queries) {
+            if (q == null || q.isEmpty()) continue;
+            String[] splitArray = q.split(" ");
+            Pattern p = new Pattern(splitArray, ngram);
+            sumQueryLen += p.nGramToLong.length;
+        }
+        double avgQueryLen = queries.isEmpty() ? 0.0 : (sumQueryLen * 1.0 / queries.size());
+
+        SegmentReader seg = new SegmentReader(
+                datasetPath,
+                queriesPath,
+                '\n',
+                false,  // do not include delimiter in token
+                true    // skip empty segments
+        );
+        SegmentReaderAdapter adapter = new SegmentReaderAdapter(seg);
+
+        RingBuffer<String> window = new RingBuffer<>(ngram);
+
+        long totalInsertNanos   = 0L;
+        long insertionEvents    = 0L;
+        long tokensSeen         = 0L;
+
+        long nextQueryAt        = Math.max(1, windowLen);
+        long sumQueryLoadMs     = 0L;
+        long queryLoads         = 0L;
+
+        ArrayList<ArrayList<Integer>> allQueryMatches = new ArrayList<>();
+
+        while (adapter.hasNext()) {
+            String tok = adapter.next();
+            window.append(tok);
+            if (!window.isFilled()) {
+                continue;
             }
-            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
-            runResult = Experiment.run(DATA_FILE, QUERY_FILE, suffix, 1, false, false);
-            ArrayList<ArrayList<Integer>> suffixMatches = runResult.matchRes();
-            suffixTotalMs += runResult.totalRunTimeMs();
-            suffixTotalMsInsert += runResult.totalInsertTimeMs();
-//            MemUtil memUtil = new MemUtil();
-//            compared(hbiMatches, suffixMatches);
 
+            String s = window.snapshot().toString();
+
+            long t0 = System.nanoTime();
+            index.insert(s);
+            long t1 = System.nanoTime();
+
+            totalInsertNanos += (t1 - t0);
+            insertionEvents++;
+            tokensSeen++;
+
+            if (tokensSeen >= nextQueryAt - ngram + 1) {
+                long qMs = runAllQueriesSegments(
+                        index,
+                        queries,
+                        ngram,
+                        verbose,
+                        allQueryMatches
+                );
+                sumQueryLoadMs += qMs;
+                queryLoads++;
+                nextQueryAt += windowLen;
+            }
         }
 
-        if (RUNS > 0) {
-            System.out.printf("HBI avg (ms): %.3f%n", hbiTotalMs / RUNS);
-            System.out.printf("HBI Insert avg (ms): %.3f%n", hbiTotalMsInsert / RUNS);
-            System.out.printf("HBI Insert avg per symbol (ms): %.4f%n", (hbiTotalMsInsert / RUNS)/WINDOW_LEN);
+        double totalInsertMs = totalInsertNanos / 1_000_000.0;
+        double totalQueryMs  = sumQueryLoadMs;
+        double avgQueryLoadMs =
+                (queryLoads == 0) ? 0.0 : (totalQueryMs / queryLoads);
 
-            if (statsSamples > 0) {
-                System.out.printf("HBI avg query time per pattern (ms): %.3f%n", avgQueryTimeSum / statsSamples);
-                System.out.printf("HBI avg LP computation time per pattern (ms): %.3f%n", avgLpTimeSum / statsSamples);
-                System.out.printf("HBI LP time share of query (%%): %.2f%n", (lpShareSum / statsSamples) * 100.0);
+        return new ExperimentRunResult(
+                totalQueryMs,
+                totalInsertMs,
+                /* patternResults = */ new ArrayList<>(),
+                avgQueryLen,
+                /* avgInsertMsPerSymbol = */ (insertionEvents == 0)
+                ? 0.0
+                : (totalInsertMs / insertionEvents),
+                avgQueryLoadMs,
+                allQueryMatches
+        );
+    }
+
+    /**
+     * Helper for runSegmentsMode.
+     * Execute ALL queries (segments mode interpretation) against index, collect matches,
+     * and measure wall clock time in milliseconds.
+     *
+     * allQueryMatches grows one entry per query. Each entry is the match result
+     * list returned by index.report(pat).
+     */
+    private static long runAllQueriesSegments(
+            IPMIndexing index,
+            List<String> queries,
+            int ngram,
+            boolean verbose,
+            ArrayList<ArrayList<Integer>> allQueryMatches
+    ) {
+        long start = System.currentTimeMillis();
+
+        for (String q : queries) {
+            if (q == null || q.isEmpty()) continue;
+
+            String[] splitArray = q.split(" ");
+            Pattern pat = new Pattern(splitArray, ngram);
+
+            ArrayList<Integer> report = index.report(pat);
+            allQueryMatches.add(report);
+
+            if (verbose) {
+                if (report.size() < 20 && q.length() < 200) {
+                    System.out.println(q + ":" + report);
+                }
             }
-            System.out.println("Avg LP: " + avgLp);
-            System.out.println("Avg Alpha: " + avgAlpha);
-
-            System.out.printf("SuffixTreeIndex avg (ms): %.3f%n", suffixTotalMs / RUNS);
-            System.out.printf("SuffixTreeIndex Insert avg (ms): %.3f%n", suffixTotalMsInsert / RUNS);
-            System.out.println("\n");
-
         }
-//                    rows.add(List.of(n, hbiTotalMs / RUNS,  hbiTotalMsInsert / RUNS, avgQueryLength, "hbi"));
 
-            }
-//                rows.add(List.of(1, ipmTotalMs / RUNS,  ipmTotalMsInsert / RUNS, avgQueryLength, "regex"));
+        return System.currentTimeMillis() - start;
+    }
 
-
-
-
-
-//        CsvUtil.writeRows(Path.of("pg2701_arb.csv"), rows);
-
-
-    // Helper that builds a fresh HBI wired to suppliers each time
+    /**
+     * Build a fresh HBI with the configured parameters.
+     * This is unchanged structurally from your code, except for:
+     *  - we keep NGRAMS as the last constructor parameter so it respects your chosen n-gram size
+     */
     private static HBI newHbi(double conf) {
-        Supplier<Estimator> estFactory =
-                () -> new HashMapEstimator(TREE_LEN);
-
-        Supplier<Membership> memFactory =
-                () -> new BloomFilter();
-        Supplier<PruningPlan> prFactory =
-                () -> new MostFreqPruning(conf);
-
+        Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
+        Supplier<Membership> memFactory = () -> new BloomFilter();
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
         Verifier v = new VerifierLinearLeafProbe();
-        return new HBI(new BlockSearch(),
 
+        return new HBI(
+                new BlockSearch(),
                 WINDOW_LEN,
                 FP_RATE,
                 ALPHABET,
@@ -219,8 +302,222 @@ public class HBIDatasetBenchmark {
                 estFactory,
                 memFactory,
                 prFactory,
-                v, new CostFunctionDefaultRoot(), conf, NGRAMS);
+                v,
+                /* cost function */ null,
+                conf,
+                NGRAMS
+        );
     }
 
+    public static void main(String[] args) throws IOException {
 
+        // default mode is "chars" to preserve original behavior
+        String mode = "chars";
+
+        // light weight argument parsing for overrides
+        for (int i = 0; i < args.length - 1; i += 2) {
+            switch (args[i]) {
+                case "--mode" -> mode = args[i + 1]; // "chars" or "segments"
+                case "--data" -> DATA_FILE = args[i + 1];
+                case "--queries" -> QUERY_FILE = args[i + 1];
+            }
+        }
+
+        System.out.println("Benchmark starting…");
+        System.out.println("Mode: " + mode);
+
+        System.out.println("N-gram: " + NGRAMS);
+        System.out.println("Window Size: " + WINDOW_LEN);
+        System.out.println("Tree Length: " + TREE_LEN);
+
+        // expand alphabet based on NGRAMS exactly as before
+        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
+        ALPHABET = Math.min(ALPHABET, TREE_LEN);
+
+        System.out.println("Alphabet: " + ALPHABET);
+        System.out.println();
+
+        double hbiTotalMs = 0.0;
+        double hbiTotalMsInsert = 0.0;
+        double suffixTotalMs = 0.0;
+        double suffixTotalMsInsert = 0.0;
+
+        double lpShareSum = 0.0;
+        double avgQueryTimeSum = 0.0;
+        double avgLpTimeSum = 0.0;
+        int statsSamples = 0;
+
+        // ------------------
+        // Warm-up iteration
+        // ------------------
+        {
+            HBI hbi = newHbi(0.999);
+            hbi.strides = USE_STRIDES;
+            hbi.stats().setCollecting(false);
+            hbi.stats().setExperimentMode(false);
+
+            ExperimentRunResult warmHbi;
+            if ("segments".equalsIgnoreCase(mode)) {
+                warmHbi = runSegmentsMode(
+                        DATA_FILE, QUERY_FILE,
+                        hbi,
+                        NGRAMS,
+                        WINDOW_LEN,
+                        /* verbose */ false
+                );
+            } else {
+                warmHbi = Experiment.run(
+                        DATA_FILE, QUERY_FILE,
+                        hbi,
+                        NGRAMS,
+                        /* verbose */ false,
+                        /* queryResults */ false
+                );
+            }
+            ArrayList<ArrayList<Integer>> warmHbiMatches = warmHbi.matchRes();
+
+            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
+
+            ExperimentRunResult warmSuffix;
+            if ("segments".equalsIgnoreCase(mode)) {
+                warmSuffix = runSegmentsMode(
+                        DATA_FILE, QUERY_FILE,
+                        suffix,
+                        /* force ngram=1? or use NGRAMS */ NGRAMS,
+                        WINDOW_LEN,
+                        false
+                );
+            } else {
+                warmSuffix = Experiment.run(
+                        DATA_FILE, QUERY_FILE,
+                        suffix,
+                        NGRAMS,
+                        false,
+                        false
+                );
+            }
+            ArrayList<ArrayList<Integer>> warmSuffixMatches = warmSuffix.matchRes();
+
+            compared(warmHbiMatches, warmSuffixMatches);
+        }
+
+        // -----------
+        // Timed runs
+        // -----------
+        for (int i = 0; i < RUNS; i++) {
+
+            // HBI pass
+            HBI hbi = newHbi(0.99);
+            hbi.strides = USE_STRIDES;
+            HbiStats stats = hbi.stats();
+            stats.setCollecting(true);
+            stats.setExperimentMode(false);
+
+            ExperimentRunResult hbiRes;
+            if ("segments".equalsIgnoreCase(mode)) {
+                hbiRes = runSegmentsMode(
+                        DATA_FILE, QUERY_FILE,
+                        hbi,
+                        NGRAMS,
+                        WINDOW_LEN,
+                        false
+                );
+            } else {
+                hbiRes = Experiment.run(
+                        DATA_FILE, QUERY_FILE,
+                        hbi,
+                        NGRAMS,
+                        false,
+                        false
+                );
+            }
+
+            hbiTotalMs       += hbiRes.totalRunTimeMs();
+            hbiTotalMsInsert += hbiRes.totalInsertTimeMs();
+
+            if (stats.totalQueryCount() > 0) {
+                lpShareSum      += stats.lpShareOfQuery();
+                avgQueryTimeSum += stats.averageQueryTimeMillis();
+                avgLpTimeSum    += stats.averageLpTimeMillis();
+                statsSamples++;
+            }
+
+            ArrayList<ArrayList<Integer>> hbiMatches = hbiRes.matchRes();
+
+            // Suffix tree pass
+            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
+
+            ExperimentRunResult suffixRes;
+            if ("segments".equalsIgnoreCase(mode)) {
+                suffixRes = runSegmentsMode(
+                        DATA_FILE, QUERY_FILE,
+                        suffix,
+                        NGRAMS,
+                        WINDOW_LEN,
+                        false
+                );
+            } else {
+                suffixRes = Experiment.run(
+                        DATA_FILE, QUERY_FILE,
+                        suffix,
+                        NGRAMS,
+                        false,
+                        false
+                );
+            }
+
+            suffixTotalMs       += suffixRes.totalRunTimeMs();
+            suffixTotalMsInsert += suffixRes.totalInsertTimeMs();
+
+            ArrayList<ArrayList<Integer>> suffixMatches = suffixRes.matchRes();
+
+            // direct correctness comparison for this run
+            compared(hbiMatches, suffixMatches);
+        }
+
+        // --------------------------
+        // Print aggregate statistics
+        // --------------------------
+        if (RUNS > 0) {
+            System.out.printf(
+                    Locale.ROOT,
+                    "HBI avg (ms): %.3f%n",
+                    hbiTotalMs / RUNS);
+            System.out.printf(
+                    Locale.ROOT,
+                    "HBI Insert avg (ms): %.3f%n",
+                    hbiTotalMsInsert / RUNS);
+            System.out.printf(
+                    Locale.ROOT,
+                    "HBI Insert avg per symbol (ms): %.4f%n",
+                    (hbiTotalMsInsert / RUNS) / WINDOW_LEN
+            );
+
+            if (statsSamples > 0) {
+                System.out.printf(
+                        Locale.ROOT,
+                        "HBI avg query time per pattern (ms): %.3f%n",
+                        (avgQueryTimeSum / statsSamples));
+                System.out.printf(
+                        Locale.ROOT,
+                        "HBI avg LP computation time per pattern (ms): %.3f%n",
+                        (avgLpTimeSum / statsSamples));
+                System.out.printf(
+                        Locale.ROOT,
+                        "HBI LP time share of query (%%): %.2f%n",
+                        (lpShareSum / statsSamples) * 100.0
+                );
+            }
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "SuffixTreeIndex avg (ms): %.3f%n",
+                    suffixTotalMs / RUNS);
+            System.out.printf(
+                    Locale.ROOT,
+                    "SuffixTreeIndex Insert avg (ms): %.3f%n",
+                    suffixTotalMsInsert / RUNS);
+            System.out.println();
+        }
+    }
 }

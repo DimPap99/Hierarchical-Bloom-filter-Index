@@ -187,14 +187,14 @@ public final class MemoryBenchmark {
                                  double runConfidence) {
 
         static MemoryOptions parse(String[] args) {
-            int ng = 2;
+            int ng = 8;
             Path dataRoot = Path.of("data");
             String window = "w21";
             Integer ngram = ng;
             Integer windowLength = null;
             Integer treeLength = null;
-            Integer alphabetBase = 32;
-            double fpRate = 0.001;
+            Integer alphabetBase = 150;
+            double fpRate = 0.35;
             double runConfidence = 0.99;
 
             for (int i = 0; i < args.length; i++) {
