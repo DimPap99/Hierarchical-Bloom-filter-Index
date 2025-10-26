@@ -36,6 +36,12 @@ public class HashMapEstimatorSol implements Estimator {
         Integer count = frequencies.get(key);
         return (count == null) ? 0.0 : (count / totalRecords);
     }
+
+    @Override
+    public long get(long key) {
+        return 0;
+    }
+
     @Override
     public double[] estimateALl(Pattern p, boolean strides){
         double[] result = new double[p.nGramToLong.length];

@@ -3,7 +3,8 @@
     import org.apache.commons.math3.distribution.ZipfDistribution;
     import org.apache.commons.math3.random.RandomGenerator;
     import org.apache.commons.math3.random.Well19937c;
-    import utilities.CsvUtil;
+import utilities.CsvUtil;
+import utilities.Utils;
 
     import java.nio.file.Files;
     import java.nio.file.Path;
@@ -57,11 +58,11 @@
         // --- replace suiteACsvRow(...) with this ---
         private static List<?> suiteACsvRow(TrialResult r, double exponent) {
             // design fields (when auto-design is ON)
-            int    B_suggested = (r.design != null) ? r.design.Bsuggested : r.Bused;
-            int    n_req       = (r.design != null) ? r.design.nReq       : -1;
-            double E_nb        = (r.design != null) ? r.design.mu         : Double.NaN;
-            double Var_nb      = (r.design != null) ? r.design.var        : Double.NaN;
-            int    LB_nb       = (r.design != null) ? r.design.nLB        : -1;
+            int    B_suggested = (r.design != null) ? r.design.suggestedBuckets    : r.Bused;
+            int    n_req       = (r.design != null) ? r.design.requiredSampleSize : -1;
+            double E_nb        = (r.design != null) ? r.design.expectedNonEmpty    : Double.NaN;
+            double Var_nb      = (r.design != null) ? r.design.variance           : Double.NaN;
+            int    LB_nb       = (r.design != null) ? r.design.occupancyLowerBound : -1;
 
             boolean unionSuccess = r.mpqInDKWValueBand && r.occLBMet;
             double  deltaTot     = r.delta + r.deltaSampUsed;
@@ -254,126 +255,6 @@
         //  Occupancy math (exact)
         // =========================
 
-        /**
-         * Expected non-empty buckets for D distinct keys into B buckets.
-         */
-        private static double occupancyExpectation(int D, int B) {
-            if (B <= 0) return 0.0;
-            return B * (1.0 - Math.pow(1.0 - 1.0 / B, D));
-        }
-
-        /**
-         * Variance of non-empty buckets (exact balls-into-bins formula).
-         */
-        private static double occupancyVariance(int D, int B) {
-            if (B <= 0) return 0.0;
-            double t1 = Math.pow(1.0 - 1.0 / B, D);
-            double t2 = Math.pow(1.0 - 2.0 / B, D);
-            double q = 1.0 - t1;
-            double var = B * q * (1.0 - q) + B * (B - 1.0) * (1.0 - 2.0 * t1 + t2 - q * q);
-            return Math.max(0.0, var); // numeric guard
-        }
-
-        /**
-         * Chebyshev lower bound: with probability at least 1 - delta
-         * n_b ≥ E - sqrt(Var/delta).
-         */
-        private static int occupancyLowerBoundChebyshev(int D, int B, double delta_samp) {
-            double mu = occupancyExpectation(D, B);
-            double var = occupancyVariance(D, B);
-            double nstar = mu - Math.sqrt(var / Math.max(1e-12, delta_samp));
-            return (int) Math.floor(Math.max(0.0, nstar));
-        }
-
-        /**
-         * Required sample size for DKW rank error eps at confidence 1-delta.
-         */
-        private static int requiredSampleSizeForDKW(double eps, double delta_q) {
-            return (int) Math.ceil(Math.log(2.0 / delta_q) / (2.0 * eps * eps));
-        }
-
-        // =========================
-        //  Auto-design for B (Chebyshev only, as requested)
-        // =========================
-
-        /**
-         * Small immutable record for design outputs.
-         */
-        private static final class DesignResult {
-            final int Bsuggested;    // smallest B meeting the target (by Chebyshev LB)
-            final int nReq;          // required sample size for DKW
-            final int nLB;           // Chebyshev lower bound at Bsuggested
-            final double mu;         // E[n_b] at Bsuggested
-            final double var;        // Var[n_b] at Bsuggested
-            final boolean impossible; // true if Dhat < nReq
-
-            DesignResult(int Bsuggested, int nReq, int nLB, double mu, double var, boolean impossible) {
-                this.Bsuggested = Bsuggested;
-                this.nReq = nReq;
-                this.nLB = nLB;
-                this.mu = mu;
-                this.var = var;
-                this.impossible = impossible;
-            }
-        }
-
-        /**
-         * Design the minimal number of buckets B such that, with distinct-count guess Dhat,
-         * Chebyshev’s lower bound n_b ≥ n_req holds with probability at least 1 - delta_samp.
-         * We use doubling + binary search to find the smallest B that works.
-         */
-        private static DesignResult designBucketsForRankTargetChebyshev(
-                int Dhat, double epsTarget, double delta_q, double delta_samp
-        ) {
-            if (Dhat <= 0) throw new IllegalArgumentException("Dhat must be > 0");
-            if (!(epsTarget > 0 && epsTarget < 1)) throw new IllegalArgumentException("epsTarget must be in (0,1)");
-            if (!(delta_q > 0 && delta_q < 1)) throw new IllegalArgumentException("delta_q must be in (0,1)");
-            if (!(delta_samp > 0 && delta_samp < 1)) throw new IllegalArgumentException("delta_samp must be in (0,1)");
-
-            int nReq = requiredSampleSizeForDKW(epsTarget, delta_q);
-
-            // --- NEW: short-circuit if target is impossible with the available distincts ---
-            if (Dhat < nReq) {
-                // pick a sane B to avoid collisions (e.g., 2×Dhat) but keep memory bounded
-                final int Bcap = 1 << 22; // 4,194,304; tune to your heap
-                int Bsafe = Math.min(Bcap, Math.max(16, 2 * Dhat));
-                double mu = occupancyExpectation(Dhat, Bsafe);
-                double var = Math.max(0.0, occupancyVariance(Dhat, Bsafe));
-                int nLB = occupancyLowerBoundChebyshev(Dhat, Bsafe, delta_samp);
-                return new DesignResult(Bsafe, nReq, nLB, mu, var, /*impossible=*/true);
-            }
-
-            // normal path: search the minimal B meeting the Chebyshev LB
-            int lo = 1, hi = 1, best = -1;
-            final int Bcap = 1 << 24; // cap to protect heap (16,777,216)
-            while (occupancyLowerBoundChebyshev(Dhat, hi, delta_samp) < nReq && hi < Bcap) {
-                hi <<= 1;
-            }
-            if (hi >= Bcap) {
-                // failed to meet target within cap: return capped design, flagged as impossible
-                double mu = occupancyExpectation(Dhat, Bcap);
-                double var = Math.max(0.0, occupancyVariance(Dhat, Bcap));
-                int nLB = occupancyLowerBoundChebyshev(Dhat, Bcap, delta_samp);
-                return new DesignResult(Bcap, nReq, nLB, mu, var, /*impossible=*/true);
-            }
-            best = hi;
-            while (lo <= hi) {
-                int mid = lo + ((hi - lo) >>> 1);
-                int nLB = occupancyLowerBoundChebyshev(Dhat, mid, delta_samp);
-                if (nLB >= nReq) {
-                    best = mid;
-                    hi = mid - 1;
-                } else {
-                    lo = mid + 1;
-                }
-            }
-            double mu = occupancyExpectation(Dhat, best);
-            double var = Math.max(0.0, occupancyVariance(Dhat, best));
-            int nLB = occupancyLowerBoundChebyshev(Dhat, best, delta_samp);
-            return new DesignResult(best, nReq, nLB, mu, var, /*impossible=*/false);
-        }
-
-
         // =========================
         //  One trial (truth + samplers)
         // =========================
@@ -428,23 +309,24 @@
 
             // Auto-design B if requested (Chebyshev)
             int Bused = buckets;
-            DesignResult design = null;
+            Utils.HopsDesignResult design = null;
             double epsT = (rankEpsTarget != null) ? rankEpsTarget : 0.01;
             double deltaS = (deltaSamp != null) ? deltaSamp : 0.05;
             int DhatUsed = Math.max(1, (distinctGuess != null && distinctGuess > 0) ? distinctGuess : Sactive);
 
             if (autoDesignB) {
-                design = designBucketsForRankTargetChebyshev(DhatUsed, epsT, /*delta_q=*/delta, /*delta_samp=*/deltaS);
-                Bused = design.Bsuggested;
+                design = Utils.designBucketsForRankTargetChebyshev(DhatUsed, epsT, /*delta_q=*/delta, /*delta_samp=*/deltaS);
+                Bused = design.suggestedBuckets;
 
                 // Best-achievable rank error with realized sample size at design LB:
-                int nAch = Math.max(1, Math.min(DhatUsed, design.nLB)); // cannot exceed Dhat
+                int nAch = Math.max(1, Math.min(DhatUsed, design.occupancyLowerBound)); // cannot exceed Dhat
                 double epsAch = Math.sqrt(Math.log(2.0 / delta) / (2.0 * nAch));
-                if(verbose){
+                if (verbose) {
                     System.out.printf("Auto-design Chebyshev: Dhat=%d, epsTarget=%.6f, delta_q=%.3f, delta_samp=%.3f%n",
                             DhatUsed, epsT, delta, deltaS);
                     System.out.printf("Suggested B=%d, n_req=%d, E[n_b]=%.2f, Var=%.2f, LB(n_b)=%d%s%n",
-                            design.Bsuggested, design.nReq, design.mu, design.var, design.nLB,
+                            design.suggestedBuckets, design.requiredSampleSize, design.expectedNonEmpty, design.variance,
+                            design.occupancyLowerBound,
                             design.impossible ? "  (WARNING: target impossible with Dhat)" : "");
                 }
 
@@ -464,15 +346,9 @@
 
             long tMPQ0 = System.currentTimeMillis();
             for (long key : stream) mpq.insert(key);
-            long[] repsMPQ = mpq.getRepresentatives();
-            int nbMPQ = repsMPQ.length;
-
-            int[] sampleCountsMPQ = new int[nbMPQ];
-            for (int i = 0; i < nbMPQ; i++) sampleCountsMPQ[i] = freq.getOrDefault(repsMPQ[i], 0);
-            Arrays.sort(sampleCountsMPQ);
+            int xMPQ = mpq.estimateQuantile(k -> freq.getOrDefault(k, 0), p);
             long tMPQMs = System.currentTimeMillis() - tMPQ0;
-
-            int xMPQ = valueAtQuantile(sampleCountsMPQ, p);
+            int nbMPQ = mpq.sampleSize();
             double epsMPQ = dkwRankEpsilon(nbMPQ, delta);
             double pLoMPQ = Math.max(0.0, p - epsMPQ);
             double pHiMPQ = Math.min(1.0, p + epsMPQ);
@@ -510,7 +386,7 @@
             int nLB = -1;
             boolean occLBMet = true;
             if (design != null) {
-                nLB = design.nLB;                // Chebyshev LB at suggested B
+                nLB = design.occupancyLowerBound;                // Chebyshev LB at suggested B
                 occLBMet = nbMPQ >= nLB;
             }
 
@@ -627,7 +503,7 @@
             final int DhatUsed;
 
             // Optional design info
-            final DesignResult design;
+            final Utils.HopsDesignResult design;
 
             TrialResult(
                     int Sactive, int Bused, int nbMPQ, int nbBK,
@@ -641,7 +517,7 @@
                     long tTruthMs, long tMPQMs, long tBKMs,
                     double nsPerInsertMPQ, double closeNsPerItemMPQ, double nsPerInsertBK, double closeNsPerItemBK,
                     double epsTargetUsed, double deltaSampUsed, int DhatUsed,
-                    DesignResult design
+                    Utils.HopsDesignResult design
             ) {
                 this.Sactive = Sactive;
                 this.Bused = Bused;
@@ -871,11 +747,11 @@
             String occOK = r.occLBMet ? "TRUE" : "FALSE";
 
             // Design fields (present when auto-design is enabled)
-            int B_suggested = (r.design != null) ? r.design.Bsuggested : r.Bused;
-            int n_req = (r.design != null) ? r.design.nReq : -1;
-            double E_nb = (r.design != null) ? r.design.mu : Double.NaN;
-            double Var_nb = (r.design != null) ? r.design.var : Double.NaN;
-            int LB_nb = (r.design != null) ? r.design.nLB : -1;
+            int B_suggested = (r.design != null) ? r.design.suggestedBuckets : r.Bused;
+            int n_req = (r.design != null) ? r.design.requiredSampleSize : -1;
+            double E_nb = (r.design != null) ? r.design.expectedNonEmpty : Double.NaN;
+            double Var_nb = (r.design != null) ? r.design.variance : Double.NaN;
+            int LB_nb = (r.design != null) ? r.design.occupancyLowerBound : -1;
 
             System.out.printf(
                     Locale.US,
@@ -984,9 +860,11 @@
                 }
                 int base = z * trials; // first row of the current split in `results`
                 if (autoDesignB && results.size() > base && results.get(base).design != null) {
-                    DesignResult d = results.get(base).design;
-                    if(verbose) System.out.printf("Design summary (split %d): suggested B=%d, n_req=%d, LB(n_b)=%d, E[n_b]=%.2f%n",
-                            z, d.Bsuggested, d.nReq, d.nLB, d.mu);
+                    Utils.HopsDesignResult d = results.get(base).design;
+                    if (verbose) {
+                        System.out.printf("Design summary (split %d): suggested B=%d, n_req=%d, LB(n_b)=%d, E[n_b]=%.2f%n",
+                                z, d.suggestedBuckets, d.requiredSampleSize, d.occupancyLowerBound, d.expectedNonEmpty);
+                    }
 
                     if (d.impossible) {
                         System.out.println("WARNING: Dhat < n_req, impossible to meet the requested rank target");

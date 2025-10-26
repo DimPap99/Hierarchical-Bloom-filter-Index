@@ -4,18 +4,15 @@ import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
 import PMIndex.SuffixTreeIndex;
 import estimators.*;
+import jdk.jshell.execution.Util;
 import membership.BloomFilter;
 import membership.Membership;
 import search.*;
 
-import utilities.ExperimentRunResult;
-import utilities.MultiQueryExperiment;
+import utilities.*;
 import utilities.MultiQueryExperiment.InsertStats;
 import utilities.MultiQueryExperiment.QueryWorkload;
 import utilities.MultiQueryExperiment.MultiRunResult;
-import utilities.PatternResult;
-import utilities.SegmentReader;
-import utilities.RingBuffer;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,12 +32,10 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import utilities.CsvUtil;
-
 public final class HBIDatasetBenchmarkMulti {
 
     private static final boolean USE_STRIDES = true;
-    private static String algo = "multi";
+    private static String algo = "bs_multitree_16_reactive";
     private static boolean SKIP_QUERIES = false;//toggle to run only to get insert stats
     private static int ALPHABET;
 
@@ -59,7 +54,8 @@ public final class HBIDatasetBenchmarkMulti {
                                     int runs,
                                     boolean runRegexBaseline,
                                     boolean runHbi,
-                                    boolean runSuffix) {
+                                    boolean runSuffix,
+                                    Utils.MemPolicy memPolicy) {
 
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -67,17 +63,20 @@ public final class HBIDatasetBenchmarkMulti {
             String window = "w21";
             QueryType queryType = null;
             String mode = "chars";           // default behavior stays chars/segments
-            Integer ngram = 8;
+            Integer ngram = 2;
             Integer windowLength = 1 << 21;
-            Integer treeLength = 1 << 21;
+            Integer treeLength = 1 << 17;
             Integer alphabetBase = 150;
             double fpRate = 0.3;
             double runConfidence = 0.99;
             int warmupRuns = 0;
             int runs = 2;
-            boolean runRegexBaseline = false;
+            boolean runRegexBaseline = true;
             boolean runHbi = true;
             boolean runSuffix = true;
+            int buckets = alphabetBase;
+            Utils.MemPolicy policy = Utils.MemPolicy.REACTIVE;
+
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -164,7 +163,8 @@ public final class HBIDatasetBenchmarkMulti {
                     runs,
                     runRegexBaseline,
                     runHbi,
-                    runSuffix);
+                    runSuffix,
+                    policy);
         }
 
         int alphabetSize() {
@@ -264,7 +264,7 @@ public final class HBIDatasetBenchmarkMulti {
             System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
                     datasetDir.getFileName(), datasetFile.getFileName());
 
-            Map<QueryType, List<MultiQueryExperiment.QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
+            Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
             boolean hasQueries = false;
             for (QueryType type : queryTypes) {
                 List<Path> queryFiles = findQueryFiles(queryDir, type);
@@ -277,11 +277,11 @@ public final class HBIDatasetBenchmarkMulti {
                 }
                 hasQueries = true;
                 System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
-                List<MultiQueryExperiment.QueryWorkload> workloads = queryFiles.stream()
-                        .map(path -> new MultiQueryExperiment.QueryWorkload(
+                List<QueryWorkload> workloads = queryFiles.stream()
+                        .map(path -> new QueryWorkload(
                                 parsePatternLength(path.getFileName().toString()),
                                 path))
-                        .sorted(Comparator.comparingInt(MultiQueryExperiment.QueryWorkload::patternLength))
+                        .sorted(Comparator.comparingInt(QueryWorkload::patternLength))
                         .collect(Collectors.toList());
                 workloadsByType.put(type, workloads);
             }
@@ -311,7 +311,7 @@ public final class HBIDatasetBenchmarkMulti {
 
                     if (!SKIP_QUERIES) {
                         for (QueryType type : queryTypes) {
-                            List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                            List<QueryWorkload> workloads = workloadsByType.get(type);
                             if (workloads == null || workloads.isEmpty()) {
                                 continue;
                             }
@@ -336,7 +336,7 @@ public final class HBIDatasetBenchmarkMulti {
 
                     if (!SKIP_QUERIES) {
                         for (QueryType type : queryTypes) {
-                            List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                            List<QueryWorkload> workloads = workloadsByType.get(type);
                             if (workloads == null || workloads.isEmpty()) {
                                 continue;
                             }
@@ -361,7 +361,7 @@ public final class HBIDatasetBenchmarkMulti {
 
                     if (!SKIP_QUERIES) {
                         for (QueryType type : queryTypes) {
-                            List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                            List<QueryWorkload> workloads = workloadsByType.get(type);
                             if (workloads == null || workloads.isEmpty()) {
                                 continue;
                             }
@@ -375,15 +375,14 @@ public final class HBIDatasetBenchmarkMulti {
                 }
             }
 
-            // ------------------
             // MEASURED RUNS
-            // ------------------
             for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
                 HBI hbi = null;
                 InsertStats hbiInsertStats = null;
                 if (options.runHbi()) {
                     hbi = newHbi(options);
                     hbi.strides = USE_STRIDES;
+                    hbi.memPolicy = options.memPolicy();
                     hbi.stats().setCollecting(false);
                     hbi.stats().setExperimentMode(false);
                     if ("segments".equalsIgnoreCase(options.mode())) {
@@ -416,12 +415,12 @@ public final class HBIDatasetBenchmarkMulti {
                 }
 
                 for (QueryType type : queryTypes) {
-                    List<MultiQueryExperiment.QueryWorkload> workloads = workloadsByType.get(type);
+                    List<QueryWorkload> workloads = workloadsByType.get(type);
                     if (workloads == null || workloads.isEmpty()) {
                         continue;
                     }
 
-                    MultiQueryExperiment.MultiRunResult hbiResults = null;
+                    MultiRunResult hbiResults = null;
                     if (hbi != null) {
                         if (SKIP_QUERIES) {
                             hbiResults = buildSkippedQueryResults(workloads, hbiInsertStats);
@@ -432,7 +431,7 @@ public final class HBIDatasetBenchmarkMulti {
                         }
                     }
 
-                    MultiQueryExperiment.MultiRunResult suffixResults = null;
+                    MultiRunResult suffixResults = null;
                     if (suffix != null) {
                         if (SKIP_QUERIES) {
                             suffixResults = buildSkippedQueryResults(workloads, suffixInsertStats);
@@ -443,7 +442,7 @@ public final class HBIDatasetBenchmarkMulti {
                         }
                     }
 
-                    MultiQueryExperiment.MultiRunResult regexResults = null;
+                    MultiRunResult regexResults = null;
                     if (regex != null) {
                         if (SKIP_QUERIES) {
                             regexResults = buildSkippedQueryResults(workloads, regexInsertStats);
@@ -555,7 +554,7 @@ public final class HBIDatasetBenchmarkMulti {
                 header.add("datasetCount_" + suffix);
             }
         });
-        header.add(algo);
+        header.add("algorithm");
         header.add("alphabet");
         List<List<?>> csvRows = new ArrayList<>();
         csvRows.add(header);
@@ -741,13 +740,13 @@ public final class HBIDatasetBenchmarkMulti {
     }
 
 
-    private static MultiQueryExperiment.MultiRunResult buildSkippedQueryResults(
-            List<MultiQueryExperiment.QueryWorkload> workloads,
+    private static MultiRunResult buildSkippedQueryResults(
+            List<QueryWorkload> workloads,
             InsertStats insertStats
     ) {
-        Map<MultiQueryExperiment.QueryWorkload, ExperimentRunResult> results = new LinkedHashMap<>();
+        Map<QueryWorkload, ExperimentRunResult> results = new LinkedHashMap<>();
 
-        for (MultiQueryExperiment.QueryWorkload workload : workloads) {
+        for (QueryWorkload workload : workloads) {
             ExperimentRunResult dummy = new ExperimentRunResult(
                     0L,                                     // totalRunTimeMs for queries (0 because skipped)
                     insertStats.insertDurationMs(),         // totalInsertTimeMs from populateIndex / insert phase
@@ -760,18 +759,23 @@ public final class HBIDatasetBenchmarkMulti {
             results.put(workload, dummy);
         }
 
-        return new MultiQueryExperiment.MultiRunResult(results);
+        return new MultiRunResult(results);
     }
 
     private static HBI newHbi(BenchmarkOptions options) {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.windowLength());//new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MultiLevelPruning(options.runConfidence());
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
         Verifier verifier = new VerifierLinearLeafProbe();
+        int buckets = options.alphabetSize();
 
+        if (options.memPolicy() != Utils.MemPolicy.NONE){
+            buckets = Utils.designBucketsForRankTargetChebyshev(alphabetSize, 0.025, 0.05, 0.05).suggestedBuckets;
+
+        }
         HbiConfiguration configuration = HbiConfiguration.builder()
-                .searchAlgorithm(new BlockSearchCharSet())
+                .searchAlgorithm(new BlockSearch())
                 .windowLength(options.windowLength())
                 .fpRate(options.fpRate())
                 .alphabetSize(alphabetSize)
@@ -785,6 +789,8 @@ public final class HBIDatasetBenchmarkMulti {
                 .experimentMode(false)
                 .collectStats(false)
                 .nGram(options.ngram())
+                .memPolicy(options.memPolicy())
+                .buckets(buckets)
                 .build();
 
         return new HBI(configuration);

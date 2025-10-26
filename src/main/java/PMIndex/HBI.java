@@ -46,6 +46,9 @@ public final class HBI implements IPMIndexing {
     public int alphabetSize;
     public final double fpRate;
 
+
+
+
     private final SearchAlgorithm searchAlgo;
     private final Supplier<Estimator> estimatorFac;
     private final Supplier<Membership> membershipFac;
@@ -70,9 +73,12 @@ public final class HBI implements IPMIndexing {
     public NgramModel.Builder modelBuilder;
     public boolean memoryPolicy = false;
     public boolean isMarkov = false;
+    public double QUANTILE = 0.05;
+    private long lastPolicyQuantileKey = -1L;
+    private int lastPolicyQuantileFrequency = 0;
 
     public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
-
+    public int pctEstimatorBuckets;
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
@@ -110,7 +116,17 @@ public final class HBI implements IPMIndexing {
             ensureMarkovBuilder();
         }
 
-        this.memPolicy = config.memPolicy();
+        Utils.MemPolicy configuredPolicy = config.memPolicy();
+        this.memPolicy = configuredPolicy == null ? Utils.MemPolicy.NONE : configuredPolicy;
+        this.memoryPolicy = this.memPolicy != Utils.MemPolicy.NONE;
+        this.pctEstimatorBuckets = Math.max(1, this.alphabetSize);
+        if (this.memoryPolicy) {
+            int configuredBuckets = config.buckets();
+            if (configuredBuckets > 0) {
+                this.pctEstimatorBuckets = configuredBuckets;
+            }
+            ensurePctEstimator();
+        }
     }
 
     public HBI(SearchAlgorithm algo,
@@ -174,6 +190,9 @@ public final class HBI implements IPMIndexing {
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
+        if (this.memPolicy != Utils.MemPolicy.NONE) {
+            this.pctEstimator.insert(token);
+        }
         if(isMarkov) {
             ensureMarkovBuilder();
             this.modelBuilder.observeSymbol(token); // update counts while indexing
@@ -183,6 +202,14 @@ public final class HBI implements IPMIndexing {
         indexedItemsCounter++;
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
+
+            if(this.memoryPolicy){
+                applyMemoryPolicy();
+//                if(this.memPolicy == Utils.MemPolicy.PREDICTIVE){
+//
+//                }
+            }
+
             ImplicitTree<Membership> fresh = createTree();
             fresh.id = trees.size();
             fresh.estimator.insert(token);
@@ -200,13 +227,61 @@ public final class HBI implements IPMIndexing {
         }
     }
 
-    public void applyMemoryPolicy() {
-        if(memoryPolicy) {
-            double minp = this.trees.getLast().estimator.getMin();
-            int lp = pruningLevel(this.trees.getLast(), 0.95, minp);
-            this.trees.getLast().dropFiltersUpToLp(lp);
-
+    private HOPS ensurePctEstimator() {
+        if (this.pctEstimator == null) {
+            this.pctEstimator = createPctEstimator();
         }
+        return this.pctEstimator;
+    }
+
+    private HOPS createPctEstimator() {
+        int buckets = this.pctEstimatorBuckets;
+        long seedBase = 0x9E3779B97F4A7C15L;
+        seedBase = seedBase * 31 + (long) this.windowLength;
+        seedBase = seedBase * 31 + (long) this.treeLength;
+        seedBase = seedBase * 31 + (long) this.alphabetSize;
+        SplittableRandom seedGen = new SplittableRandom(seedBase);
+        long bucketSeed = seedGen.nextLong();
+        long prioritySeed = seedGen.nextLong();
+        return new HOPS(buckets, this.alphabetSize, bucketSeed, prioritySeed);
+    }
+
+    public void applyMemoryPolicy() {
+        if (!memoryPolicy || this.trees.isEmpty()) {
+            return;
+        }
+
+        ImplicitTree<Membership> latestTree = this.trees.getLast();
+        HOPS hopsSampler = ensurePctEstimator();
+
+        HOPS.QuantileEstimate estimate = hopsSampler.estimateQuantileWithKey(key -> {
+            long freq = latestTree.estimator.get(key);
+            if (freq <= 0) {
+                return 0;
+            }
+            if (freq >= Integer.MAX_VALUE) {
+                return Integer.MAX_VALUE;
+            }
+            return (int) freq;
+        }, this.QUANTILE);
+
+        this.lastPolicyQuantileKey = estimate.key;
+        this.lastPolicyQuantileFrequency = estimate.frequency;
+        //this always happens
+        double minp = latestTree.estimator.estimate(this.lastPolicyQuantileKey);
+        int lp = pruningLevel(latestTree, 0.95, minp);
+        latestTree.dropFiltersUpToLp(lp);
+        //clear samples
+        this.pctEstimator.clear();
+        // Additional policies (e.g., PREDICTIVE) can consume lastPolicyQuantileKey as needed.
+    }
+
+    public long getLastPolicyQuantileKey() {
+        return lastPolicyQuantileKey;
+    }
+
+    public int getLastPolicyQuantileFrequency() {
+        return lastPolicyQuantileFrequency;
     }
 
     public void fillStackLp(int lp, Deque<Frame> fStack) {
@@ -234,7 +309,12 @@ public final class HBI implements IPMIndexing {
             // if (isMarkov) { ensureMarkovBuilder(); this.modelBuilder.ensureSymbolRegistered(tokenVal); }
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
-        if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
+        if (pat.effectiveNgramArr.length > 0 && pat.originalSz % pat.nGram != 0) {
+            long tailToken = (pat.nGramToLong.length > 0)
+                    ? pat.nGramToLong[pat.nGramToLong.length - 1]
+                    : this.keyMapper.mapToLong(pat.patternTxt);
+            pat.effectiveNgramArr[pat.effectiveNgramArr.length - 1] = tailToken;
+        }
 
         // Lazily rebuild the immutable snapshot once (if new data arrived), then reuse
         if (isMarkov) {

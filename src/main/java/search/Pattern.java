@@ -27,13 +27,21 @@ public class Pattern{
         this.nGram = nGram;
         this.prefixFunction();
         int len = s.length() - nGram + 1;
+        boolean shortPattern = len <= 0;
+        if (shortPattern) {
+            len = 1;
+        }
 
         this.nGramArr   = new String[len];
         this.nGramToLong = new long[len];
         int addition =  originalSz%nGram == 0 ? 0 : 1;
         this.effectiveNgramArr = new long[originalSz/nGram + addition];
-        for (int i = 0; i < len; i++) {
-            nGramArr[i] = s.substring(i, i + nGram);   // sliding window
+        if (shortPattern) {
+            nGramArr[0] = s;
+        } else {
+            for (int i = 0; i < len; i++) {
+                nGramArr[i] = s.substring(i, i + nGram);   // sliding window
+            }
         }
 
     }
@@ -46,6 +54,10 @@ public class Pattern{
         this.nGram = nGram;
 
         int len = size - nGram + 1;
+        boolean shortPattern = len <= 0;
+        if (shortPattern) {
+            len = 1;
+        }
 
         // sliding-window n-grams
         this.nGramArr = new String[len];
@@ -54,19 +66,29 @@ public class Pattern{
         int addition = (originalSz % nGram == 0) ? 0 : 1;
         this.effectiveNgramArr = new long[(originalSz / nGram) + addition];
 
-        for (int i = 0; i < len; i++) {
+        if (shortPattern) {
             StringBuilder sb = new StringBuilder();
-            for (int j = 0; j < nGram; j++) {
-                sb.append(s[i + j]);
+            for (String token : s) {
+                sb.append(token);
             }
-            nGramArr[i] = sb.toString();
-            // nGramToLong[i] will get populated by the existing logic elsewhere
+            nGramArr[0] = sb.toString();
+        } else {
+            for (int i = 0; i < len; i++) {
+                StringBuilder sb = new StringBuilder();
+                for (int j = 0; j < nGram; j++) {
+                    sb.append(s[i + j]);
+                }
+                nGramArr[i] = sb.toString();
+                // nGramToLong[i] will get populated by the existing logic elsewhere
+            }
         }
         StringBuilder human = new StringBuilder();
-        human.append(s[0]);
-        for (int i = 1; i < s.length; i++) {
-            human.append(' ');
-            human.append(s[i]);
+        if (s.length > 0) {
+            human.append(s[0]);
+            for (int i = 1; i < s.length; i++) {
+                human.append(' ');
+                human.append(s[i]);
+            }
         }
         this.patternTxt = human.toString();
         // effectiveNgramArr is still allocated here and (per your note)

@@ -29,6 +29,7 @@ public final class HbiConfiguration {
     private final double confidence;
 
     private final Utils.MemPolicy memPolicy;
+    private final int buckets;
     private final boolean experimentMode;
     private final boolean collectStats;
 
@@ -50,6 +51,7 @@ public final class HbiConfiguration {
         this.collectStats = builder.collectStats;
         this.nGram = builder.nGram;
         this.memPolicy = builder.memPolicy;
+        this.buckets = builder.buckets;
         validate();
     }
 
@@ -72,7 +74,7 @@ public final class HbiConfiguration {
             throw new IllegalArgumentException("confidence must be in (0,1)");
         }
     }
-
+    public int buckets(){return buckets;}
     public SearchAlgorithm searchAlgorithm() { return searchAlgorithm; }
     public int windowLength() { return windowLength; }
     public double fpRate() { return fpRate; }
@@ -94,11 +96,12 @@ public final class HbiConfiguration {
 
     public static final class Builder {
         private SearchAlgorithm searchAlgorithm;
+        private int buckets;
         private int windowLength;
         private double fpRate;
         private int alphabetSize;
         private int treeLength;
-        private Utils.MemPolicy memPolicy;
+        private Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
         private Supplier<Estimator> estimatorSupplier;
         private Supplier<Membership> membershipSupplier;
         private Supplier<PruningPlan> pruningPlanSupplier;
@@ -114,7 +117,7 @@ public final class HbiConfiguration {
         }
 
         public Builder memPolicy(Utils.MemPolicy memPolicy) {
-            this.memPolicy = memPolicy;
+            this.memPolicy = (memPolicy == null) ? Utils.MemPolicy.NONE : memPolicy;
             return this;
         }
         public Builder searchAlgorithm(SearchAlgorithm searchAlgorithm) {
@@ -177,6 +180,10 @@ public final class HbiConfiguration {
             return this;
         }
 
+        public Builder buckets(int buckets) {
+            this.buckets = buckets;
+            return this;
+        }
         public Builder nGram(int nGram) {
             this.nGram = nGram;
             return this;

@@ -81,6 +81,11 @@ public class CSEstimator implements Estimator {
     }
 
     @Override
+    public long get(long key) {
+        return this.sketch.estimate(key);
+    }
+
+    @Override
     public double[] estimateALl(Pattern p, boolean strides) {
         long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
         double[] result = new double[tokens.length];

@@ -6,6 +6,7 @@ import org.apache.commons.math3.random.Well19937c;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.function.LongToIntFunction;
 
 
 public final class HOPS {
@@ -118,6 +119,40 @@ public final class HOPS {
     }
 
     /**
+     * Estimate the frequency value at the given quantile using a frequency lookup.
+     * The lookup is invoked once per representative; negative returns are clipped to zero.
+     */
+    public int estimateQuantile(LongToIntFunction frequencyLookup, double quantile) {
+        return estimateQuantileWithKey(frequencyLookup, quantile).frequency;
+    }
+
+    /**
+     * Estimate both the representative key and its frequency at the requested quantile.
+     */
+    public QuantileEstimate estimateQuantileWithKey(LongToIntFunction frequencyLookup, double quantile) {
+        Objects.requireNonNull(frequencyLookup, "frequencyLookup");
+        if (quantile < 0.0 || quantile > 1.0) {
+            throw new IllegalArgumentException("quantile must be in [0,1]");
+        }
+        if (nonEmpty == 0) {
+            return new QuantileEstimate(0L, 0);
+        }
+
+        long[] reps = getRepresentatives();
+        KeyFrequency[] sample = new KeyFrequency[reps.length];
+        for (int i = 0; i < reps.length; i++) {
+            int freq = Math.max(0, frequencyLookup.applyAsInt(reps[i]));
+            sample[i] = new KeyFrequency(reps[i], freq);
+        }
+        Arrays.sort(sample, KEY_FREQUENCY_COMPARATOR);
+        int rank = rankForQuantile(sample.length, quantile);
+        KeyFrequency chosen = sample[rank];
+        return new QuantileEstimate(chosen.key, chosen.frequency);
+    }
+
+
+
+    /**
      * Get representatives and their (unsigned) priorities.
      * Useful for debugging or for stable tie-breaking outside.
      */
@@ -213,6 +248,14 @@ public final class HOPS {
         return z ^ (z >>> 31);
     }
 
+    private static int selectQuantile(int[] sortedCounts, double quantile) {
+        if (sortedCounts.length == 0) {
+            return 0;
+        }
+        int rank = rankForQuantile(sortedCounts.length, quantile);
+        return sortedCounts[rank];
+    }
+
 
 
     /** Representative tuple for a bucket (key, priority, bucketIndex). */
@@ -238,4 +281,54 @@ public final class HOPS {
 
 
 
+    /** Frequency summary for a sampled representative. */
+    private static final class KeyFrequency {
+        final long key;
+        final int frequency;
+
+        KeyFrequency(long key, int frequency) {
+            this.key = key;
+            this.frequency = frequency;
+        }
+    }
+
+    /**
+     * Quantile estimate containing both the sampled key (representative) and its frequency.
+     */
+    public static final class QuantileEstimate {
+        public final long key;
+        public final int frequency;
+
+        public QuantileEstimate(long key, int frequency) {
+            this.key = key;
+            this.frequency = frequency;
+        }
+    }
+
+    private static final Comparator<KeyFrequency> KEY_FREQUENCY_COMPARATOR = (a, b) -> {
+        int cmp = Integer.compare(a.frequency, b.frequency);
+        if (cmp != 0) {
+            return cmp;
+        }
+        return Long.compareUnsigned(a.key, b.key);
+    };
+
+    private static int rankForQuantile(int length, double quantile) {
+        if (length == 0) {
+            return 0;
+        }
+        if (quantile <= 0.0) {
+            return 0;
+        }
+        if (quantile >= 1.0) {
+            return length - 1;
+        }
+        int rank = (int) Math.ceil(quantile * length) - 1;
+        if (rank < 0) {
+            rank = 0;
+        } else if (rank >= length) {
+            rank = length - 1;
+        }
+        return rank;
+    }
 }

@@ -69,5 +69,119 @@ public class Utils {
         return intervalBits + hashes;
     }
 
+    public static final class HopsDesignResult {
+        public int suggestedBuckets = 100000;
+        public final int requiredSampleSize;
+        public final int occupancyLowerBound;
+        public final double expectedNonEmpty;
+        public final double variance;
+        public final boolean impossible;
+
+        public HopsDesignResult(int suggestedBuckets,
+                                int requiredSampleSize,
+                                int occupancyLowerBound,
+                                double expectedNonEmpty,
+                                double variance,
+                                boolean impossible) {
+            this.suggestedBuckets = suggestedBuckets;
+            this.requiredSampleSize = requiredSampleSize;
+            this.occupancyLowerBound = occupancyLowerBound;
+            this.expectedNonEmpty = expectedNonEmpty;
+            this.variance = variance;
+            this.impossible = impossible;
+        }
+    }
+
+    /**
+     * Design the number of HOPS buckets needed to achieve a rank error target with Chebyshev bounds.
+     */
+    public static HopsDesignResult designBucketsForRankTargetChebyshev(int distinctEstimate,
+                                                                       double epsTarget,
+                                                                       double deltaQ,
+                                                                       double deltaSample) {
+        if (distinctEstimate <= 0) {
+            throw new IllegalArgumentException("distinctEstimate must be > 0");
+        }
+        if (!(epsTarget > 0 && epsTarget < 1)) {
+            throw new IllegalArgumentException("epsTarget must be in (0,1)");
+        }
+        if (!(deltaQ > 0 && deltaQ < 1)) {
+            throw new IllegalArgumentException("deltaQ must be in (0,1)");
+        }
+        if (!(deltaSample > 0 && deltaSample < 1)) {
+            throw new IllegalArgumentException("deltaSample must be in (0,1)");
+        }
+
+        int required = requiredSampleSizeForDKW(epsTarget, deltaQ);
+
+        if (distinctEstimate < required) {
+            final int bucketCap = 1 << 22;
+            int suggested = Math.min(bucketCap, Math.max(16, 2 * distinctEstimate));
+            double mu = occupancyExpectation(distinctEstimate, suggested);
+            double var = occupancyVariance(distinctEstimate, suggested);
+            int nLb = occupancyLowerBoundChebyshev(distinctEstimate, suggested, deltaSample);
+            return new HopsDesignResult(suggested, required, nLb, mu, var, true);
+        }
+
+        final int bucketCap = 1 << 24;
+        int hi = 1;
+        while (occupancyLowerBoundChebyshev(distinctEstimate, hi, deltaSample) < required && hi < bucketCap) {
+            hi <<= 1;
+        }
+        if (hi >= bucketCap) {
+            double mu = occupancyExpectation(distinctEstimate, bucketCap);
+            double var = occupancyVariance(distinctEstimate, bucketCap);
+            int nLb = occupancyLowerBoundChebyshev(distinctEstimate, bucketCap, deltaSample);
+            return new HopsDesignResult(bucketCap, required, nLb, mu, var, true);
+        }
+
+        int lo = 1;
+        int best = hi;
+        while (lo <= hi) {
+            int mid = lo + ((hi - lo) >>> 1);
+            int nLb = occupancyLowerBoundChebyshev(distinctEstimate, mid, deltaSample);
+            if (nLb >= required) {
+                best = mid;
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+
+        double mu = occupancyExpectation(distinctEstimate, best);
+        double var = occupancyVariance(distinctEstimate, best);
+        int nLb = occupancyLowerBoundChebyshev(distinctEstimate, best, deltaSample);
+        return new HopsDesignResult(best, required, nLb, mu, var, false);
+    }
+
+    private static double occupancyExpectation(int distinct, int buckets) {
+        if (buckets <= 0) {
+            return 0.0;
+        }
+        return buckets * (1.0 - Math.pow(1.0 - 1.0 / buckets, distinct));
+    }
+
+    private static double occupancyVariance(int distinct, int buckets) {
+        if (buckets <= 0) {
+            return 0.0;
+        }
+        double t1 = Math.pow(1.0 - 1.0 / buckets, distinct);
+        double t2 = Math.pow(1.0 - 2.0 / buckets, distinct);
+        double q = 1.0 - t1;
+        double var = buckets * q * (1.0 - q) + buckets * (buckets - 1.0) * (1.0 - 2.0 * t1 + t2 - q * q);
+        return Math.max(0.0, var);
+    }
+
+    private static int occupancyLowerBoundChebyshev(int distinct, int buckets, double deltaSample) {
+        double mu = occupancyExpectation(distinct, buckets);
+        double var = occupancyVariance(distinct, buckets);
+        double nStar = mu - Math.sqrt(var / Math.max(1e-12, deltaSample));
+        return (int) Math.floor(Math.max(0.0, nStar));
+    }
+
+    private static int requiredSampleSizeForDKW(double eps, double deltaQ) {
+        return (int) Math.ceil(Math.log(2.0 / deltaQ) / (2.0 * eps * eps));
+    }
+
 
 }

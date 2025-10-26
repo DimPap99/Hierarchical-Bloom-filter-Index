@@ -23,7 +23,7 @@ public class MultiLevelPruning implements  PruningPlan {
         ArrayList<Integer> prunedLevels = new ArrayList<>();
         long[] arr = strides ? pattern.effectiveNgramArr : pattern.nGramToLong;
         for(long token : arr){
-            int lp = MathUtils.pruningLevel(tree, confidence, tree.estimator.estimate(token));
+            int lp = Math.min(tree.effectiveRoot(),MathUtils.pruningLevel(tree, confidence, tree.estimator.estimate(token)));
             prunedLevels.add(lp);
         }
         return prunedLevels;
