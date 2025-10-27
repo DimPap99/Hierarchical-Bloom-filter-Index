@@ -1,15 +1,17 @@
 package tree.ssws;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Minimal suffix tree representation built via a radix-sorted rank transformation. The class exposes the
- * skeleton required for the Farach-Colton construction while keeping the implementation simple enough to
- * iterate on. Future revisions will replace the naive insertion routine with the full randomized linear-time
- * construction described in the paper; the surrounding API already aligns with that effort.
+ * Minimal suffix tree representation that keeps the API surface compatible with the
+ * Farach-Colton construction while relying on a simple quadratic builder for now. Tokens
+ * are assumed to be integers produced by the {@link utilities.AlphabetMapper}; a unique
+ * sentinel value is appended during construction to preserve suffix uniqueness.
  */
 public final class FarachColtonSuffixTree {
 
@@ -17,24 +19,25 @@ public final class FarachColtonSuffixTree {
 
     private final Node root;
     private final int[] text; // includes the sentinel at the end
+    private final int originalLength;
 
-    private FarachColtonSuffixTree(Node root, int[] text) {
+    private FarachColtonSuffixTree(Node root, int[] text, int originalLength) {
         this.root = root;
         this.text = text;
+        this.originalLength = originalLength;
     }
 
     public static FarachColtonSuffixTree build(int[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
-        int[] ranked = RadixSorter.rankTransform(alphabetMappedText);
-        int[] terminated = Arrays.copyOf(ranked, ranked.length + 1);
+        int[] terminated = Arrays.copyOf(alphabetMappedText, alphabetMappedText.length + 1);
         terminated[terminated.length - 1] = SENTINEL;
         Node root = new Node();
         for (int i = 0; i < terminated.length; i++) {
             insertSuffix(root, terminated, i);
         }
-        return new FarachColtonSuffixTree(root, terminated);
+        return new FarachColtonSuffixTree(root, terminated, alphabetMappedText.length);
     }
 
     public Node getRoot() {
@@ -43,6 +46,63 @@ public final class FarachColtonSuffixTree {
 
     public int[] getText() {
         return Arrays.copyOf(text, text.length);
+    }
+
+    public int getOriginalLength() {
+        return originalLength;
+    }
+
+    public List<Integer> findOccurrences(int[] pattern) {
+        if (pattern == null || pattern.length == 0) {
+            return Collections.emptyList();
+        }
+        Node current = root;
+        int patternIndex = 0;
+        while (patternIndex < pattern.length) {
+            int symbol = pattern[patternIndex];
+            Edge edge = current.edges.get(symbol);
+            if (edge == null) {
+                return Collections.emptyList();
+            }
+            int edgeStart = edge.start;
+            int edgeEnd = edge.end;
+            int remaining = Math.min(edgeEnd, text.length) - edgeStart;
+            int consumed = 0;
+            while (consumed < remaining && patternIndex < pattern.length) {
+                if (text[edgeStart + consumed] != pattern[patternIndex]) {
+                    return Collections.emptyList();
+                }
+                consumed++;
+                patternIndex++;
+            }
+            if (patternIndex == pattern.length) {
+                return collectOccurrences(edge.child, pattern.length);
+            }
+            current = edge.child;
+        }
+        return collectOccurrences(current, pattern.length);
+    }
+
+    private List<Integer> collectOccurrences(Node node, int patternLength) {
+        if (node == null) {
+            return Collections.emptyList();
+        }
+        List<Integer> matches = new ArrayList<>();
+        collect(node, patternLength, matches);
+        return matches;
+    }
+
+    private void collect(Node node, int patternLength, List<Integer> out) {
+        if (node.isLeaf()) {
+            int index = node.suffixIndex;
+            if (index >= 0 && index + patternLength <= originalLength) {
+                out.add(index);
+            }
+            return;
+        }
+        for (Edge edge : node.edges.values()) {
+            collect(edge.child, patternLength, out);
+        }
     }
 
     private static void insertSuffix(Node root, int[] terminatedText, int start) {
