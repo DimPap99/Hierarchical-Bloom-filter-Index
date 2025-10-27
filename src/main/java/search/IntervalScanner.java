@@ -6,11 +6,16 @@ import java.util.*;
 /** DFS over the Bloom hierarchy that yields _candidate_ intervals. */
 public final class IntervalScanner implements Iterator<CandidateRange> {
 
-    private Deque<Frame> stack = new ArrayDeque<>();
+    private final Deque<Frame> stack = new ArrayDeque<>();
     private final ImplicitTree<?> tree;
     private final Pattern pattern;
     public int positionOffset;
     public SearchAlgorithm searchAlgorithm;
+
+    private int seedLevel = -1;
+    private int nextSeedIdx = 0;
+    private int seedLimit = 0;
+
     public IntervalScanner(ImplicitTree<?> tree, Pattern pattern, SearchAlgorithm searchAlgorithm, int positionOffset) {
 
         this.tree    = tree;
@@ -18,31 +23,67 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
         this.searchAlgorithm = searchAlgorithm;
         this.positionOffset = positionOffset;
     }
-    // Seeds the stack with initial level(s) if needed
-    public void seedStack(Deque<Frame> stack) {
-        this.stack = stack;
+
+    /** Initialise the scanner with the starting level for the DFS walk. */
+    public void seedLevel(int level) {
+        stack.clear();
+        this.seedLevel = Math.max(0, level);
+        this.nextSeedIdx = 0;
+        this.seedLimit = intervalsForLevel(level);
+        ensureSeedFrame();
     }
+
     @Override
-    public boolean hasNext() { return !stack.isEmpty(); }
+    public boolean hasNext() {
+        ensureSeedFrame();
+        return !stack.isEmpty();
+    }
 
     @Override
     public CandidateRange next() {
-        while (!stack.isEmpty()) {
+        while (true) {
+            ensureSeedFrame();
+            if (stack.isEmpty()) {
+                return null;
+            }
             Frame f = stack.pop();
-//            System.out.println(f);
             CandidateRange r = this.searchAlgorithm.search(f, pattern, this.tree, this.stack, this.positionOffset);
             this.positionOffset = this.searchAlgorithm.getCurrentOffset();
-            if (r == null) continue;
-            else {
-//                if(pattern.nGramToInt.length > 8){
-//                    int pos = this.tree.traverse(f, this.tree.maxDepth()-1, this.positionOffset, pattern.nGramToInt[0]);
-//                    if(pos != -1) return new CandidateRange(pos, r.endPos());
-//                }
+            if (r != null) {
                 return r;
             }
         }
-        return null;
     }
 
+    private void ensureSeedFrame() {
+        if (!stack.isEmpty()) {
+            return;
+        }
+        if (seedLevel < 0) {
+            return;
+        }
+        if (nextSeedIdx < seedLimit) {
+            stack.addLast(new Frame(seedLevel, nextSeedIdx++));
+        }
+        if (nextSeedIdx >= seedLimit) {
+            seedLevel = -1;
+        }
+    }
 
+    private static int intervalsForLevel(int level) {
+        if (level <= 0) {
+            return 1;
+        }
+        if (level >= 31) {
+            if (level >= 63) {
+                return Integer.MAX_VALUE;
+            }
+            long intervals = 1L << level;
+            if (intervals >= Integer.MAX_VALUE) {
+                return Integer.MAX_VALUE;
+            }
+            return (int) intervals;
+        }
+        return 1 << level;
+    }
 }

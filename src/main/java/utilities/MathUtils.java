@@ -118,8 +118,8 @@ public final class  MathUtils {
         double val    = Math.log(tree.baseIntervalSize() / bAlpha) / Math.log(2.0);
         int L         = (int) Math.ceil(val);
         double lp = Math.min(L, tree.maxDepth() - 1);
-        lp = Math.max(0, lp);
-        return (int) lp+1;
+        if(lp > 0) lp = lp+1;
+        return (int) Math.max(0, lp);
     }
 
     public static double clamp01(double value) {

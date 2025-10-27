@@ -11,7 +11,6 @@ import org.apache.commons.math3.util.Pair;
 import org.openjdk.jol.info.GraphLayout;
 import org.openjdk.jol.vm.VM;
 import search.CandidateRange;
-import search.Frame;
 import search.IntervalScanner;
 import search.Pattern;
 import search.PruningPlan;
@@ -119,8 +118,9 @@ public final class HBI implements IPMIndexing {
         Utils.MemPolicy configuredPolicy = config.memPolicy();
         this.memPolicy = configuredPolicy == null ? Utils.MemPolicy.NONE : configuredPolicy;
         this.memoryPolicy = this.memPolicy != Utils.MemPolicy.NONE;
-        this.pctEstimatorBuckets = Math.max(1, this.alphabetSize);
         if (this.memoryPolicy) {
+            this.pctEstimatorBuckets = Math.max(1, this.alphabetSize);
+
             int configuredBuckets = config.buckets();
             if (configuredBuckets > 0) {
                 this.pctEstimatorBuckets = configuredBuckets;
@@ -269,7 +269,7 @@ public final class HBI implements IPMIndexing {
         this.lastPolicyQuantileFrequency = estimate.frequency;
         //this always happens
         double minp = latestTree.estimator.estimate(this.lastPolicyQuantileKey);
-        int lp = pruningLevel(latestTree, 0.95, minp);
+        int lp = pruningLevel(latestTree, 0.99, minp);
         latestTree.dropFiltersUpToLp(lp);
         //clear samples
         this.pctEstimator.clear();
@@ -282,12 +282,6 @@ public final class HBI implements IPMIndexing {
 
     public int getLastPolicyQuantileFrequency() {
         return lastPolicyQuantileFrequency;
-    }
-
-    public void fillStackLp(int lp, Deque<Frame> fStack) {
-        for (int i = 0; i < Math.pow(2, lp); i++) {
-            fStack.addLast(new Frame(lp, i));
-        }
     }
 
     @Override
@@ -329,9 +323,10 @@ public final class HBI implements IPMIndexing {
         int arbitraryConfLp = 0;
         for (int i = 0; i < this.trees.size(); i++) {
             ImplicitTree<Membership> tree = this.trees.get(i);
-            tree.pruningPlan = this.pruningPlanFac.get();
+            if (tree.pruningPlan == null) {
+                tree.pruningPlan = this.pruningPlanFac.get();
+            }
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
-            Deque<Frame> stack = new ArrayDeque<>();
 
             long lpStart = System.nanoTime();
             ArrayList<Integer> lps = new ArrayList<>();
@@ -343,7 +338,7 @@ public final class HBI implements IPMIndexing {
                 double[] pp = tree.estimator.estimateALl(pat, strides);
                 double pMax = Arrays.stream(pp).min().getAsDouble();
                 pp = tree.estimator.estimateALl(pat, this.strides);
-                pMax = Arrays.stream(pp).min().getAsDouble();
+//                pMax = Arrays.stream(pp).min().getAsDouble();
                 lp = this.lpOverride;
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
                 int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
@@ -371,8 +366,7 @@ public final class HBI implements IPMIndexing {
                 stats.recordLp(lp);
                 if(this.cf != null) {                stats.recordAlpha(cf.getAlpha());}
             }
-            fillStackLp(lp, stack);
-            scn.seedStack(stack);
+            scn.seedLevel(lp);
 
             while (scn.hasNext()) {
                 CandidateRange cr = scn.next();
@@ -394,8 +388,9 @@ public final class HBI implements IPMIndexing {
             this.verifier.reset();
             stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
         }
-        long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
         if (stats.isCollecting()) {
+            long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
+
             stats.recordQueryTiming(totalQueryTimeNanos, totalLpTimeNanos);
         }
 
@@ -497,12 +492,14 @@ public final class HBI implements IPMIndexing {
             return bf;
         };
 
-        return new ImplicitTree<>(
+        ImplicitTree<Membership> tree = new ImplicitTree<>(
                 layout,
                 filterFactory,
                 new KeyPackingService(maxDepth, alphabetSize),
                 //new Key64(maxDepth, alphabetSize),
                 estimatorFac.get());
+        tree.pruningPlan = pruningPlanFac.get();
+        return tree;
     }
 
     public int getAllprobes() {
