@@ -1,7 +1,4 @@
-import PMIndex.HBI;
-import PMIndex.HbiStats;
-import PMIndex.IPMIndexing;
-import PMIndex.SuffixTreeIndex;
+import PMIndex.*;
 import search.*;
 import estimators.*;
 import membership.BloomFilter;
@@ -45,15 +42,15 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static String DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
 
     private static String QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
 
     private static final int WINDOW_LEN   = 1 << 21;
     private static final int TREE_LEN     = 1 << 21;
-    private static int ALPHABET           = 150;
-    private static final double FP_RATE   = 0.5;
+    private static int ALPHABET           = 74;
+    private static final double FP_RATE   = 0.005;
     private static final int RUNS         = 1;
     private static final boolean USE_STRIDES = true;
     private static int NGRAMS             = 4;
@@ -376,7 +373,7 @@ public class HBIDatasetBenchmark {
             }
             ArrayList<ArrayList<Integer>> warmHbiMatches = warmHbi.matchRes();
 
-            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
+            IPMIndexing suffix = new StreamingSlidingWindowIndex(WINDOW_LEN);//SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
 
             ExperimentRunResult warmSuffix;
             if ("segments".equalsIgnoreCase(mode)) {
@@ -399,6 +396,7 @@ public class HBIDatasetBenchmark {
             ArrayList<ArrayList<Integer>> warmSuffixMatches = warmSuffix.matchRes();
 
             compared(warmHbiMatches, warmSuffixMatches);
+            int b = 2;
         }
 
         // -----------
@@ -445,7 +443,7 @@ public class HBIDatasetBenchmark {
             ArrayList<ArrayList<Integer>> hbiMatches = hbiRes.matchRes();
 
             // Suffix tree pass
-            IPMIndexing suffix = new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
+            IPMIndexing suffix = new StreamingSlidingWindowIndex(WINDOW_LEN); //new SuffixTreeIndex(ALPHABET, 0.0001, WINDOW_LEN);
 
             ExperimentRunResult suffixRes;
             if ("segments".equalsIgnoreCase(mode)) {
@@ -517,7 +515,9 @@ public class HBIDatasetBenchmark {
                     Locale.ROOT,
                     "SuffixTreeIndex Insert avg (ms): %.3f%n",
                     suffixTotalMsInsert / RUNS);
-            System.out.println();
-        }
+            System.out.printf(
+                    Locale.ROOT,
+                    "SuffixTreeIndex Insert avg (ms) per char: %.3f%n",
+                    (suffixTotalMsInsert / RUNS)/WINDOW_LEN);        }
     }
 }

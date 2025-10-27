@@ -61,7 +61,7 @@ public class ConfidenceExperiment {
     private static int NGRAMS = 1;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
-    private static int ALPHABET = 121574;
+    private static int ALPHABET = 130000;
 
     /** ---------------------------------------
      *  Data structures for accuracy reporting
@@ -301,7 +301,7 @@ public class ConfidenceExperiment {
         }
 
         // Expand ALPHABET to n-gram space (same as your current code does with ALPHABET, NGRAMS)
-        ALPHABET = (int) 121574;//Math.pow(ALPHABET, NGRAMS);
+        ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf(
                 "Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
@@ -625,8 +625,9 @@ public class ConfidenceExperiment {
 
         RunStats s = new RunStats();
         s.runIdx = runIdx;
-
+        int i =0;
         for (PatternResult pr : res.patternResults()) {
+
             int    actual = pr.probes();
             double est    = pr.predictedCost();
             int    leafprobes = pr.leafProbes();
@@ -688,6 +689,8 @@ public class ConfidenceExperiment {
                     relErr,
                     pr.p().nGramToLong.length
             ));
+//            System.out.println("p: " + i + " err: " + relErr);
+            i++;
         }
 
         if (s.minRow != null && s.maxRow != null && verbose) {
@@ -809,16 +812,7 @@ public class ConfidenceExperiment {
         }
     }
 
-    /**
-     * Your existing helper that constructs a new HBI.
-     * I have intentionally left this unchanged so that behavior (Bloom filter config,
-     * pruning plan, etcetera) remains identical to what you are currently evaluating.
-     *
-     * NOTE:
-     * Right now this hard codes ngrams=3 in the constructor call to HBI.
-     * I am not changing that because you asked to keep behavior the same.
-     * If you truly want to honor NGRAMS here dynamically, replace that 3 with NGRAMS.
-     */
+
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;

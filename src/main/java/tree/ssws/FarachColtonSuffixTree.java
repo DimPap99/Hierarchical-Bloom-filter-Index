@@ -10,9 +10,8 @@ import java.util.Map;
 /**
  * Minimal suffix tree representation that keeps the API surface compatible with the
  * Farach-Colton construction while relying on a simple quadratic builder for now. Tokens
- * are supplied as arbitrary objects (we use {@link String}) and are rank-compressed into a
- * dense integer alphabet using the high-probability universal hashing scheme from the SSWSI
- * paper before the actual suffix tree is grown.
+ * are assumed to be integers produced by the {@link utilities.AlphabetMapper}; a unique
+ * sentinel value is appended during construction to preserve suffix uniqueness.
  */
 public final class FarachColtonSuffixTree {
 
@@ -21,27 +20,24 @@ public final class FarachColtonSuffixTree {
     private final Node root;
     private final int[] text; // includes the sentinel at the end
     private final int originalLength;
-    private final TokenRanker.Translator translator;
 
-    private FarachColtonSuffixTree(Node root, int[] text, int originalLength, TokenRanker.Translator translator) {
+    private FarachColtonSuffixTree(Node root, int[] text, int originalLength) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
-        this.translator = translator;
     }
 
-    public static FarachColtonSuffixTree build(String[] tokens, int windowSize) {
-        if (tokens == null) {
+    public static FarachColtonSuffixTree build(int[] alphabetMappedText) {
+        if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
-        TokenRanker.MappingResult mapping = TokenRanker.rank(tokens, windowSize);
-        int[] terminated = Arrays.copyOf(mapping.mappedText, mapping.mappedText.length + 1);
+        int[] terminated = Arrays.copyOf(alphabetMappedText, alphabetMappedText.length + 1);
         terminated[terminated.length - 1] = SENTINEL;
         Node root = new Node();
         for (int i = 0; i < terminated.length; i++) {
             insertSuffix(root, terminated, i);
         }
-        return new FarachColtonSuffixTree(root, terminated, tokens.length, mapping.translator);
+        return new FarachColtonSuffixTree(root, terminated, alphabetMappedText.length);
     }
 
     public Node getRoot() {
@@ -56,11 +52,7 @@ public final class FarachColtonSuffixTree {
         return originalLength;
     }
 
-    public List<Integer> findOccurrences(String[] patternTokens) {
-        if (patternTokens == null || patternTokens.length == 0) {
-            return Collections.emptyList();
-        }
-        int[] pattern = translator.mapPattern(patternTokens);
+    public List<Integer> findOccurrences(int[] pattern) {
         if (pattern == null || pattern.length == 0) {
             return Collections.emptyList();
         }

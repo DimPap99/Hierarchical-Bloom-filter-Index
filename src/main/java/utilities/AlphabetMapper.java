@@ -50,6 +50,12 @@ public class AlphabetMapper <T>{
         if(retVal == -999) retVal =  insert(item);
         return retVal;
     }
-    
+
+    public void clear() {
+        wordToId.clear();
+        idToWord.clear();
+        nextId = 0;
+    }
+
 
 }

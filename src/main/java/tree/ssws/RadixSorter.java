@@ -12,6 +12,7 @@ import java.util.Map;
 public final class RadixSorter {
 
     private static final int RADIX = 256; // process eight bits per pass
+    private static final int BITS_PER_BYTE = 8;
 
     private RadixSorter() {
         // utility class
@@ -79,6 +80,50 @@ public final class RadixSorter {
         int[] copy = Arrays.copyOf(values, values.length);
         sortInPlace(copy);
         return copy;
+    }
+
+    /**
+     * Stable LSD radix sort for parallel arrays. Reorders {@code indices} so they are sorted by the
+     * associated {@code keys} interpreted as unsigned 64-bit integers. Both arrays are modified in
+     * place.
+     */
+    public static void sortParallel(long[] keys, int[] indices) {
+        if (keys == null || indices == null) {
+            throw new IllegalArgumentException("keys and indices must be non-null");
+        }
+        if (keys.length != indices.length) {
+            throw new IllegalArgumentException("keys and indices must have the same length");
+        }
+        int n = keys.length;
+        if (n <= 1) {
+            return;
+        }
+        long[] keyBuffer = new long[n];
+        int[] indexBuffer = new int[n];
+        int[] count = new int[RADIX];
+
+        for (int shift = 0; shift < Long.SIZE; shift += BITS_PER_BYTE) {
+            Arrays.fill(count, 0);
+            for (long key : keys) {
+                int bucket = (int) ((key >>> shift) & 0xFFL);
+                count[bucket]++;
+            }
+            int total = 0;
+            for (int i = 0; i < RADIX; i++) {
+                int c = count[i];
+                count[i] = total;
+                total += c;
+            }
+            for (int i = 0; i < n; i++) {
+                long key = keys[i];
+                int bucket = (int) ((key >>> shift) & 0xFFL);
+                int pos = count[bucket]++;
+                keyBuffer[pos] = key;
+                indexBuffer[pos] = indices[i];
+            }
+            System.arraycopy(keyBuffer, 0, keys, 0, n);
+            System.arraycopy(indexBuffer, 0, indices, 0, n);
+        }
     }
 
     /**

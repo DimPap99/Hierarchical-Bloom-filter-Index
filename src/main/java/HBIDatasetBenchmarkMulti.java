@@ -2,7 +2,7 @@ import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
-import PMIndex.SuffixTreeIndex;
+import PMIndex.StreamingSlidingWindowIndex;
 import estimators.*;
 import jdk.jshell.execution.Util;
 import membership.BloomFilter;
@@ -35,10 +35,10 @@ import java.util.stream.Stream;
 public final class HBIDatasetBenchmarkMulti {
 
     private static final boolean USE_STRIDES = true;
-    private static String algo = "bs_multitree_16_reactive";
+    private static String algo = "bs";
     private static boolean SKIP_QUERIES = false;//toggle to run only to get insert stats
     private static int ALPHABET;
-
+    private static double FP_Rate;
     private record BenchmarkOptions(Path dataRoot,
                                     Path queryRoot,
                                     String window,
@@ -60,22 +60,23 @@ public final class HBIDatasetBenchmarkMulti {
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "w21";
+            String window = "caida21";
             QueryType queryType = null;
-            String mode = "chars";           // default behavior stays chars/segments
-            Integer ngram = 2;
+            String mode = "segments";           // default behavior stays chars/segments
+            Integer ngram = 4;
             Integer windowLength = 1 << 21;
-            Integer treeLength = 1 << 17;
-            Integer alphabetBase = 150;
-            double fpRate = 0.3;
+            Integer treeLength = 1 << 21;
+            Integer alphabetBase = 130000;
+            double fpRate = 0.005;
+            FP_Rate = fpRate;
             double runConfidence = 0.99;
             int warmupRuns = 0;
-            int runs = 2;
-            boolean runRegexBaseline = true;
+            int runs = 1;
+            boolean runRegexBaseline = false;
             boolean runHbi = true;
             boolean runSuffix = true;
             int buckets = alphabetBase;
-            Utils.MemPolicy policy = Utils.MemPolicy.REACTIVE;
+            Utils.MemPolicy policy = Utils.MemPolicy.NONE;
 
 
             for (int i = 0; i < args.length; i++) {
@@ -325,7 +326,7 @@ public final class HBIDatasetBenchmarkMulti {
                 }
 
                 if (options.runSuffix()) {
-                    SuffixTreeIndex suffixWarm = newSuffixTree(options);
+                    StreamingSlidingWindowIndex suffixWarm = newSuffixTree(options);
 
                     InsertStats suffixWarmInsert;
                     if ("segments".equalsIgnoreCase(options.mode())) {
@@ -556,6 +557,8 @@ public final class HBIDatasetBenchmarkMulti {
         });
         header.add("algorithm");
         header.add("alphabet");
+        header.add("fprate");
+
         List<List<?>> csvRows = new ArrayList<>();
         csvRows.add(header);
 
@@ -585,6 +588,7 @@ public final class HBIDatasetBenchmarkMulti {
             }
             row.add(algo);
             row.add(ALPHABET);
+            row.add(FP_Rate);
             csvRows.add(row);
         }
 
@@ -796,11 +800,11 @@ public final class HBIDatasetBenchmarkMulti {
         return new HBI(configuration);
     }
 
-    private static SuffixTreeIndex newSuffixTree(BenchmarkOptions options) {
+    private static StreamingSlidingWindowIndex newSuffixTree(BenchmarkOptions options) {
         long expectedDistinct = Math.max(1L, (long) options.windowLength());
         double epsilon = 0.0001;
         int totalTokens = options.windowLength();
-        return new SuffixTreeIndex(expectedDistinct, epsilon, totalTokens);
+        return new StreamingSlidingWindowIndex(totalTokens);
     }
 
     private static List<Path> listDatasetDirectories(Path root) throws IOException {
