@@ -13,11 +13,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Streaming sliding-window index inspired by the SSWSI hierarchy. The implementation keeps
- * the amortised update policy from the paper (power-of-two segments, log-structured merges)
- * and exposes multi-stage querying: occurrences fully contained in segments, occurrences
- * crossing a single boundary, and occurrences that require the on-demand suffix rebuild for
- * the tail region.
+ * Streaming sliding-window index inspired by the SSWSI hierarchy. Incoming symbols remain in
+ * their raw form; whenever we build or query a suffix tree we rely on the high-probability
+ * alphabet compression (Section 5) implemented by {@code TokenRanker} to obtain a dense
+ * integer alphabet on the fly. The implementation keeps the amortised update policy from the paper
+ * (power-of-two segments, log-structured merges) and exposes multi-stage querying: occurrences
+ * fully contained in segments, occurrences crossing a single boundary, and occurrences that
+ * require the on-demand suffix rebuild for the tail region.
  */
 public class StreamingSlidingWindowIndex implements IPMIndexing {
 
@@ -47,8 +49,8 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (key == null) {
             return;
         }
-        int token = alphabetMapper.getId(key);
-        Segment singleton = createSingletonSegment(token, nextTokenPosition);
+        alphabetMapper.insert(key);
+        Segment singleton = createSingletonSegment(key, nextTokenPosition);
         appendSegment(singleton);
         nextTokenPosition++;
         totalStoredLength += singleton.length;
@@ -57,9 +59,9 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         trimToWindow();
     }
 
-    private Segment createSingletonSegment(int token, int position) {
-        int[] tokens = new int[]{token};
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+    private Segment createSingletonSegment(String token, int position) {
+        String[] tokens = new String[]{token};
+        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens, windowSize);
         return new Segment(position, 0, tokens, tree);
     }
 
@@ -88,10 +90,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private Segment mergeSegments(Segment left, Segment right) {
         int newLength = left.length + right.length;
-        int[] tokens = new int[newLength];
+        String[] tokens = new String[newLength];
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens, windowSize);
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
     }
 
@@ -170,10 +172,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
         int span = right.length;
         int leftSpan = Math.min(left.length, span);
-        int[] tokens = new int[leftSpan + right.length];
+        String[] tokens = new String[leftSpan + right.length];
         System.arraycopy(left.tokens, left.length - leftSpan, tokens, 0, leftSpan);
         System.arraycopy(right.tokens, 0, tokens, leftSpan, right.length);
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens, windowSize);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
         Boundary boundary = new Boundary(left, right, tokens, boundaryStart, boundaryPosition, tree);
@@ -192,7 +194,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (key == null || key.nGramArr == null) {
             return noResult;
         }
-        int[] patternTokens = toPatternTokens(key);
+        String[] patternTokens = toPatternTokens(key);
         if (patternTokens.length == 0) {
             return noResult;
         }
@@ -214,7 +216,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         return result;
     }
 
-    private void collectSegmentMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectSegmentMatches(String[] patternTokens, int patternLength, int windowStart,
                                        int windowEnd, Set<Integer> occurrences) {
         Segment current = head;
         while (current != null) {
@@ -231,7 +233,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private void collectBoundaryMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectBoundaryMatches(String[] patternTokens, int patternLength, int windowStart,
                                         int windowEnd, Set<Integer> occurrences) {
         Segment current = head;
         while (current != null) {
@@ -251,7 +253,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private void collectSuffixMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectSuffixMatches(String[] patternTokens, int patternLength, int windowStart,
                                       int windowEnd, Set<Integer> occurrences) {
         if (patternLength == 0) {
             return;
@@ -268,7 +270,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (substring.tokens.length < patternLength) {
             return;
         }
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(substring.tokens);
+        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(substring.tokens, windowSize);
         List<Integer> matches = tree.findOccurrences(patternTokens);
         for (int local : matches) {
             int global = substring.globalStart + local;
@@ -300,7 +302,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (total == 0) {
             return QuerySubstring.empty();
         }
-        int[] tokens = new int[total];
+        String[] tokens = new String[total];
         int offset = 0;
         if (pivotSuffix > 0) {
             System.arraycopy(pivot.tokens, pivot.length - pivotSuffix, tokens, 0, pivotSuffix);
@@ -323,7 +325,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (length <= 0 || tail == null) {
             return QuerySubstring.empty();
         }
-        int[] tokens = new int[length];
+        String[] tokens = new String[length];
         int writeIndex = length;
         Segment current = tail;
         while (current != null && writeIndex > 0) {
@@ -346,20 +348,18 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (actualLength <= 0) {
             return QuerySubstring.empty();
         }
-        int[] trimmed = new int[actualLength];
+        String[] trimmed = new String[actualLength];
         System.arraycopy(tokens, writeIndex, trimmed, 0, actualLength);
         return new QuerySubstring(trimmed, windowStart + writeIndex);
     }
 
-    private int[] toPatternTokens(Pattern pattern) {
+    private String[] toPatternTokens(Pattern pattern) {
         String[] grams = pattern.nGramArr;
         if (grams == null) {
-            return new int[0];
+            return new String[0];
         }
-        int[] tokens = new int[grams.length];
-        for (int i = 0; i < grams.length; i++) {
-            tokens[i] = alphabetMapper.getId(grams[i]);
-        }
+        String[] tokens = new String[grams.length];
+        System.arraycopy(grams, 0, tokens, 0, grams.length);
         return tokens;
     }
 
@@ -407,14 +407,14 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         private final int startPosition;
         private final int level;
         private final int length;
-        private final int[] tokens;
+        private final String[] tokens;
         private final FarachColtonSuffixTree suffixTree;
         private Segment prev;
         private Segment next;
         private Boundary leftBoundary;
         private Boundary rightBoundary;
 
-        private Segment(int startPosition, int level, int[] tokens, FarachColtonSuffixTree suffixTree) {
+        private Segment(int startPosition, int level, String[] tokens, FarachColtonSuffixTree suffixTree) {
             this.startPosition = startPosition;
             this.level = level;
             this.tokens = tokens;
@@ -426,12 +426,12 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     private static final class Boundary {
         private final Segment left;
         private final Segment right;
-        private final int[] tokens;
+        private final String[] tokens;
         private final int globalStart;
         private final int boundaryPosition;
         private final FarachColtonSuffixTree tree;
 
-        private Boundary(Segment left, Segment right, int[] tokens, int globalStart,
+        private Boundary(Segment left, Segment right, String[] tokens, int globalStart,
                           int boundaryPosition, FarachColtonSuffixTree tree) {
             this.left = left;
             this.right = right;
@@ -443,11 +443,11 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     private static final class QuerySubstring {
-        private static final QuerySubstring EMPTY = new QuerySubstring(new int[0], 0);
-        private final int[] tokens;
+        private static final QuerySubstring EMPTY = new QuerySubstring(new String[0], 0);
+        private final String[] tokens;
         private final int globalStart;
 
-        private QuerySubstring(int[] tokens, int globalStart) {
+        private QuerySubstring(String[] tokens, int globalStart) {
             this.tokens = tokens;
             this.globalStart = globalStart;
         }
