@@ -13,7 +13,7 @@ import java.util.Map;
  * are assumed to be integers produced by the {@link utilities.AlphabetMapper}; a unique
  * sentinel value is appended during construction to preserve suffix uniqueness.
  */
-public final class FarachColtonSuffixTree {
+public final class SuffixTreeQuadratic {
 
     private static final int SENTINEL = -1;
 
@@ -21,13 +21,13 @@ public final class FarachColtonSuffixTree {
     private final int[] text; // includes the sentinel at the end
     private final int originalLength;
 
-    private FarachColtonSuffixTree(Node root, int[] text, int originalLength) {
+    private SuffixTreeQuadratic(Node root, int[] text, int originalLength) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
     }
 
-    public static FarachColtonSuffixTree build(int[] alphabetMappedText) {
+    public static SuffixTreeQuadratic build(int[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
@@ -37,7 +37,7 @@ public final class FarachColtonSuffixTree {
         for (int i = 0; i < terminated.length; i++) {
             insertSuffix(root, terminated, i);
         }
-        return new FarachColtonSuffixTree(root, terminated, alphabetMappedText.length);
+        return new SuffixTreeQuadratic(root, terminated, alphabetMappedText.length);
     }
 
     public Node getRoot() {

@@ -1,7 +1,7 @@
 package PMIndex;
 
 import search.Pattern;
-import tree.ssws.FarachColtonSuffixTree;
+import tree.ssws.SuffixTree;
 import utilities.AlphabetMapper;
 import utilities.PatternResult;
 
@@ -59,7 +59,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private Segment createSingletonSegment(int token, int position) {
         int[] tokens = new int[]{token};
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens);
         return new Segment(position, 0, tokens, tree);
     }
 
@@ -91,7 +91,9 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         int[] tokens = new int[newLength];
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens);
+//        SuffixTree.compactForQuerying(tree.getRoot());
+
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
     }
 
@@ -173,12 +175,14 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         int[] tokens = new int[leftSpan + right.length];
         System.arraycopy(left.tokens, left.length - leftSpan, tokens, 0, leftSpan);
         System.arraycopy(right.tokens, 0, tokens, leftSpan, right.length);
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
         Boundary boundary = new Boundary(left, right, tokens, boundaryStart, boundaryPosition, tree);
         left.rightBoundary = boundary;
         right.leftBoundary = boundary;
+//        SuffixTree.compactForQuerying(boundary.tree.getRoot());
+
     }
 
     @Override
@@ -268,7 +272,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (substring.tokens.length < patternLength) {
             return;
         }
-        FarachColtonSuffixTree tree = FarachColtonSuffixTree.build(substring.tokens);
+        SuffixTree tree = SuffixTree.build(substring.tokens);
         List<Integer> matches = tree.findOccurrences(patternTokens);
         for (int local : matches) {
             int global = substring.globalStart + local;
@@ -408,13 +412,13 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         private final int level;
         private final int length;
         private final int[] tokens;
-        private final FarachColtonSuffixTree suffixTree;
+        private final SuffixTree suffixTree;
         private Segment prev;
         private Segment next;
         private Boundary leftBoundary;
         private Boundary rightBoundary;
 
-        private Segment(int startPosition, int level, int[] tokens, FarachColtonSuffixTree suffixTree) {
+        private Segment(int startPosition, int level, int[] tokens, SuffixTree suffixTree) {
             this.startPosition = startPosition;
             this.level = level;
             this.tokens = tokens;
@@ -429,10 +433,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         private final int[] tokens;
         private final int globalStart;
         private final int boundaryPosition;
-        private final FarachColtonSuffixTree tree;
+        private final SuffixTree tree;
 
         private Boundary(Segment left, Segment right, int[] tokens, int globalStart,
-                         int boundaryPosition, FarachColtonSuffixTree tree) {
+                         int boundaryPosition, SuffixTree tree) {
             this.left = left;
             this.right = right;
             this.tokens = tokens;
