@@ -102,12 +102,26 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         boolean[] matchedArr = new boolean[limit];
         Arrays.fill(matchedArr, false);
 
-        boolean testedFirst = false; // did we actually query token 0 in the main scan
-        int prefixCount = 0;         // running count of confirmed prefix tokens in fallback
+        // ---- 1. Force-check token 0, ignoring lp pruning ----
+        long firstTok = tokens[0];
+        long hi0 = Integer.toUnsignedLong(intervalIdx);
+        long lo0 = firstTok;
+        boolean firstContains = tree.contains(level, hi0, lo0);
+        // we definitely tested the first token
+        boolean testedFirst = true;
+
+        if (!firstContains) {
+            // Hard "no" at the very first symbol:
+            // pattern cannot start at this interval boundary.
+            // consumed == 0, not complete.
+            return new Probe(0, /*complete*/ false, /*testedFirst*/ true);
+        }
+        int prefixCount = 1;
         int consumedChars;
 
+
         // MAIN SCAN (respects lp)
-        for (int i = 0; i < limit; i++) {
+        for (int i = 1; i < limit; i++) {
 
             // pruning plan: skip checking this token i at this level if lp says "too early"
             if (lp != null && lp.size() > i && level < lp.get(i)) {
@@ -122,50 +136,39 @@ public class BlockSearchCharSet implements SearchAlgorithm {
             long lo = token;
             contains = tree.contains(level, hi, lo);
 
-
-            if (i == 0) {
-                testedFirst = true;
-            }
-
             if (!contains) {
                 // First negative at token i in the main scan.
 
-                if (testedFirst) {
-                    // We already checked token 0 in the main scan.
-                    // matchedArr[k] == true for tokens k we said were present before this NO.
-                    int prefixMatches = countStartConsecutiveMatches(matchedArr);
-                    consumedChars = charactersMatched(prefixMatches, pattern);
-                    return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+                // Repair: explicitly check tokens 1..i-1 ignoring lp.
 
-                } else {
-                    // We have NOT checked token 0 yet because lp skipped it.
-                    // Repair: explicitly check tokens 0..i-1 ignoring lp.
-                    prefixCount = 0;
+                for (int j = 1; j < i; j++) {
+                    if(matchedArr[j]) {
+                        prefixCount +=1;
+                        continue;
+                    }
+                    long t0 = tokens[j];
 
-                    for (int j = 0; j < i; j++) {
-                        long t0 = tokens[j];
+                    boolean c0;
 
-                        boolean c0;
-
-                        long hi0 = Integer.toUnsignedLong(intervalIdx);
-                        long lo0 = t0;
-                        c0 = tree.contains(level, hi0, lo0);
+                    hi0 = Integer.toUnsignedLong(intervalIdx);
+                    lo0 = t0;
+                    c0 = tree.contains(level, hi0, lo0);
 
 
-                        if (!c0) {
-                            // prefix breaks at j
-                            consumedChars = charactersMatched(prefixCount, pattern);
-                            return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
-                        }
-
-                        matchedArr[j] = true;
-                        prefixCount++;
+                    if (!c0) {
+                        // prefix breaks at j
+                        consumedChars = charactersMatched(prefixCount, pattern);
+                        return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
                     }
 
-                    // All tokens 0..i-1 were present.
-                    consumedChars = charactersMatched(prefixCount, pattern);
-                    return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+                    matchedArr[j] = true;
+                    prefixCount++;
                 }
+
+                // All tokens 0..i-1 were present.
+                consumedChars = charactersMatched(prefixCount, pattern);
+                return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+
             }
 
             // still "maybe present" for this token in main scan
@@ -179,8 +182,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         // complete == true.
         // testedFirst may still be false if lp skipped i == 0 and we never had to fallback.
 
-        int prefixMatches = countStartConsecutiveMatches(matchedArr);
-        consumedChars = charactersMatched(prefixMatches, pattern);
+        consumedChars = charactersMatched(matchedArr.length, pattern);
 
         return new Probe(consumedChars, /*complete*/ true, /*testedFirst*/ testedFirst);
     }
