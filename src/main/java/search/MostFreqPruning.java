@@ -8,15 +8,17 @@ import java.util.Arrays;
 import java.util.Deque;
 
 import static utilities.MathUtils.pruningLevel;
+import static utilities.MathUtils.pruningLevelBloom;
 
 public class MostFreqPruning implements  PruningPlan {
 
     public double conf;
+    public double fp;
     public void PruningPlan() {
     }
-    public MostFreqPruning(double conf){
+    public MostFreqPruning(double conf, double fp){
        // this.conf = conf;
-
+        this.fp = fp;
     }
     @Override
     public void prepare(Deque<Frame> stack, int lp) {
@@ -43,8 +45,8 @@ public class MostFreqPruning implements  PruningPlan {
 //
 //        int    lp   = MathUtils.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
         double[] pp = tree.estimator.estimateALl(pattern, strides);
-        double pMax = Arrays.stream(pp).min().getAsDouble();
-        int lp = Math.min(tree.effectiveRoot(), pruningLevel(tree, 0.99, pMax));
+        double pMin = Arrays.stream(pp).max().getAsDouble();
+        int lp = Math.max(tree.effectiveRoot(), pruningLevelBloom(tree, 0.99, pMin, this.fp));
         prunedLevels.add(lp);
         return prunedLevels;
     }

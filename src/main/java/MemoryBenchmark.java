@@ -115,7 +115,7 @@ public final class MemoryBenchmark {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.treeLength());//new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
         Verifier verifier = new VerifierLinearLeafProbe();
 
         HbiConfiguration configuration = HbiConfiguration.builder()

@@ -188,7 +188,7 @@ public class ProcessStream {
     private static HBI newHbi(int windowLen, int treeLen, int alphabet, double fpRate, double conf, int ngrams) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(treeLen);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier verifier = new VerifierLinearLeafProbe();
         return new HBI(
                 new BlockSearch(),

@@ -8,12 +8,13 @@ import java.util.Deque;
 
 public class MultiLevelPruning implements  PruningPlan {
     public double conf;
-
+    public double fp;
     public void PruningPlan() {
 
     }
-    public MultiLevelPruning(double conf){
+    public MultiLevelPruning(double conf, double fp) {
         //this.conf = conf;
+        this.fp = fp;
 
     }
     @Override
@@ -24,7 +25,7 @@ public class MultiLevelPruning implements  PruningPlan {
         long[] arr = strides ? pattern.effectiveNgramArr : pattern.nGramToLong;
         for(long token : arr){
             double p = tree.estimator.estimate(token);
-            int lp = Math.max(tree.effectiveRoot(),MathUtils.pruningLevel(tree, confidence, p));
+            int lp = Math.max(tree.effectiveRoot(),MathUtils.pruningLevelBloom(tree, confidence, p, this.fp));
             prunedLevels.add(lp);
         }
         return prunedLevels;

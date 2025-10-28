@@ -365,7 +365,8 @@ public final class HBI implements IPMIndexing {
                     lps.add(cf.minCostLp(tree, 0.95, pat, this.bfCost, this.leafCost, this.strides));
                 }
                 else{
-                    lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+                    if(!this.isRootAlg) lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+                    else lps.add(0);
                 }
 //                lp = lpCf;
             }

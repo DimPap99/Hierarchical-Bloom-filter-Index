@@ -96,88 +96,93 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                 ArrayList<Integer> lp,
                 int currentIntervalSize) {
 
-        final int limit = Math.min(tokens.length, maxTokensForInterval(currentIntervalSize, pattern));
-        if (limit == 0) {
-            return new Probe(0, false, true); // degenerate, whatever
-        }
+        int limit = Math.min(tokens.length,
+                maxTokensForInterval(currentIntervalSize, pattern));
 
-        final long hi = Integer.toUnsignedLong(intervalIdx); // hoist once
+        boolean[] matchedArr = new boolean[limit];
+        Arrays.fill(matchedArr, false);
 
-        // ---- 1. Force-check token 0 ----
-        long t0 = tokens[0];
-        boolean firstContains = tree.contains(level, hi, t0);
+        // ---- 1. Force-check token 0, ignoring lp pruning ----
+        long firstTok = tokens[0];
+        long hi = Integer.toUnsignedLong(intervalIdx);
+        long lo0 = firstTok;
+        boolean firstContains = tree.contains(level, hi, lo0);
+        // we definitely tested the first token
+        boolean testedFirst = true;
+
         if (!firstContains) {
-            return new Probe(0, false, true); // hard no at start
+            // Hard "no" at the very first symbol:
+            // pattern cannot start at this interval boundary.
+            // consumed == 0, not complete.
+            return new Probe(0, /*complete*/ false, /*testedFirst*/ true);
         }
+        int prefixCount = 1;
+        int consumedChars;
 
-        int confirmedPrefix = 1; // we know token0 hit
-        int maxScanned = 1;      // highest token index we've *looked at* in main scan (>= confirmedPrefix)
 
-        // ---- 2. Main scan for i = 1..limit-1 ----
+        // MAIN SCAN (respects lp)
         for (int i = 1; i < limit; i++) {
 
-            // obey lp (skip early if this token isn't allowed yet at this level)
+            // pruning plan: skip checking this token i at this level if lp says "too early"
             if (lp != null && lp.size() > i && level < lp.get(i)) {
-                // we didn't check it, so we can't extend confirmedPrefix
-                maxScanned = i + 1;
                 continue;
             }
 
-            long ti = tokens[i];
-            boolean contains = tree.contains(level, hi, ti);
+            long token = tokens[i];
 
-            maxScanned = i + 1;
+            boolean contains;
+
+            long lo = token;
+            contains = tree.contains(level, hi, lo);
 
             if (!contains) {
-                // miss at i -> repair gap [confirmedPrefix .. i-1]
-                int repairedPrefix = confirmedPrefix;
-                for (int j = confirmedPrefix; j < i; j++) {
-                    // only needed if lp skipped that j
-                    // We know: if j < confirmedPrefix, it's already guaranteed good
-                    // So we only test j>=confirmedPrefix
-                    if (lp != null && lp.size() > j && level < lp.get(j)) {
-                        long tj = tokens[j];
-                        if (!tree.contains(level, hi, tj)) {
-                            int consumedChars = charactersMatched(repairedPrefix, pattern);
-                            return new Probe(consumedChars, false, true);
-                        }
-                        repairedPrefix++;
-                    } else {
-                        // if we didn't skip j in main scan, that means confirmedPrefix
-                        // should have already included j. If it didn't, we won't get here
-                        // because confirmedPrefix would have caught up. So nothing to do.
+                // First negative at token i in the main scan.
+
+                // Repair: explicitly check tokens 1..i-1 ignoring lp.
+
+                for (int j = 1; j < i; j++) {
+                    if(matchedArr[j]) {
+                        prefixCount +=1;
+                        continue;
                     }
+                    long t0 = tokens[j];
+
+                    boolean c0;
+
+                    lo0 = t0;
+                    c0 = tree.contains(level, hi, lo0);
+
+
+                    if (!c0) {
+                        // prefix breaks at j
+                        consumedChars = charactersMatched(prefixCount, pattern);
+                        return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+                    }
+
+                    matchedArr[j] = true;
+                    prefixCount++;
                 }
 
-                int consumedChars = charactersMatched(repairedPrefix, pattern);
-                return new Probe(consumedChars, false, true);
+                // All tokens 0..i-1 were present.
+                consumedChars = charactersMatched(prefixCount, pattern);
+                return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+
             }
 
-            // contains == true
-            // can this grow the guaranteed prefix?
-            if (i == confirmedPrefix) {
-                confirmedPrefix++;
-            }
+            // still "maybe present" for this token in main scan
+            matchedArr[i] = true;
+            // Do not increment prefixCount here, because this might not actually be
+            // contiguous from 0 if lp skipped early tokens. We only use prefixCount
+            // in fallback, where we explicitly walk from 0 upward.
         }
 
-        // ---- 3. No miss in main scan ----
-        // We never saw a definitive NO anywhere we were allowed to check.
-        // We still need to "repair" any skipped tail between confirmedPrefix..maxScanned-1
-        // so we don't lie about prefix length.
-        int repairedPrefix = confirmedPrefix;
-        for (int j = confirmedPrefix; j < maxScanned; j++) {
-            if (lp != null && lp.size() > j && level < lp.get(j)) {
-                long tj = tokens[j];
-                if (!tree.contains(level, hi, tj)) {
-                    int consumedChars = charactersMatched(repairedPrefix, pattern);
-                    return new Probe(consumedChars, true, true);
-                }
-                repairedPrefix++;
-            }
-        }
+        // If we get here, main scan saw NO Bloom filter negatives at all.
+        // complete == true.
+        // testedFirst may still be false if lp skipped i == 0 and we never had to fallback.
 
-        int consumedChars = charactersMatched(repairedPrefix, pattern);
-        return new Probe(consumedChars, true, true);
+        consumedChars = charactersMatched(matchedArr.length, pattern);
+
+        return new Probe(consumedChars, /*complete*/ true, /*testedFirst*/ testedFirst);
     }
 
     private int charactersMatched(int matchedTokens, Pattern pattern) {

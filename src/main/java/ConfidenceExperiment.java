@@ -816,7 +816,7 @@ public class ConfidenceExperiment {
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, FP_RATE);
         Verifier v = new VerifierLinearLeafProbe();
         return new HBI(
                 new BlockSearch(),

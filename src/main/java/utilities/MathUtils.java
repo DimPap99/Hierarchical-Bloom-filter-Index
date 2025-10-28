@@ -115,12 +115,51 @@ public final class  MathUtils {
     // Alpha→Lp mapping for a single p
     public static int pruningLevel(ImplicitTree<?> tree, double conf, double prob){
         double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob); // > 0
-        double val    = Math.log(tree.baseIntervalSize() / bAlpha) / Math.log(2.0);
+        double val    = Math.log(tree.baseIntervalSize() / bAlpha);
         int L         = (int) Math.ceil(val);
         double lp = Math.min(L, tree.maxDepth() - 1);
         if(lp > 0) lp = lp+1;
         return (int) Math.max(0, lp);
     }
+
+    public static int pruningLevelBloom(
+            ImplicitTree<?> tree,
+            double conf,   // target confidence α (for example 0.95)
+            double prob,   // empirical per-slot rate p_i (that is, \hat p_i)
+            double beta    // Bloom filter false positive rate β at this level
+    ) {
+
+        final double logOneMinusProb = Math.log(1.0 - prob);
+
+        double lp; // this will become the return depth after adjustment
+
+        if (conf <= beta) {
+            // Bloom filter alone (without real content) is already as "confident"
+            // as we require. That means shallow levels will just say YES anyway.
+            // We therefore bias all the way down.
+            int L = tree.maxDepth() - 1;
+            lp = L;
+        } else {
+            // Normal case: solve q_i(L) >= conf
+
+            double numerator = Math.log((1.0 - conf) / (1.0 - beta));
+            double bAlphaQ   = numerator / logOneMinusProb; // strictly > 0 here
+
+
+            double val = Math.log(tree.baseIntervalSize() / bAlphaQ);
+
+            int L = (int) Math.ceil(val);
+
+            // Clamp to the tree geometry just like the original code
+            lp = Math.min(L, tree.maxDepth() - 1);
+        }
+
+
+
+
+        return (int) Math.max(0, lp);
+    }
+
 
     public static double clamp01(double value) {
         if (value <= 0.0) {
