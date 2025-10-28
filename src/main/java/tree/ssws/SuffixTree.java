@@ -1,180 +1,149 @@
 package tree.ssws;
 
-import java.util.*;
-import java.util.function.Consumer;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * SuffixTree
  *
- * This class builds a suffix tree over an integer token array using Ukkonen's algorithm
- * in linear time in the length of the input in the sense of big O notation O(n).
+ * Compressed suffix tree built from an integer token sequence.
+ * Build pipeline:
+ *   1. Append sentinel smaller than any real token.
+ *   2. Normalize tokens to a dense non-negative alphabet using radix/ranking.
+ *   3. Build suffix array in O(n) time using DC3 (Skew).
+ *   4. Build Longest Common Prefix (LCP) with Kasai in O(n).
+ *   5. Build explicit compressed suffix tree in O(n) from suffix array + LCP.
  *
- * Public contract
- *
- *   SuffixTree.build(int[] tokens)
- *     Build a compressed suffix tree for the given integer token array.
- *     A single sentinel value is appended automatically so that all suffixes
- *     become explicit leaves. The caller must guarantee that no real token is -1.
- *
- *   findOccurrences(int[] pattern)
- *     Return all start offsets where "pattern" occurs in the original text
- *     that is, before the sentinel was appended. Offsets are zero based.
- *
- * Why this is faster and more memory friendly than the naive version
- *
- *   1. We do not create Edge objects. Each Node stores the edge label from its
- *      parent directly as (start, end). The "end" position is inclusive, so the
- *      edge covers text[start .. end], both indices included.
- *
- *   2. Leaf edges all share a single global integer end called leafEndValue,
- *      instead of each leaf edge having its own EndRef object. A leaf simply
- *      stores end = LEAF_SENTINEL. During traversal we interpret LEAF_SENTINEL
- *      as leafEndValue. This matches what your SuffixTreeIndex does for the
- *      streaming case.
- *
- *   3. Children of a node are stored in a custom IntChildMap, which uses four
- *      inline slots before upgrading to a tiny open addressed hash table called
- *      IntNodeMap. This avoids allocating java.util.HashMap for almost every
- *      node, which is a very big win for suffix trees, because most internal
- *      nodes only have one or two outgoing children.
- *
- *   4. We assign suffixIndex at leaf creation time. That means we never need
- *      a cleanup traversal just to figure out which suffix each leaf represents.
- *
- *   5. After we finish building the tree, we run a light compaction pass that
- *      trims maps to minimal capacity and drops suffix links since suffix links
- *      are only needed while running Ukkonen. This matches the compactForQuerying
- *      idea in your SuffixTreeIndex.
- *
- * Complexity summary
- *
- *   Build time is linear in the number of tokens, plus the sentinel,
- *   in the sense of big O notation O(n).
- *   Query time for findOccurrences is linear in the pattern length
- *   plus the number of matches that are reported, which is standard
- *   for suffix tree search.
+ * Query:
+ *   findOccurrences(int[] pattern) returns all start offsets in the original text
+ *   (no sentinel) where 'pattern' occurs.
  */
 public final class SuffixTree {
 
-    /**
-     * Sentinel value appended to the text. The caller must ensure this does not
-     * appear in the original token stream. It must compare strictly less than
-     * any real token if you rely on lexicographic uniqueness of suffixes.
-     * For most tokenizers that map natural tokens to non negative integers,
-     * -1 is safe.
-     */
-    private static final int SENTINEL = -1;
-
-    /**
-     * Root of the suffix tree.
-     */
     private final Node root;
+    private final int[] text;           // includes sentinel at end
+    private final int originalLength;   // length before sentinel
 
-    /**
-     * The full text including the sentinel at the end.
-     */
-    private final int[] text;
-
-    /**
-     * Length of the original text before appending the sentinel.
-     */
-    private final int originalLength;
-
-    /**
-     * Final inclusive end index for all open leaf edges.
-     * After build completes this is text.length - 1.
-     * We keep it so that effectiveEnd works for leaves.
-     */
-    private final int finalLeafEndValue;
-
-    private SuffixTree(Node root,
-                               int[] text,
-                               int originalLength,
-                               int finalLeafEndValue) {
+    private SuffixTree(Node root, int[] text, int originalLength) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
-        this.finalLeafEndValue = finalLeafEndValue;
     }
 
     /**
-     * Build a suffix tree for the given integer token array using Ukkonen's algorithm.
-     * A unique sentinel is appended so that all suffixes become explicit and terminate
-     * at leaves. This guarantees that every suffix corresponds to exactly one leaf.
-     *
-     * The resulting tree uses the same allocation strategy as SuffixTreeIndex
-     * in other words, Node holds (start, end) for the incoming edge and keeps its
-     * children in a compact IntChildMap rather than a java.util.HashMap.
+     * Build a suffix tree from an integer token array. We:
+     *  - append a unique sentinel strictly smaller than any input token,
+     *  - create a dense non-negative alphabet via radix ranking,
+     *  - run DC3 / Skew to get the suffix array,
+     *  - run Kasai to get the LCP,
+     *  - build a compressed suffix tree in linear time.
      */
     public static SuffixTree build(int[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
 
-        // Append the sentinel
-        int n0 = alphabetMappedText.length;
-        int[] terminated = Arrays.copyOf(alphabetMappedText, n0 + 1);
-        terminated[n0] = SENTINEL;
+        // Step 0. Append sentinel that is strictly smaller than all real symbols.
+        final int n0 = alphabetMappedText.length;
+        final int[] terminated = new int[n0 + 1];
 
-        // Run Ukkonen's algorithm in a builder that uses the compact node layout
-        UkkonenBuilder builder = new UkkonenBuilder(terminated);
-        Node builtRoot = builder.build();
+        int minVal = (n0 == 0) ? 0 : alphabetMappedText[0];
+        for (int v : alphabetMappedText) {
+            if (v < minVal) {
+                minVal = v;
+            }
+        }
+        final int sentinel = (n0 == 0)
+                ? Integer.MIN_VALUE
+                : (minVal == Integer.MIN_VALUE ? Integer.MIN_VALUE : (minVal - 1));
 
-        // After building we optionally compact suffix links and trim maps
-        compactForQuerying(builtRoot);
+        System.arraycopy(alphabetMappedText, 0, terminated, 0, n0);
+        terminated[n0] = sentinel;
 
-        // Wrap in final tree object
-        return new SuffixTree(
-                builtRoot,
-                terminated,
-                n0,
-                builder.getLeafEndValue()
-        );
+        final int n = n0 + 1;
+
+        // Step 0.5. Build dense non-negative ranks so DC3 can work efficiently.
+        //
+        // We encode each position i (including the sentinel) into a sortable 64-bit key.
+        // keys[i] is monotonic with respect to (token value, sentinel-flag).
+        // Then we radix-sort those keys and assign consecutive integer ranks.
+        long[] keys = new long[n];
+        int[] order = new int[n];
+
+        final long base = (long) sentinel;
+        for (int i = 0; i < n; i++) {
+            long adjusted = ((long) terminated[i]) - base; // >= 0
+            long k = (adjusted << 1) | 1L; // default: "real" symbol
+            if (i == n - 1) {
+                // Force the last position (the sentinel suffix) to be globally smallest.
+                k = (adjusted << 1);
+            }
+            keys[i] = k;
+            order[i] = i;
+        }
+
+        // Radix sort the (key,index) pairs. This is now optimized to skip unused high bytes.
+        RadixSorter.sortParallel(keys, order);
+
+        // Assign dense ranks: equal keys get same rank, monotone increasing otherwise.
+        int[] normalized = new int[n];
+        int rank = 0;
+        long lastKey = keys[0];
+        normalized[order[0]] = 0;
+        for (int i = 1; i < n; i++) {
+            long k = keys[i];
+            if (k != lastKey) {
+                rank++;
+                lastKey = k;
+            }
+            normalized[order[i]] = rank;
+        }
+
+        // Step 1. Build suffix array using DC3 / Skew on normalized array.
+        int[] sa = SuffixArrayBuilder.buildSuffixArray(normalized);
+
+        // Step 2. Build LCP via Kasai.
+        int[] lcp = (n > 1)
+                ? SuffixArrayBuilder.buildLcpArray(normalized, sa)
+                : new int[0];
+
+        // Step 3. Build explicit compressed suffix tree.
+        Node root = LinearBuilder.buildFromSuffixArray(terminated, sa, lcp);
+
+        return new SuffixTree(root, terminated, n0);
     }
 
     /**
-     * Return the root node of the suffix tree.
+     * Return the root node.
      */
     public Node getRoot() {
         return root;
     }
 
     /**
-     * Return a defensive copy of the underlying text, including the sentinel.
+     * Return a copy of the underlying text (with sentinel).
      */
     public int[] getText() {
         return Arrays.copyOf(text, text.length);
     }
 
     /**
-     * Return the number of original symbols without the sentinel.
+     * Return the logical text length, excluding the sentinel.
      */
     public int getOriginalLength() {
         return originalLength;
     }
 
     /**
-     * Pattern search
-     *
-     * We walk the pattern down the tree starting at the root.
-     * At each step we choose the child edge whose first token matches
-     * the next pattern token. That child node stores the edge label
-     * boundaries in the fields start and end. We then compare the pattern
-     * tokens to text[start .. end] directly. We never allocate new strings
-     * and we never rescan the same pattern position twice.
-     *
-     * If we consume the entire pattern in the middle of an edge, that is
-     * still a match, because compressed suffix tree edges are path compressed
-     * and there is no branching in the middle of an edge label. All suffixes
-     * hanging under the child node correspond to that match.
-     *
-     * Once the pattern is fully matched, we collect all leaves reachable
-     * under the current node. For each leaf we report its suffixIndex,
-     * as long as that match stays within the originalLength and does not
-     * run into the sentinel.
-     *
-     * Time cost is linear in the length of the pattern plus the number
-     * of matches reported. That is the classic suffix tree query bound.
+     * Find all starting offsets where the pattern occurs in the original text.
+     * Pattern is an array of tokens from the same alphabet (without the sentinel).
+     * We descend the tree. If we finish matching the pattern in the middle of an edge,
+     * we gather all leaf suffix indices below that point. We filter out matches that
+     * would run past the original-length boundary.
      */
     public List<Integer> findOccurrences(int[] pattern) {
         if (pattern == null || pattern.length == 0) {
@@ -185,516 +154,323 @@ public final class SuffixTree {
         int patternIndex = 0;
 
         while (patternIndex < pattern.length) {
+
             int symbol = pattern[patternIndex];
-            Node next = getChild(current, symbol);
-            if (next == null) {
+            Edge edge = current.getEdge(symbol);
+            if (edge == null) {
                 return Collections.emptyList();
             }
 
-            int edgeStart = next.start;
-            int edgeEndInclusive = next.effectiveEnd(finalLeafEndValue);
-            int cursor = edgeStart;
+            int edgeStart = edge.start;
+            int edgeEndExclusive = edge.end;
+            int edgeLen = edgeEndExclusive - edgeStart;
 
-            // Walk along this edge while tokens match
-            while (patternIndex < pattern.length && cursor <= edgeEndInclusive) {
-                if (text[cursor] != pattern[patternIndex]) {
+            int consumed = 0;
+            while (consumed < edgeLen && patternIndex < pattern.length) {
+                if (text[edgeStart + consumed] != pattern[patternIndex]) {
                     return Collections.emptyList();
                 }
-                cursor++;
+                consumed++;
                 patternIndex++;
             }
 
-            // If we consumed the full pattern, collect leaves below 'next'
+            // Pattern ended in the middle or at the end of this edge.
             if (patternIndex == pattern.length) {
-                ArrayList<Integer> matches = new ArrayList<>();
-                collectLeafStarts(next, pattern.length, matches);
-                return matches;
+                return collectOccurrences(edge.child, pattern.length);
             }
 
-            // Otherwise we must have consumed the entire edge
-            if (cursor > edgeEndInclusive) {
-                current = next;
-                continue;
-            }
+            // Otherwise we fully consumed this edge and still have pattern left.
+            current = edge.child;
+        }
 
-            // We got stuck in the middle of the edge without consuming
-            // the full pattern. That means mismatch
+        // If we exit the loop naturally, pattern ended exactly at a node.
+        return collectOccurrences(current, pattern.length);
+    }
+
+    /**
+     * Iteratively gather all leaves under 'node'. Each leaf's suffixIndex is a match start.
+     * We filter out matches that would extend beyond originalLength.
+     *
+     * We do this iteratively rather than recursively to avoid deep recursion overhead
+     * and Java Virtual Machine stack pressure on large repetitive inputs.
+     */
+    private List<Integer> collectOccurrences(Node node, int patternLength) {
+        if (node == null) {
             return Collections.emptyList();
         }
 
-        // If we exit naturally, we matched the pattern exactly at an explicit node
-        ArrayList<Integer> matches = new ArrayList<>();
-        collectLeafStarts(current, pattern.length, matches);
+        List<Integer> matches = new ArrayList<>();
+        ArrayList<Node> stack = new ArrayList<>();
+        stack.add(node);
+
+        while (!stack.isEmpty()) {
+            Node cur = stack.remove(stack.size() - 1);
+            if (cur.isLeaf()) {
+                int idx = cur.getSuffixIndex();
+                if (idx >= 0 && idx + patternLength <= originalLength) {
+                    matches.add(idx);
+                }
+                continue;
+            }
+            for (Edge e : cur.edgesIterable()) {
+                stack.add(e.child);
+            }
+        }
+
         return matches;
     }
 
     /**
-     * Depth first traversal of the subtree under node, collecting starting
-     * positions for all suffixes at leaves. We filter out suffixes that
-     * would extend past the originalLength, so matches that include the
-     * sentinel are not reported.
-     */
-    private void collectLeafStarts(Node node, int patternLength, List<Integer> out) {
-        if (node == null) {
-            return;
-        }
-
-        if (!hasChildren(node)) {
-            // Leaf case
-            // suffixIndex is set during construction for leaves
-            int startIndex = (node.suffixIndex >= 0) ? node.suffixIndex : node.start;
-            if (startIndex >= 0 && startIndex + patternLength <= originalLength) {
-                out.add(startIndex);
-            }
-            return;
-        }
-
-        forEachChild(node, child -> collectLeafStarts(child, patternLength, out));
-    }
-
-    /**
-     * After building we want to drop construction only pointers like suffixLink
-     * and trim the child maps so they do not waste capacity.
+     * A node in the suffix tree.
      *
-     * This is similar to compactForQuerying in SuffixTreeIndex.
-     * It makes the final tree cheaper to keep resident in memory.
-     * Under the landmark model and to be fair since we did not implement Farach Colton as in the original paper
-     * before any memory bench marking this is used
-     */
-    public static void compactForQuerying(Node node) {
-        if (node == null) {
-            return;
-        }
-        if (hasChildren(node)) {
-            // Trim the map itself first
-            node.children.trimToSize();
-            // Then recurse
-            forEachChild(node, SuffixTree::compactForQuerying);
-        } else {
-            // No children at all, drop the structure to null to save memory
-            node.children = null;
-        }
-        // Suffix links are only needed during construction
-        node.suffixLink = null;
-    }
-
-    /* =========================================================================
-       Internal node, child map, and Ukkonen builder
-       ========================================================================= */
-
-    /**
-     * Node represents both
-     *   1. an edge label from its parent, given by the inclusive [start, end]
-     *      indices into the global text array, and
-     *   2. a branching point with zero or more outgoing children.
+     * We use an adaptive child storage strategy for performance.
      *
-     * This is the exact same trick you are using in SuffixTreeIndex.
+     *   - For up to two children we store (key, edge) pairs directly in fields
+     *     without allocating any map.
      *
-     * Fields
-     *   children       Either null, or an IntChildMap for outgoing edges
-     *   suffixLink     Used only during Ukkonen construction, cleared later
-     *   start          Inclusive start index in text[] of the edge label
-     *   end            Inclusive end index in text[] of the edge label
-     *                  or LEAF_SENTINEL for "use the global leaf end"
-     *   suffixIndex    For leaves, the starting index in the text for that suffix
+     *   - If a node ever needs more than two distinct children, we "promote"
+     *     it to an Int2ObjectOpenHashMap<Edge> from FastUtil. We then move
+     *     those inline children into the map once, and from that point on we
+     *     just use the map.
      *
-     * LEAF_SENTINEL means "this node is currently a leaf whose edge keeps growing"
-     * and we should read its effective end from the shared leafEndValue
+     * This saves a huge amount of allocation and rehash churn compared to
+     * creating a brand new map for every node up front.
      */
     public static final class Node {
-        private IntChildMap children;
-        private Node suffixLink;
-        private int start;
-        private int end; // inclusive, or LEAF_SENTINEL
-        private int suffixIndex = -1;
 
-        private static final int LEAF_SENTINEL = Integer.MIN_VALUE;
+        // Inline child slot A
+        private int keyA = Integer.MIN_VALUE;
+        private Edge edgeA = null;
 
-        private Node(int start, int end) {
+        // Inline child slot B
+        private int keyB = Integer.MIN_VALUE;
+        private Edge edgeB = null;
+
+        // Promoted map for >2 children
+        private Int2ObjectOpenHashMap<Edge> edgeMap = null;
+
+        // Leaf payload
+        private int suffixIndex = -1; // only meaningful for leaves
+
+        private Node() {
+            // no allocation up front
+        }
+
+        private static Node leaf(int suffixIndex) {
+            Node node = new Node();
+            node.suffixIndex = suffixIndex;
+            return node;
+        }
+
+        public boolean isLeaf() {
+            return suffixIndex >= 0;
+        }
+
+        public int getSuffixIndex() {
+            return suffixIndex;
+        }
+
+        /**
+         * Return the edge starting with 'symbol', or null if none.
+         */
+        public Edge getEdge(int symbol) {
+            if (edgeMap != null) {
+                return edgeMap.get(symbol);
+            }
+            if (edgeA != null && keyA == symbol) {
+                return edgeA;
+            }
+            if (edgeB != null && keyB == symbol) {
+                return edgeB;
+            }
+            return null;
+        }
+
+        /**
+         * Insert or replace an outgoing edge under the given first symbol.
+         */
+        public void putEdge(int symbol, Edge e) {
+            if (edgeMap != null) {
+                edgeMap.put(symbol, e);
+                return;
+            }
+
+            // Try slot A
+            if (edgeA == null || keyA == symbol) {
+                keyA = symbol;
+                edgeA = e;
+                return;
+            }
+
+            // Try slot B
+            if (edgeB == null || keyB == symbol) {
+                keyB = symbol;
+                edgeB = e;
+                return;
+            }
+
+            // Need to promote to a map
+            edgeMap = new Int2ObjectOpenHashMap<>(4);
+            edgeMap.put(keyA, edgeA);
+            edgeMap.put(keyB, edgeB);
+            edgeMap.put(symbol, e);
+
+            // Optional: clear inline slots to save a tiny bit of memory.
+            keyA = Integer.MIN_VALUE;
+            keyB = Integer.MIN_VALUE;
+            edgeA = null;
+            edgeB = null;
+        }
+
+        /**
+         * An iterable view of all outgoing edges. Callers do not need to know if we are
+         * using inline slots or a map.
+         */
+        public Iterable<Edge> edgesIterable() {
+            if (edgeMap != null) {
+                return edgeMap.values();
+            }
+
+            if (edgeA != null && edgeB != null) {
+                return Arrays.asList(edgeA, edgeB);
+            } else if (edgeA != null) {
+                return Collections.singletonList(edgeA);
+            } else if (edgeB != null) {
+                return Collections.singletonList(edgeB);
+            } else {
+                return Collections.emptyList();
+            }
+        }
+    }
+
+    /**
+     * A compressed edge in the suffix tree. The label is text[start .. end),
+     * end exclusive. We do not copy substrings.
+     */
+    public static final class Edge {
+        private final int start;
+        private int end;
+        private final Node child;
+
+        private Edge(int start, int end, Node child) {
             this.start = start;
             this.end = end;
+            this.child = child;
         }
 
-        private int effectiveEnd(int leafEndValue) {
-            return (end == LEAF_SENTINEL) ? leafEndValue : end;
+        public int getStart() {
+            return start;
         }
 
-        private int edgeLength(int leafEndValue) {
-            if (start == -1) {
-                return 0;
-            }
-            return effectiveEnd(leafEndValue) - start + 1;
-        }
-    }
-
-    /**
-     * IntChildMap is a compact associative container from "first token on outgoing edge"
-     * to the child Node that represents that edge.
-     *
-     * It starts with four inline slots, then upgrades to an IntNodeMap which is a
-     * small open addressed hash table on primitive int keys. This avoids creating
-     * java.util.HashMap and it avoids boxing keys into Integer objects.
-     *
-     * This matches your ChildMap but specialized to int instead of long, so that
-     * it can be used with int token arrays.
-     */
-    private static final class IntChildMap {
-        // mode 0 empty, 1..4 number of inline entries, 5 means using hash table
-        private byte mode = 0;
-
-        private int k1, k2, k3, k4;
-        private Node v1, v2, v3, v4;
-
-        private IntNodeMap map;
-
-        boolean isEmpty() {
-            return mode == 0;
+        public int getEnd() {
+            return end;
         }
 
-        Node get(int key) {
-            switch (mode) {
-                case 0:  return null;
-                case 1:  return (k1 == key ? v1 : null);
-                case 2:  return (k1 == key ? v1 : (k2 == key ? v2 : null));
-                case 3:  return (k1 == key ? v1 :
-                        (k2 == key ? v2 :
-                                (k3 == key ? v3 : null)));
-                case 4:  return (k1 == key ? v1 :
-                        (k2 == key ? v2 :
-                                (k3 == key ? v3 :
-                                        (k4 == key ? v4 : null))));
-                default:
-                    return map.get(key);
-            }
-        }
-
-        void put(int key, Node value) {
-            switch (mode) {
-                case 0:
-                    k1 = key; v1 = value; mode = 1; return;
-                case 1:
-                    if (k1 == key) { v1 = value; return; }
-                    k2 = key; v2 = value; mode = 2; return;
-                case 2:
-                    if (k1 == key) { v1 = value; return; }
-                    if (k2 == key) { v2 = value; return; }
-                    k3 = key; v3 = value; mode = 3; return;
-                case 3:
-                    if (k1 == key) { v1 = value; return; }
-                    if (k2 == key) { v2 = value; return; }
-                    if (k3 == key) { v3 = value; return; }
-                    k4 = key; v4 = value; mode = 4; return;
-                case 4:
-                    if (k1 == key) { v1 = value; return; }
-                    if (k2 == key) { v2 = value; return; }
-                    if (k3 == key) { v3 = value; return; }
-                    if (k4 == key) { v4 = value; return; }
-                    // upgrade to hash table
-                    map = new IntNodeMap(8);
-                    map.put(k1, v1);
-                    map.put(k2, v2);
-                    map.put(k3, v3);
-                    map.put(k4, v4);
-                    // free inline slots
-                    v1 = v2 = v3 = v4 = null;
-                    mode = 5;
-                    map.put(key, value);
-                    return;
-                default:
-                    map.put(key, value);
-            }
-        }
-
-        void trimToSize() {
-            if (mode == 5 && map != null) {
-                map.trimToSize();
-            }
-        }
-
-        void forEach(Consumer<Node> consumer) {
-            switch (mode) {
-                case 0:  return;
-                case 1:  consumer.accept(v1); return;
-                case 2:  consumer.accept(v1); consumer.accept(v2); return;
-                case 3:  consumer.accept(v1); consumer.accept(v2); consumer.accept(v3); return;
-                case 4:  consumer.accept(v1); consumer.accept(v2); consumer.accept(v3); consumer.accept(v4); return;
-                default: map.forEach(consumer);
-            }
+        public Node getChild() {
+            return child;
         }
     }
 
     /**
-     * IntNodeMap is the open addressed fallback map for IntChildMap once we exceed
-     * four children. It uses linear probing, keeps primitive int keys and Node values,
-     * and supports trimming after the build is complete.
-     */
-    private static final class IntNodeMap {
-        private static final float LOAD_FACTOR = 0.75f;
-
-        private int[] keys;
-        private Node[] values;
-        private byte[] states; // 0 empty, 1 occupied, 2 deleted (2 is unused here)
-        private int mask;
-        private int size;
-        private int threshold;
-
-        IntNodeMap(int initialCapacity) {
-            initialise(Math.max(4, initialCapacity));
-        }
-
-        Node get(int key) {
-            int idx = findIndex(key);
-            return (idx >= 0) ? values[idx] : null;
-        }
-
-        void put(int key, Node value) {
-            int slot = findSlot(key);
-            if (states[slot] == 1) {
-                values[slot] = value;
-                return;
-            }
-            keys[slot] = key;
-            values[slot] = value;
-            states[slot] = 1;
-            size++;
-            if (size >= threshold) {
-                rehash(keys.length << 1);
-            }
-        }
-
-        void trimToSize() {
-            if (size == 0) {
-                initialise(4);
-                return;
-            }
-            int minNeeded = (int) Math.ceil(size / (double) LOAD_FACTOR);
-            int target = 1;
-            while (target < minNeeded) {
-                target <<= 1;
-            }
-            if (keys.length != target) {
-                rehash(target);
-            }
-        }
-
-        void forEach(Consumer<Node> consumer) {
-            for (int i = 0; i < states.length; i++) {
-                if (states[i] == 1) {
-                    consumer.accept(values[i]);
-                }
-            }
-        }
-
-        private int findIndex(int key) {
-            int idx = mix(key) & mask;
-            while (states[idx] != 0) {
-                if (states[idx] == 1 && keys[idx] == key) {
-                    return idx;
-                }
-                idx = (idx + 1) & mask;
-            }
-            return -1;
-        }
-
-        private int findSlot(int key) {
-            int idx = mix(key) & mask;
-            while (states[idx] == 1 && keys[idx] != key) {
-                idx = (idx + 1) & mask;
-            }
-            return idx;
-        }
-
-        private void rehash(int newCapacity) {
-            int[] oldKeys = keys;
-            Node[] oldValues = values;
-            byte[] oldStates = states;
-
-            initialise(newCapacity);
-            for (int i = 0; i < oldStates.length; i++) {
-                if (oldStates[i] == 1) {
-                    put(oldKeys[i], oldValues[i]);
-                }
-            }
-        }
-
-        private void initialise(int capacity) {
-            int pow2 = 1;
-            while (pow2 < capacity) {
-                pow2 <<= 1;
-            }
-            keys = new int[pow2];
-            values = new Node[pow2];
-            states = new byte[pow2];
-            mask = pow2 - 1;
-            threshold = (int) (pow2 * LOAD_FACTOR);
-            size = 0;
-        }
-
-        private int mix(int key) {
-            // 32 bit mix similar to Murmur style avalanche
-            int z = key;
-            z ^= (z >>> 16);
-            z *= 0x85ebca6b;
-            z ^= (z >>> 13);
-            z *= 0xc2b2ae35;
-            z ^= (z >>> 16);
-            return z;
-        }
-    }
-
-    /**
-     * UkkonenBuilder implements Ukkonen's algorithm (which is an online linear time suffix tree
-     * construction algorithm) for an integer array. It constructs the final Node graph directly
-     * using the compact Node and IntChildMap structures above. It never creates intermediate
-     * Edge objects and never creates a java.util.HashMap per node.
+     * LinearBuilder
      *
-     * The code structure is deliberately very close to SuffixTreeIndex.extendSuffixTree.
-     * The difference is that here we are iterating across a fixed int[] called text,
-     * not across a growing LongSequence, but the mechanics are the same.
+     * Convert a suffix array + Longest Common Prefix array into an explicit compressed suffix tree
+     * in O(n). We keep an explicit stack of:
+     *
+     *   nodeStack[k]  = the node at stack depth k
+     *   depthStack[k] = the string depth (number of symbols from root) for that node
+     *   edgeStack[k]  = the incoming edge that leads to nodeStack[k] from its parent
+     *
+     * No user code needs to call this directly.
      */
-    private static final class UkkonenBuilder {
-        private final int[] text;       // full text including sentinel
-        private final Node root;        // suffix tree root
+    private static final class LinearBuilder {
 
-        // Active point and global state from Ukkonen's algorithm
-        private Node activeNode;
-        private int activeEdge = -1;    // index in text naming the active edge
-        private int activeLength = 0;
-
-        private int remainingSuffixCount = 0;
-        private int leafEndValue = -1;  // inclusive end shared by all current leaves
-        private Node lastCreatedInternalNode = null;
-
-        UkkonenBuilder(int[] text) {
-            this.text = text;
-            this.root = new Node(-1, -1);
-            this.root.suffixLink = this.root;
-            this.activeNode = this.root;
+        private LinearBuilder() {
         }
 
-        Node build() {
-            for (int pos = 0; pos < text.length; pos++) {
-                extend(pos);
+        static Node buildFromSuffixArray(int[] text, int[] sa, int[] lcp) {
+            final int n = sa.length;
+            final Node root = new Node();
+
+            // Worst-case depth in symbols is <= text.length.
+            final int maxDepth = text.length + 1;
+            final Node[] nodeStack = new Node[maxDepth];
+            final int[] depthStack = new int[maxDepth];
+            final Edge[] edgeStack = new Edge[maxDepth];
+
+            int top = 0;
+            nodeStack[0] = root;
+            depthStack[0] = 0;
+            edgeStack[0] = null;
+
+            for (int i = 0; i < n; i++) {
+
+                int suffixStart = sa[i];
+                int lcpValue = (i == 0) ? 0 : lcp[i - 1];
+
+                // lastIncomingEdge remembers the edge we popped most recently
+                // so that if we need to split it to create an internal node,
+                // we know which edge to rewrite.
+                Edge lastIncomingEdge = null;
+
+                // Pop until the top of stack has depth <= current LCP.
+                while (depthStack[top] > lcpValue) {
+                    lastIncomingEdge = edgeStack[top];
+                    top--;
+                }
+
+                // If the current top depth is still < lcpValue,
+                // we need to split lastIncomingEdge to create an internal node.
+                if (depthStack[top] < lcpValue) {
+                    if (lastIncomingEdge == null) {
+                        throw new IllegalStateException("Inconsistent suffix array / LCP combination");
+                    }
+
+                    Node parentNode = nodeStack[top];
+                    Node oldChild = lastIncomingEdge.child;
+
+                    // Split inside lastIncomingEdge's label.
+                    int splitOffset = lcpValue - depthStack[top];
+                    int splitPoint = lastIncomingEdge.start + splitOffset;
+
+                    // New internal node.
+                    Node internal = new Node();
+
+                    // Tail edge from splitPoint down to the old child.
+                    Edge tail = new Edge(splitPoint, lastIncomingEdge.end, oldChild);
+                    internal.putEdge(text[tail.start], tail);
+
+                    // Shorten the original incoming edge to end at the split.
+                    lastIncomingEdge.end = splitPoint;
+
+                    // Replace in parentNode: parentNode now points to 'internal' via that shortened edge.
+                    parentNode.putEdge(text[lastIncomingEdge.start],
+                            new Edge(lastIncomingEdge.start, lastIncomingEdge.end, internal));
+
+                    // Push the internal node.
+                    top++;
+                    nodeStack[top] = internal;
+                    depthStack[top] = lcpValue;
+                    edgeStack[top] = new Edge(lastIncomingEdge.start, lastIncomingEdge.end, internal);
+                }
+
+                // Attach the leaf for this suffix under nodeStack[top].
+                Node parent = nodeStack[top];
+
+                Node leaf = Node.leaf(suffixStart);
+                int edgeStart = suffixStart + depthStack[top];
+                Edge leafEdge = new Edge(edgeStart, text.length, leaf);
+
+                parent.putEdge(text[edgeStart], leafEdge);
+
+                // Push the leaf so that the next suffix can build on it.
+                top++;
+                nodeStack[top] = leaf;
+                depthStack[top] = text.length - suffixStart; // full suffix depth
+                edgeStack[top] = leafEdge;
             }
+
             return root;
-        }
-
-        int getLeafEndValue() {
-            return leafEndValue;
-        }
-
-        private void extend(int pos) {
-            // The new symbol at position pos extends all current leaves
-            leafEndValue = pos;
-            remainingSuffixCount++;
-            lastCreatedInternalNode = null;
-
-            while (remainingSuffixCount > 0) {
-                if (activeLength == 0) {
-                    activeEdge = pos;
-                }
-
-                int currentEdgeToken = text[activeEdge];
-                Node next = getChild(activeNode, currentEdgeToken);
-
-                if (next == null) {
-                    // Create a new leaf
-                    Node leaf = new Node(pos, Node.LEAF_SENTINEL);
-                    // This suffix starts at (pos - remainingSuffixCount + 1)
-                    leaf.suffixIndex = pos - remainingSuffixCount + 1;
-                    putChild(activeNode, currentEdgeToken, leaf);
-
-                    // Suffix link hookup for the last created internal node
-                    if (lastCreatedInternalNode != null) {
-                        lastCreatedInternalNode.suffixLink = activeNode;
-                        lastCreatedInternalNode = null;
-                    }
-                } else {
-                    if (walkDown(next)) {
-                        continue;
-                    }
-
-                    int nextToken = text[next.start + activeLength];
-                    int currentToken = text[pos];
-                    if (nextToken == currentToken) {
-                        // Rule 3 in Ukkonen
-                        if (lastCreatedInternalNode != null && activeNode != root) {
-                            lastCreatedInternalNode.suffixLink = activeNode;
-                            lastCreatedInternalNode = null;
-                        }
-                        activeLength++;
-                        break;
-                    }
-
-                    // We have a mismatch in the middle of an edge.
-                    // We split that edge and create a new internal node.
-                    int splitEndVal = next.start + activeLength - 1;
-                    Node split = new Node(next.start, splitEndVal);
-                    putChild(activeNode, currentEdgeToken, split);
-
-                    // New leaf from current position
-                    Node leaf = new Node(pos, Node.LEAF_SENTINEL);
-                    leaf.suffixIndex = pos - remainingSuffixCount + 1;
-                    putChild(split, currentToken, leaf);
-
-                    // Advance 'next' to start after the split and hook it under split
-                    next.start = next.start + activeLength;
-                    int nextEdgeToken = text[next.start];
-                    putChild(split, nextEdgeToken, next);
-
-                    // Suffix link stitching
-                    if (lastCreatedInternalNode != null) {
-                        lastCreatedInternalNode.suffixLink = split;
-                    }
-                    lastCreatedInternalNode = split;
-                    split.suffixLink = root;
-                }
-
-                remainingSuffixCount--;
-
-                if (activeNode == root && activeLength > 0) {
-                    activeLength--;
-                    activeEdge = pos - remainingSuffixCount + 1;
-                } else if (activeNode != root) {
-                    activeNode = (activeNode.suffixLink != null) ? activeNode.suffixLink : root;
-                }
-            }
-        }
-
-        private boolean walkDown(Node next) {
-            int edgeLength = next.edgeLength(leafEndValue);
-            if (activeLength >= edgeLength) {
-                activeEdge += edgeLength;
-                activeLength -= edgeLength;
-                activeNode = next;
-                return true;
-            }
-            return false;
-        }
-    }
-
-    /* =========================================================================
-       Tiny helpers mirroring SuffixTreeIndex helpers but for int keys
-       ========================================================================= */
-
-    private static Node getChild(Node n, int token) {
-        return (n.children == null) ? null : n.children.get(token);
-    }
-
-    private static void putChild(Node n, int token, Node child) {
-        if (n.children == null) {
-            n.children = new IntChildMap();
-        }
-        n.children.put(token, child);
-    }
-
-    private static boolean hasChildren(Node n) {
-        return n.children != null && !n.children.isEmpty();
-    }
-
-    private static void forEachChild(Node n, Consumer<Node> c) {
-        if (n.children != null) {
-            n.children.forEach(c);
         }
     }
 }

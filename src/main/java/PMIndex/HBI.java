@@ -1,6 +1,7 @@
 package PMIndex;
 
 import estimators.CostFunction;
+import estimators.CostFunctionDefaultRoot;
 import estimators.Estimator;
 import estimators.HOPS;
 import jdk.jshell.execution.Util;
@@ -75,7 +76,7 @@ public final class HBI implements IPMIndexing {
     public double QUANTILE = 0.05;
     private long lastPolicyQuantileKey = -1L;
     private int lastPolicyQuantileFrequency = 0;
-
+    public boolean isRootAlg = false;
     public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
     public int pctEstimatorBuckets;
     private final int maxActiveTrees;
@@ -109,6 +110,9 @@ public final class HBI implements IPMIndexing {
         this.conf = config.confidence();
         this.keyMapper = new StringKeyMapper(this.alphabetSize, 0.0001);
         this.nGram = config.nGram();
+        if(this.cf instanceof CostFunctionDefaultRoot) {
+            this.isRootAlg = true;
+        }
         trees.addLast(createTree());
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
         if(isMarkov) {
@@ -118,6 +122,10 @@ public final class HBI implements IPMIndexing {
         Utils.MemPolicy configuredPolicy = config.memPolicy();
         this.memPolicy = configuredPolicy == null ? Utils.MemPolicy.NONE : configuredPolicy;
         this.memoryPolicy = this.memPolicy != Utils.MemPolicy.NONE;
+        if(this.isRootAlg){
+            this.memPolicy = Utils.MemPolicy.NONE;
+            this.memoryPolicy = false;
+        }
         if (this.memoryPolicy) {
             this.pctEstimatorBuckets = Math.max(1, this.alphabetSize);
 
@@ -190,7 +198,7 @@ public final class HBI implements IPMIndexing {
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
-        if (this.memPolicy != Utils.MemPolicy.NONE) {
+        if (!this.isRootAlg && this.memPolicy != Utils.MemPolicy.NONE) {
             this.pctEstimator.insert(token);
         }
         if(isMarkov) {
@@ -203,7 +211,7 @@ public final class HBI implements IPMIndexing {
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
 
-            if(this.memoryPolicy){
+            if(this.memoryPolicy && !this.isRootAlg){
                 applyMemoryPolicy();
 //                if(this.memPolicy == Utils.MemPolicy.PREDICTIVE){
 //
@@ -212,12 +220,14 @@ public final class HBI implements IPMIndexing {
 
             ImplicitTree<Membership> fresh = createTree();
             fresh.id = trees.size();
-            fresh.estimator.insert(token);
+            if(!isRootAlg) {
+                fresh.estimator.insert(token);
+            }
             fresh.append(token, indexedItemsCounter);
             trees.add(fresh);
 //            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
         } else {
-            lastTree.estimator.insert(token);
+            if(!isRootAlg) { lastTree.estimator.insert(token);}
             lastTree.append(token, indexedItemsCounter);
         }
 
@@ -491,14 +501,17 @@ public final class HBI implements IPMIndexing {
             bf.init(distinct, fpRate);
             return bf;
         };
-
+        Estimator est = null;
+        if(!this.isRootAlg) est = estimatorFac.get();
         ImplicitTree<Membership> tree = new ImplicitTree<>(
                 layout,
                 filterFactory,
                 new KeyPackingService(maxDepth, alphabetSize),
                 //new Key64(maxDepth, alphabetSize),
-                estimatorFac.get());
-        tree.pruningPlan = pruningPlanFac.get();
+                est);
+        if(!isRootAlg) {
+            tree.pruningPlan = pruningPlanFac.get();
+        }
         return tree;
     }
 

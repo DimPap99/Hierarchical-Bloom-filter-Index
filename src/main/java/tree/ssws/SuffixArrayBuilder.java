@@ -5,19 +5,15 @@ import java.util.Arrays;
 /**
  * SuffixArrayBuilder
  *
- * This class builds:
+ * Provides:
+ *   - buildSuffixArray(int[] text): DC3 / Skew linear time suffix array construction
+ *   - buildLcpArray(int[] text, int[] sa): Kasai's Longest Common Prefix in linear time
  *
- *   - A suffix array in linear time using the DC3 algorithm
- *     which is also known as Skew. DC3 partitions suffixes
- *     by index modulo three, sorts two of the three classes
- *     with radix sort on triples (s[i], s[i+1], s[i+2]),
- *     recursively ranks them, induces the remaining class,
- *     and merges in linear time.
- *
- *   - A Longest Common Prefix (LCP) array in linear time
- *     using Kasai's algorithm.
- *
-
+ * Performance improvements:
+ *   We reuse a per-thread Dc3Workspace to avoid allocating fresh large
+ *   scratch arrays (sample, sa12, rank12, mod0, buffer, count) on every call.
+ *   This significantly reduces garbage collector pressure if you build
+ *   many suffix arrays repeatedly (for example in a sliding window index).
  */
 final class SuffixArrayBuilder {
 
@@ -25,9 +21,56 @@ final class SuffixArrayBuilder {
     }
 
     /**
-     * Build the suffix array of "text" using the DC3 / Skew algorithm.
-     * "text" must be a non-negative integer alphabet and should already
-     * include the sentinel as the lexicographically smallest symbol.
+     * Small reusable workspace for DC3 / skew.
+     * We store and reuse scratch arrays here instead of reallocating them every build.
+     */
+    private static final class Dc3Workspace {
+        int[] sample;
+        int[] sa12;
+        int[] rank12;
+        int[] mod0;
+        int[] buffer;
+        int[] count;
+
+        Dc3Workspace(int cap, int countCap) {
+            sample = new int[cap];
+            sa12 = new int[cap];
+            rank12 = new int[cap];
+            mod0 = new int[cap];
+            buffer = new int[cap];
+            count = new int[countCap];
+        }
+
+        void ensureCapacity(int n, int alphabetSize) {
+            // n is the full text length
+            // n12 ~ 2/3 n in DC3, n0 ~ 1/3 n. We just allocate ~n for all.
+            int cap = n + 5;
+            if (sample.length < cap) {
+                sample = Arrays.copyOf(sample, cap);
+                sa12   = Arrays.copyOf(sa12,   cap);
+                rank12 = Arrays.copyOf(rank12, cap);
+                mod0   = Arrays.copyOf(mod0,   cap);
+                buffer = Arrays.copyOf(buffer, cap);
+            }
+            int neededCount = Math.max(Math.max(alphabetSize + 2, n + 2), 16);
+            if (count.length < neededCount) {
+                count = Arrays.copyOf(count, neededCount);
+            }
+        }
+    }
+
+    /**
+     * One workspace per thread. This saves us from frequent allocation
+     * in streaming / repeated builds, but does not require changing the
+     * public method signatures.
+     */
+    private static final ThreadLocal<Dc3Workspace> TLS_WORKSPACE =
+            ThreadLocal.withInitial(() -> new Dc3Workspace(16, 32));
+
+    /**
+     * Build the suffix array of "text" using DC3 / Skew.
+     * "text" must be a non-negative integer alphabet and must already
+     * include a globally smallest sentinel at the end.
      */
     static int[] buildSuffixArray(int[] text) {
         if (text == null) {
@@ -38,12 +81,10 @@ final class SuffixArrayBuilder {
             return new int[0];
         }
 
-        // DC3 requires padding with up to 3 zeros so that we can safely
-        // read s[i+1] and s[i+2] without range checks. We copy once.
+        // DC3 expects padding up to 3 zeros so we can read s[i+1], s[i+2] without bounds checks.
         int[] s = Arrays.copyOf(text, n + 3);
 
-        // The Skew algorithm assumes non-negative integers. We already
-        // enforced that during normalization in FarachColtonSuffixTree.build.
+        // Confirm non-negative and track max symbol for counting sort bounds.
         int max = 0;
         for (int i = 0; i < n; i++) {
             int value = s[i];
@@ -56,22 +97,32 @@ final class SuffixArrayBuilder {
         }
 
         int[] sa = new int[n];
-        int alphabetSize = Math.max(max, n); // safe upper bound for counting arrays
-        skew(s, sa, n, alphabetSize);
+        int alphabetSize = Math.max(max, n);
+
+        Dc3Workspace ws = TLS_WORKSPACE.get();
+        ws.ensureCapacity(n, alphabetSize);
+
+        skewWithWorkspace(s, sa, n, alphabetSize, ws);
+
         return sa;
     }
 
     /**
-     * The DC3 / Skew algorithm. This code has been tuned to:
-     *   - Allocate working arrays once per call (sample, sa12, rank12, mod0, buffer, count)
-     *   - Reuse a shared counting array "count" in radixPass and countingSort
-     *     instead of allocating a new array each time
+     * A lightly modified DC3 / Skew that uses (and reuses) a Dc3Workspace.
+     * The core algorithm is the same:
      *
-     * This significantly reduces heap churn for large inputs, which
-     * directly helps StreamingSlidingWindowIndex where we rebuild
-     * suffix arrays for entire segments and boundaries.
+     *   1. Sort mod-1 and mod-2 suffixes by 3-character tuple
+     *   2. Assign ranks (names)
+     *   3. Recurse if ranks are not unique
+     *   4. Sort mod-0 suffixes by (first char, rank of following suffix)
+     *   5. Merge
      */
-    private static void skew(int[] s, int[] sa, int n, int alphabetSize) {
+    private static void skewWithWorkspace(int[] s,
+                                          int[] sa,
+                                          int n,
+                                          int alphabetSize,
+                                          Dc3Workspace ws) {
+
         if (n == 1) {
             sa[0] = 0;
             return;
@@ -87,17 +138,20 @@ final class SuffixArrayBuilder {
             return;
         }
 
-        // Split suffixes by index modulo 3.
+        // Partition suffixes by index mod 3.
         final int n0 = (n + 2) / 3;
         final int n1 = (n + 1) / 3;
-        final int n2 = n / 3;
+        final int n2 = (n) / 3;
         final int n12 = n1 + n2;
 
-        // Working arrays for the modulo 1 and modulo 2 suffixes.
-        int[] sample = new int[n12 + 3];
-        int[] sa12 = new int[n12 + 3];
+        int[] sample = ws.sample;  // length >= n + 5
+        int[] sa12   = ws.sa12;
+        int[] rank12 = ws.rank12;
+        int[] mod0   = ws.mod0;
+        int[] buffer = ws.buffer;
+        int[] count  = ws.count;
 
-        // Build the list of indices i where i % 3 != 0.
+        // Build list of indices i where i % 3 != 0 into 'sample'.
         int sampleIndex = 0;
         for (int i = 0; i < n + (n0 - n1); i++) {
             if (i % 3 != 0) {
@@ -105,17 +159,12 @@ final class SuffixArrayBuilder {
             }
         }
 
-        // Shared counting array. We size it once to handle any value we will see.
-        // We know all keys are <= max(alphabetSize, n12, n) which is O(n),
-        // and we pass maxKey bounds to zero-fill only the prefix we need.
-        int[] count = new int[Math.max(Math.max(alphabetSize + 2, n12 + 2), n + 5)];
-
         // Radix sort the triples (s[i], s[i+1], s[i+2]) for i % 3 != 0.
         radixPass(sample, sa12, s, 2, n12, count);
         radixPass(sa12, sample, s, 1, n12, count);
         radixPass(sample, sa12, s, 0, n12, count);
 
-        // Assign names (ranks) to those triples. Equal triples get the same name.
+        // Assign names (ranks) to those triples
         int name = 0;
         int prev0 = -1;
         int prev1 = -1;
@@ -140,13 +189,12 @@ final class SuffixArrayBuilder {
             }
         }
 
-        // If names are not yet unique, recurse. Otherwise we already have sorted order.
+        // If names are not unique, recurse on the "sample" array of names.
         if (name < n12) {
             int[] recursiveSa = new int[n12];
-            // We recurse on the "sample" array of names, padded to length n12+3
-            skew(Arrays.copyOf(sample, n12 + 3), recursiveSa, n12, name);
+            int[] sampleCopy = Arrays.copyOf(sample, n12 + 3);
+            skewWithWorkspace(sampleCopy, recursiveSa, n12, name, ws);
 
-            // Map ranks back to actual indices in the original text.
             for (int i = 0; i < n12; i++) {
                 if (recursiveSa[i] < n1) {
                     sa12[i] = recursiveSa[i] * 3 + 1;
@@ -156,22 +204,25 @@ final class SuffixArrayBuilder {
             }
         }
 
-        // rank12[pos] gives the rank (1-based) among the non-mod-0 suffixes.
-        int[] rank12 = new int[n + 3];
+        // rank12[pos] = rank (1-based) among mod-1/mod-2 suffixes
+        Arrays.fill(rank12, 0, n + 3, 0);
         for (int i = 0; i < n12; i++) {
             rank12[sa12[i]] = i + 1;
         }
 
-        // Sort the mod-0 suffixes using counting sort driven first by rank12 then by s[i].
-        int[] mod0 = new int[n0];
-        for (int i = 0, idx = 0; i < n; i += 3) {
-            mod0[idx++] = i;
+        // Sort the mod-0 suffixes (positions 0,3,6,...) into mod0.
+        int p0 = 0;
+        for (int i = 0; i < n; i += 3) {
+            mod0[p0++] = i;
         }
-        int[] buffer = new int[n0];
+
+        // We need a stable counting sort of mod0 by:
+        //   key (rank12[i+1]) then key (s[i])
+        // We do it in two passes like the original code but reuse 'count' and 'buffer'
         countingSort(mod0, buffer, n0, rank12, 1, n12, count);
         countingSort(buffer, mod0, n0, s, 0, alphabetSize, count);
 
-        // Merge the two sorted lists (sa12 and mod0) in linear time.
+        // Merge the two sorted lists (sa12 for mod-1/mod-2, mod0 for mod-0)
         int p = 0;
         int t = 0;
         int k = 0;
@@ -195,18 +246,16 @@ final class SuffixArrayBuilder {
     }
 
     /**
-     * Compare two suffixes in constant time using the precomputed ranks.
+     * suffixLessOrEqual:
+     * Compare two suffixes in O(1) using precomputed ranks.
      *
      * If left % 3 == 1:
-     *   Compare (s[left], rank12[left+1]) versus (s[right], rank12[right+1])
-     *
-     * Otherwise (left % 3 == 2):
-     *   Compare (s[left], s[left+1], rank12[left+2])
-     *   versus   (s[right], s[right+1], rank12[right+2])
-     *
-     * This is the standard DC3 merge comparator and runs in O(1) time.
+     *   compare (s[left], rank12[left+1])
+     * else (left % 3 == 2):
+     *   compare (s[left], s[left+1], rank12[left+2])
      */
-    private static boolean suffixLessOrEqual(int left, int right,
+    private static boolean suffixLessOrEqual(int left,
+                                             int right,
                                              int[] s,
                                              int[] rank12) {
         if (left % 3 == 1) {
@@ -226,8 +275,9 @@ final class SuffixArrayBuilder {
     }
 
     /**
-     * Stable counting sort by the key s[index + offset], reusing the shared "count" array.
-     * This replaces the old version which allocated a fresh counting array for each pass.
+     * radixPass:
+     * Stable counting sort of 'source' into 'dest' using key s[index + offset].
+     * We reuse the provided "count" array to avoid new allocations.
      */
     private static void radixPass(int[] source,
                                   int[] dest,
@@ -239,7 +289,7 @@ final class SuffixArrayBuilder {
             return;
         }
 
-        // Find the maximum key value so we know how many buckets are actually used.
+        // Find maximum key to know how many buckets we actually need.
         int maxValue = 0;
         for (int i = 0; i < length; i++) {
             int value = s[source[i] + offset];
@@ -248,16 +298,19 @@ final class SuffixArrayBuilder {
             }
         }
 
-        // Zero only the prefix we will write.
+        // Zero only the needed prefix of count.
         Arrays.fill(count, 0, maxValue + 2, 0);
 
+        // Frequency
         for (int i = 0; i < length; i++) {
             int value = s[source[i] + offset];
             count[value + 1]++;
         }
+        // Prefix sum
         for (int i = 1; i < maxValue + 2; i++) {
             count[i] += count[i - 1];
         }
+        // Scatter
         for (int i = 0; i < length; i++) {
             int idx = source[i];
             int value = s[idx + offset];
@@ -266,11 +319,10 @@ final class SuffixArrayBuilder {
     }
 
     /**
-     * Counting sort for mod-0 suffixes. This is also now reusing the shared
-     * "count" array rather than allocating a new one each call.
-     *
-     * We sort by "key[index + offset]". The "maxKey" argument is an upper bound
-     * on that key so that we can bound how much of "count" we must clear.
+     * countingSort:
+     * Stable counting sort for the mod-0 suffixes array.
+     * Sorts "source" by key[index + offset], writes result to "dest".
+     * Uses/reuses the shared "count" array.
      */
     private static void countingSort(int[] source,
                                      int[] dest,
@@ -300,12 +352,8 @@ final class SuffixArrayBuilder {
     }
 
     /**
-     * Build Kasai's Longest Common Prefix array in O(n) time.
-     *
-     * Longest Common Prefix[i] is the length of the longest common prefix
-     * between suffixes at sa[i] and sa[i+1]. We compute it with Kasai's algorithm,
-     * which runs in linear time by remembering the match length h from the
-     * previous step and decreasing h by one at each move.
+     * Kasai's algorithm in linear time.
+     * Longest Common Prefix[i] = LCP between suffix sa[i] and suffix sa[i+1].
      */
     static int[] buildLcpArray(int[] text, int[] sa) {
         if (text == null || sa == null) {
