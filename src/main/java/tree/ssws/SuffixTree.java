@@ -25,6 +25,7 @@ import java.util.List;
 public final class SuffixTree {
 
     private final Node root;
+    private static  int SENTINEL =0; //reserve 0 as sentinel
     private final int[] text;           // includes sentinel at end
     private final int originalLength;   // length before sentinel
 
@@ -42,80 +43,58 @@ public final class SuffixTree {
      *  - run Kasai to get the LCP,
      *  - build a compressed suffix tree in linear time.
      */
+    /**
+     * Build a suffix tree from an integer token array that already obeys:
+     *   - All real tokens are >= 1.
+     *   - The integer 0 is globally reserved for the sentinel only.
+     *
+     * Construction steps in this optimized version:
+     *   1. Append SENTINEL (which must be 0) to the end of the array.
+     *   2. Run DC3 / Skew directly on the terminated array to get the suffix array.
+     *   3. Run Kasai on the same terminated array to get the LCP array.
+     *   4. Build the compressed suffix tree from suffix array + LCP.
+     *
+     * This skips the expensive rank-normalization and 64-bit radix prepass,
+     * because the caller guarantees that 0 is already the unique global minimum.
+     */
     public static SuffixTree build(int[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
 
-        // Step 0. Append sentinel that is strictly smaller than all real symbols.
+        // Precondition that must now hold:
+        // Every symbol in alphabetMappedText is >= 1.
+        // No real symbol is 0.
+        // We will append 0 (SENTINEL) as the only sentinel at the end.
+
         final int n0 = alphabetMappedText.length;
-        final int[] terminated = new int[n0 + 1];
 
-        int minVal = (n0 == 0) ? 0 : alphabetMappedText[0];
-        for (int v : alphabetMappedText) {
-            if (v < minVal) {
-                minVal = v;
-            }
-        }
-        final int sentinel = (n0 == 0)
-                ? Integer.MIN_VALUE
-                : (minVal == Integer.MIN_VALUE ? Integer.MIN_VALUE : (minVal - 1));
-
-        System.arraycopy(alphabetMappedText, 0, terminated, 0, n0);
-        terminated[n0] = sentinel;
+        // Append the sentinel directly.
+        // The sentinel is a fixed constant 0, defined in SENTINEL.
+        final int[] terminated = Arrays.copyOf(alphabetMappedText, n0 + 1);
+        terminated[n0] = SENTINEL; // SENTINEL must be 0
 
         final int n = n0 + 1;
 
-        // Step 0.5. Build dense non-negative ranks so DC3 can work efficiently.
-        //
-        // We encode each position i (including the sentinel) into a sortable 64-bit key.
-        // keys[i] is monotonic with respect to (token value, sentinel-flag).
-        // Then we radix-sort those keys and assign consecutive integer ranks.
-        long[] keys = new long[n];
-        int[] order = new int[n];
+        // Step 1. Build suffix array directly on the terminated integer array.
+        // SuffixArrayBuilder.buildSuffixArray requires:
+        //   - All values are non-negative.
+        //   - The smallest value is the unique sentinel at the end.
+        // With SENTINEL = 0 and all real tokens >= 1, these hold.
+        int[] sa = SuffixArrayBuilder.buildSuffixArray(terminated);
 
-        final long base = (long) sentinel;
-        for (int i = 0; i < n; i++) {
-            long adjusted = ((long) terminated[i]) - base; // >= 0
-            long k = (adjusted << 1) | 1L; // default: "real" symbol
-            if (i == n - 1) {
-                // Force the last position (the sentinel suffix) to be globally smallest.
-                k = (adjusted << 1);
-            }
-            keys[i] = k;
-            order[i] = i;
-        }
-
-        // Radix sort the (key,index) pairs. This is now optimized to skip unused high bytes.
-        RadixSorter.sortParallel(keys, order);
-
-        // Assign dense ranks: equal keys get same rank, monotone increasing otherwise.
-        int[] normalized = new int[n];
-        int rank = 0;
-        long lastKey = keys[0];
-        normalized[order[0]] = 0;
-        for (int i = 1; i < n; i++) {
-            long k = keys[i];
-            if (k != lastKey) {
-                rank++;
-                lastKey = k;
-            }
-            normalized[order[i]] = rank;
-        }
-
-        // Step 1. Build suffix array using DC3 / Skew on normalized array.
-        int[] sa = SuffixArrayBuilder.buildSuffixArray(normalized);
-
-        // Step 2. Build LCP via Kasai.
+        // Step 2. Build Longest Common Prefix (LCP) via Kasai on the SAME terminated array.
         int[] lcp = (n > 1)
-                ? SuffixArrayBuilder.buildLcpArray(normalized, sa)
+                ? SuffixArrayBuilder.buildLcpArray(terminated, sa)
                 : new int[0];
 
-        // Step 3. Build explicit compressed suffix tree.
+        // Step 3. Build explicit compressed suffix tree from suffix array + LCP.
         Node root = LinearBuilder.buildFromSuffixArray(terminated, sa, lcp);
 
+        // originalLength is the logical text length before the sentinel was appended.
         return new SuffixTree(root, terminated, n0);
     }
+
 
     /**
      * Return the root node.
