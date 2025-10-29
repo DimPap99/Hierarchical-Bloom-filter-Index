@@ -1,5 +1,6 @@
 package PMIndex;
 
+import org.openjdk.jol.info.GraphLayout;
 import search.Pattern;
 import tree.ssws.SuffixTree;
 import utilities.AlphabetMapper;
@@ -22,6 +23,7 @@ import java.util.Set;
 public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private final int windowSize;
+    //this is not counted in memory overhead in the experiments
     private final AlphabetMapper<String> alphabetMapper;
 
     private Segment head;
@@ -42,6 +44,11 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         this(windowSize, 1_024);
     }
 
+    public long estimateRetainedBytesWithoutAlphabet() {
+        long total = GraphLayout.parseInstance(this).totalSize();
+        long dict = GraphLayout.parseInstance(this.alphabetMapper).totalSize();
+        return total - dict;
+    }
     @Override
     public void insert(String key) {
         if (key == null) {
@@ -214,7 +221,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         collectSuffixMatches(patternTokens, patternLength, windowStart, windowEnd, occurrences);
 
         ArrayList<Integer> result = new ArrayList<>(occurrences);
-        Collections.sort(result);
+//        Collections.sort(result);
         return result;
     }
 

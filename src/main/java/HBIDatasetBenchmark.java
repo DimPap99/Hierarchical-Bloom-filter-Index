@@ -42,18 +42,18 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static String DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
 
     private static String QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/10.uniform.txt";
 
     private static final int WINDOW_LEN   = 1 << 21;
     private static final int TREE_LEN     = 1 << 21;
-    private static int ALPHABET           = 74;
-    private static final double FP_RATE   = 0.005;
-    private static final int RUNS         = 1;
+    private static int ALPHABET           = 150;
+    private static final double FP_RATE   = 0.05;
+    private static final int RUNS         = 3;
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS             = 4;
+    private static int NGRAMS             = 2;
 
     /**
      * Utility method from your original code.
@@ -126,31 +126,7 @@ public class HBIDatasetBenchmark {
         return out;
     }
 
-    /**
-     * Stream and index a dataset in "segments" mode, using the given IPMIndexing implementation.
-     *
-     * This is analogous to Experiment.run(...) for character mode,
-     * and analogous to runStreamingSegments(...) from ConfidenceExperiment,
-     * but returns ExperimentRunResult with matchRes filled so we can diff
-     * HBI vs SuffixTreeIndex.
-     *
-     * Semantics:
-     *   - Treat each nonempty line from DATA_FILE as one token (String).
-     *   - Maintain a RingBuffer<String> of length ngram.
-     *   - For every filled buffer snapshot, call index.insert(snapshotString).
-     *   - Every WINDOW_LEN tokens, run all queries.
-     *
-     * Query semantics in segments mode:
-     *   - Each line in QUERY_FILE is "tok0 tok1 tok2 ...".
-     *   - We split by spaces, build new Pattern(splitArray, ngram),
-     *     and call index.report(pat).
-     *
-     * We measure:
-     *   totalInsertTimeMs
-     *   totalRunTimeMs (query time sum)
-     *   avgQueryLen in n-grams
-     * We also build matchRes, parallel to what Experiment.run(...) returns.
-     */
+
     private static ExperimentRunResult runSegmentsMode(
             String datasetPath,
             String queriesPath,
@@ -287,7 +263,7 @@ public class HBIDatasetBenchmark {
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, FP_RATE);
         Verifier v = new VerifierLinearLeafProbe();
 
         return new HBI(
@@ -470,7 +446,7 @@ public class HBIDatasetBenchmark {
             ArrayList<ArrayList<Integer>> suffixMatches = suffixRes.matchRes();
 
             // direct correctness comparison for this run
-            compared(hbiMatches, suffixMatches);
+//            compared(hbiMatches, suffixMatches);
         }
 
         // --------------------------

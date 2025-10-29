@@ -84,7 +84,7 @@ public final class Main {
     private static HBI newHbi(CliOptions options, int alphabetSize, double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, DEFAULT_FP_RATE);
         Verifier verifier = new VerifierLinearLeafProbe();
 
         HbiConfiguration configuration = HbiConfiguration.builder()

@@ -3,26 +3,20 @@ package utilities;
 import java.util.HashMap;
 
 public class AlphabetMapper <T>{
-    int nextId;//init id is -1
-
+    int nextId;//id 0 is reserved as a sentinel for the suffix tree DC3
     float loadFactor = 0.75f;
     public HashMap<T, Integer> wordToId;
-    public HashMap<Integer, T> idToWord;
+//    public HashMap<Integer, T> idToWord;
 
-    //TODO: for hashmap space allocation maybe follow a strategy as cpp vector. Start with init capacity and double once we reach it
-    // ---> with a lot of ngrams still explodes memory
+
     int capacity;
     public AlphabetMapper(int capacity) {
-        this.nextId = 0;
-//        if(capacity > 0){
+        this.nextId = 1;//id 0 is reserved as a sentinel for the suffix tree DC3
             this.capacity = capacity;
-            //pre assign enough space to hashmap so that we avoid resizes
-//            int internalCapacity = Math.max(16, (int) Math.ceil(capacity / loadFactor));
+
             this.wordToId = new HashMap<>();
-            this.idToWord = new HashMap<>();
-//        }else{
-//            throw new IllegalArgumentException("Negative or zero capacity");
-//        }
+//            this.idToWord = new HashMap<>();
+
     }
 
     public int getSize() {
@@ -39,7 +33,7 @@ public class AlphabetMapper <T>{
             this.nextId++;
 //            if(id >= this.capacity){ throw new IllegalStateException("Exceeded capacity.");}
             wordToId.put(item, id);
-            idToWord.put(id, item);
+//            idToWord.put(id, item);
         }
         return id;
     }
@@ -53,7 +47,7 @@ public class AlphabetMapper <T>{
 
     public void clear() {
         wordToId.clear();
-        idToWord.clear();
+//        idToWord.clear();
         nextId = 0;
     }
 

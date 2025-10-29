@@ -41,8 +41,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
             return null;
         } else {
             //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-            boolean canDescend = f.level() + 1 < tree.maxDepth();
-            if (probe.complete() && childrenIntervalSize >= p.size && canDescend) {
+            if (probe.complete() && childrenIntervalSize >= p.size) {
                 //we just generate children as theres a chance that the pattern is in both of them
                 tree.generateChildren(f, stack, positionOffset, tree.id);
                 return null;
@@ -96,8 +95,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                 ArrayList<Integer> lp,
                 int currentIntervalSize) {
 
-        int limit = Math.min(tokens.length,
-                maxTokensForInterval(currentIntervalSize, pattern));
+        int limit = tokens.length;
 
         boolean[] matchedArr = new boolean[limit];
         Arrays.fill(matchedArr, false);

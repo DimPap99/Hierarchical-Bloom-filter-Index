@@ -31,6 +31,8 @@ import static utilities.MathUtils.pruningLevel;
 
 public final class HBI implements IPMIndexing {
 
+    // Monotonic global id for new trees
+    private int nextTreeId = 0;
 
     private static final int DEFAULT_BC_COST_ESTIM_ITER = 1_000_000;
     private static final int DEFAULT_LC_COST_ESTIM_ITER = 1_000_000;
@@ -113,7 +115,7 @@ public final class HBI implements IPMIndexing {
         if(this.cf instanceof CostFunctionDefaultRoot) {
             this.isRootAlg = true;
         }
-        trees.addLast(createTree());
+        trees.addLast(createTree(this.nextTreeId++));
         this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
         if(isMarkov) {
             ensureMarkovBuilder();
@@ -218,8 +220,7 @@ public final class HBI implements IPMIndexing {
 //                }
             }
 
-            ImplicitTree<Membership> fresh = createTree();
-            fresh.id = trees.size();
+            ImplicitTree<Membership> fresh = createTree(nextTreeId++);
             if(!isRootAlg) {
                 fresh.estimator.insert(token);
             }
@@ -305,14 +306,19 @@ public final class HBI implements IPMIndexing {
         ArrayList<Integer> results = new ArrayList<>();
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
+
         this.searchAlgo.setStrides(this.strides);
+
+        // Precompute numeric tokens for the pattern once
         for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
             long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             pat.nGramToLong[nIdx] = tokenVal;
-            // DO NOT register symbols or mutate the model at query time
-            // if (isMarkov) { ensureMarkovBuilder(); this.modelBuilder.ensureSymbolRegistered(tokenVal); }
-            if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
+            if (nIdx % pat.nGram == 0) {
+                pat.effectiveNgramArr[nIdx / pat.nGram] = tokenVal;
+            }
         }
+
+        // Handle a tail n-gram for stride mode if pattern length is not divisible by nGram
         if (pat.effectiveNgramArr.length > 0 && pat.originalSz % pat.nGram != 0) {
             long tailToken = (pat.nGramToLong.length > 0)
                     ? pat.nGramToLong[pat.nGramToLong.length - 1]
@@ -320,93 +326,149 @@ public final class HBI implements IPMIndexing {
             pat.effectiveNgramArr[pat.effectiveNgramArr.length - 1] = tailToken;
         }
 
-        // Lazily rebuild the immutable snapshot once (if new data arrived), then reuse
+        // Rebuild Markov-aware cost model if needed
         if (isMarkov) {
             refreshCostModelIfNeeded();
         }
 
+        // positionOffset is the global frontier in absolute coordinates
+        // Any match strictly before this offset has already been verified
         int positionOffset = -1;
-        long startTime = System.currentTimeMillis();
+
+        long startTimeMs = System.currentTimeMillis();
         int lp = 0;
         int lpCf = 0;
-        double cp_cost = 0;
+        double cp_cost = 0.0;
         int arbitraryConfLp = 0;
-        for (int i = 0; i < this.trees.size(); i++) {
-            ImplicitTree<Membership> tree = this.trees.get(i);
+
+        // We iterate trees in ascending time order (oldest to newest)
+        for (int treeIdx = 0; treeIdx < this.trees.size(); treeIdx++) {
+            ImplicitTree<Membership> tree = this.trees.get(treeIdx);
+
+            // If we have already advanced our frontier past the last symbol of this tree,
+            // skip it completely
+            int span = tree.baseIntervalSize();
+            int treeLastGlobal =
+                    tree.id * span
+                            + tree.buffer.lastIndex(); // last local index in this tree
+
+            if (treeLastGlobal < positionOffset) {
+                continue;
+            }
+
             if (tree.pruningPlan == null) {
                 tree.pruningPlan = this.pruningPlanFac.get();
             }
+
+            // Build an IntervalScanner seeded with the current global frontier
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
 
             long lpStart = System.nanoTime();
             ArrayList<Integer> lps = new ArrayList<>();
-//            lp = Collections.min(lps);
 
-            //cf.minCostLp(tree, 0.05, pat, 97, 26);//pruningLevel(tree, 0.99, pMax);
-//
             if (stats.isExperimentMode()) {
-                double[] pp = tree.estimator.estimateALl(pat, strides);
+                // estimator.estimateALl gives us per-symbol estimated probabilities
+                double[] pp = tree.estimator.estimateALl(pat, this.strides);
                 double pMax = Arrays.stream(pp).min().getAsDouble();
-                pp = tree.estimator.estimateALl(pat, this.strides);
-//                pMax = Arrays.stream(pp).min().getAsDouble();
+
+                // lp from override or arbitrary confidence
                 lp = this.lpOverride;
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
-                int m = (int) (tree.maxDepth() - 1 - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
+
+                // cost of committing to a chosen level
+                int m = (int) (tree.maxDepth() - 1
+                        - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
+
                 cp_cost = cf.costAtLevel(tree, pp, pat.nGramToLong, lp, 0.0, m);
+
                 long minCostStart = System.nanoTime();
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
                 stats.recordMinCostLpTime(System.nanoTime() - minCostStart);
+
                 lps.add(lp);
             } else {
-//                int s = cf.minCostLp(tree, 0.05, pat, 97, 26, false);
-//                lps.add(cf.minCostLp(tree, 0.05, pat, 97, 26, false));
-
-                if(this.cf != null) {
-                    lps.add(cf.minCostLp(tree, 0.95, pat, this.bfCost, this.leafCost, this.strides));
+                if (this.cf != null) {
+                    lps.add(cf.minCostLp(tree,
+                            0.95,
+                            pat,
+                            this.bfCost,
+                            this.leafCost,
+                            this.strides));
+                } else {
+                    if (!this.isRootAlg) {
+                        lps = tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+                    } else {
+                        lps.add(0);
+                    }
                 }
-                else{
-                    if(!this.isRootAlg) lps= tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
-                    else lps.add(0);
-                }
-//                lp = lpCf;
             }
+
             totalLpTimeNanos += System.nanoTime() - lpStart;
             pat.charStartLp = lps;
             lp = Collections.min(lps);
+
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
-                if(this.cf != null) {                stats.recordAlpha(cf.getAlpha());}
+                if (this.cf != null) {
+                    stats.recordAlpha(cf.getAlpha());
+                }
             }
+
             scn.seedLevel(lp);
 
+            // Walk candidate intervals from this tree
             while (scn.hasNext()) {
                 CandidateRange cr = scn.next();
                 if (cr == null) break;
-                Pair<ArrayList<Integer>, Integer> res = this.verifier.verify(i, this.trees, cr, pat);
-                for (int r : res.getFirst()) {
-                    results.add(r);
+
+                // Verify this candidate range, possibly crossing tree boundaries
+                Pair<ArrayList<Integer>, Integer> res =
+                        this.verifier.verify(treeIdx, this.trees, cr, pat);
+
+                // Append matches, while removing immediate duplicates
+                // Since verify() always advances forward, matches are nondecreasing
+                for (int hit : res.getFirst()) {
+                    if (results.isEmpty() || results.get(results.size() - 1) != hit) {
+                        results.add(hit);
+                    }
                 }
-                scn.positionOffset = res.getSecond();
+
+                // Advance the global frontier
+                positionOffset = res.getSecond();
+                scn.positionOffset = positionOffset;
             }
         }
 
+        // Experiment mode bookkeeping
         if (stats.isExperimentMode()) {
-
             int leafProbes = this.verifier.getLeafProbes();
-            int bfprobes = this.getAllprobes();
+            int bfprobes   = this.getAllprobes();
             int actualCost = bfprobes;
 
             this.verifier.reset();
-            stats.setLatestPatternResult(new PatternResult(System.currentTimeMillis() - startTime, actualCost, lp, pat, lpCf, cp_cost, leafProbes, arbitraryConfLp));
+
+            stats.setLatestPatternResult(
+                    new PatternResult(
+                            System.currentTimeMillis() - startTimeMs,
+                            actualCost,
+                            lp,
+                            pat,
+                            lpCf,
+                            cp_cost,
+                            leafProbes,
+                            arbitraryConfLp
+                    )
+            );
         }
+
         if (stats.isCollecting()) {
             long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
-
             stats.recordQueryTiming(totalQueryTimeNanos, totalLpTimeNanos);
         }
 
         return results;
     }
+
 
     private void refreshCostModelIfNeeded() {
         if (!isMarkov) return;
@@ -488,10 +550,11 @@ public final class HBI implements IPMIndexing {
 
     }
 
-    private ImplicitTree<Membership> createTree() {
+    private ImplicitTree<Membership> createTree(int treeGlobalId) {
 
         TreeLayout layout = makeLayout();
         int maxDepth = layout.levels();
+
         IntFunction<Membership> filterFactory = level -> {
             int nodes = 1 << level;
             int interval = treeLength >> level;
@@ -502,17 +565,26 @@ public final class HBI implements IPMIndexing {
             bf.init(distinct, fpRate);
             return bf;
         };
+
         Estimator est = null;
-        if(!this.isRootAlg) est = estimatorFac.get();
+        if (!this.isRootAlg) {
+            est = estimatorFac.get();
+        }
+
         ImplicitTree<Membership> tree = new ImplicitTree<>(
                 layout,
                 filterFactory,
                 new KeyPackingService(maxDepth, alphabetSize),
-                //new Key64(maxDepth, alphabetSize),
-                est);
-        if(!isRootAlg) {
+                est
+        );
+
+        // assign the globally unique id right here
+        tree.id = treeGlobalId;
+
+        if (!isRootAlg) {
             tree.pruningPlan = pruningPlanFac.get();
         }
+
         return tree;
     }
 

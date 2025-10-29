@@ -26,7 +26,7 @@ import java.util.function.Consumer;
  *  - Optional compaction pass after build
  *  - JOL memory reports (full and partitioned)
  */
-public class SuffixTreeIndex implements IPMIndexing {
+public class OnlineSuffixTree implements IPMIndexing {
 
     private final StringKeyMapper keyMapper;
     private final LongSequence tokenStream;
@@ -42,16 +42,16 @@ public class SuffixTreeIndex implements IPMIndexing {
     private int leafEndValue = -1;                // global, shared end for all leaves
     private Node lastCreatedInternalNode = null;
 
-    public SuffixTreeIndex() {
+    public OnlineSuffixTree() {
         this(new StringKeyMapper(1_000_000L, 0.0001));
     }
 
-    public SuffixTreeIndex(long expectedDistinctTokens, double epsilon) {
+    public OnlineSuffixTree(long expectedDistinctTokens, double epsilon) {
         this(new StringKeyMapper(expectedDistinctTokens, epsilon));
     }
 
     /** Construct with a provided mapper and a dynamically-resizable token stream. */
-    public SuffixTreeIndex(StringKeyMapper mapper) {
+    public OnlineSuffixTree(StringKeyMapper mapper) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
         this.tokenStream = new LongSequence();
         this.root = new Node(-1, -1);
@@ -60,12 +60,12 @@ public class SuffixTreeIndex implements IPMIndexing {
     }
 
     /** Fixed-capacity token stream, preallocating space for the full text to index. */
-    public SuffixTreeIndex(long expectedDistinctTokens, double epsilon, int totalTokens) {
+    public OnlineSuffixTree(long expectedDistinctTokens, double epsilon, int totalTokens) {
         this(new StringKeyMapper(expectedDistinctTokens, epsilon), totalTokens);
     }
 
     /** Construct with a provided mapper and a fixed-capacity token stream. */
-    public SuffixTreeIndex(StringKeyMapper mapper, int totalTokens) {
+    public OnlineSuffixTree(StringKeyMapper mapper, int totalTokens) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
         if (totalTokens <= 0) {
             throw new IllegalArgumentException("totalTokens must be positive");

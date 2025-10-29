@@ -30,9 +30,9 @@ public final class LevelCostMinimizer {
         int r = probs.length;
         double minProb = Arrays.stream(probs).min().orElse(0.0);
 
-        int minLp = MathUtils.pruningLevel(tree, 0.99, minProb);
+        int minLp = 0;//MathUtils.pruningLevel(tree, 0.99, minProb);
         int patternFitDepth = computePatternFitDepth(tree, pattern);
-        int maxLpLevel = Math.min(MathUtils.pruningLevel(tree, 0.5, minProb), patternFitDepth);
+        int maxLpLevel = Math.min(MathUtils.pruningLevel(tree, 0.9, minProb), patternFitDepth);
 
         if (maxLpLevel < minLp) {
             maxLpLevel = minLp;

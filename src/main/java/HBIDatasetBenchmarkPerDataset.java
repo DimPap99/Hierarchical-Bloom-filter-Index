@@ -2,10 +2,9 @@ import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
-import PMIndex.SuffixTreeIndex;
+import PMIndex.OnlineSuffixTree;
 import estimators.CSEstimator;
 import estimators.CostFunctionDefaultRoot;
-import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
 import membership.BloomFilter;
 import membership.Membership;
@@ -308,7 +307,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                 }
 
                 if (options.runSuffix()) {
-                    SuffixTreeIndex suffixWarm = newSuffixTree(options);
+                    OnlineSuffixTree suffixWarm = newSuffixTree(options);
                     MultiQueryExperiment.InsertStats suffixWarmInsert =
                             MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, options.ngram());
                     for (QueryType type : queryTypes) {
@@ -532,7 +531,7 @@ public final class HBIDatasetBenchmarkPerDataset {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
         Verifier verifier = new VerifierLinearLeafProbe();
 
         HbiConfiguration configuration = HbiConfiguration.builder()
@@ -555,11 +554,11 @@ public final class HBIDatasetBenchmarkPerDataset {
         return new HBI(configuration);
     }
 
-    private static SuffixTreeIndex newSuffixTree(BenchmarkOptions options) {
+    private static OnlineSuffixTree newSuffixTree(BenchmarkOptions options) {
         long expectedDistinct = Math.max(1L, (long) options.windowLength());
         double epsilon = 0.0001;
         int totalTokens = options.treeLength();
-        return new SuffixTreeIndex(expectedDistinct, epsilon, totalTokens);
+        return new OnlineSuffixTree(expectedDistinct, epsilon, totalTokens);
     }
 
     private static List<Path> listDatasetDirectories(Path root) throws IOException {

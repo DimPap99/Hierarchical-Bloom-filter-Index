@@ -25,7 +25,7 @@ import java.util.List;
 public final class SuffixTree {
 
     private final Node root;
-    private static  int SENTINEL =0; //reserve 0 as sentinel
+    private static final  int SENTINEL =0; //reserve 0 as sentinel
     private final int[] text;           // includes sentinel at end
     private final int originalLength;   // length before sentinel
 
@@ -293,12 +293,6 @@ public final class SuffixTree {
             edgeMap.put(keyA, edgeA);
             edgeMap.put(keyB, edgeB);
             edgeMap.put(symbol, e);
-
-            // Optional: clear inline slots to save a tiny bit of memory.
-            keyA = Integer.MIN_VALUE;
-            keyB = Integer.MIN_VALUE;
-            edgeA = null;
-            edgeB = null;
         }
 
         /**

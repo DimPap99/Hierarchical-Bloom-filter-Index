@@ -1,13 +1,12 @@
 import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.RegexIndex;
-import PMIndex.SuffixTreeIndex;
+import PMIndex.StreamingSlidingWindowIndex;
 
-import estimators.CSEstimator;
 import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
-
 import estimators.HashMapEstimator;
+
 import membership.BloomFilter;
 import membership.Membership;
 
@@ -36,13 +35,31 @@ import java.util.stream.Stream;
 /**
  * MemoryBenchmark
  *
- * Builds each index exactly once on a single dataset file and records total retained memory in MiB,
- * measured uniformly via JOL: GraphLayout.parseInstance(index).totalSize()
+ * Build each index once on one dataset file and record retained memory in mebibytes (MiB),
+ * measured using Java Object Layout, through GraphLayout.parseInstance(obj).totalSize().
  *
- * CSV columns: ngram, hbi_mem_mib, suffix_mem_mib, regexp_mem_mib, hbifp_rate
+ * Output CSV columns:
  *
- * Dataset selection mirrors HBIDatasetBenchmarkMulti helpers:
- * it lists dataset subdirectories under --data-root/<window> and picks the first by natural order.
+ *   ngram,
+ *   hbi_mem_mib,
+ *   suffix_mem_mib,
+ *   regexp_mem_mib,
+ *   hbifp_rate
+ *
+ * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
+ *
+ * suffix_mem_mib is the retained size of the StreamingSlidingWindowIndex after subtracting
+ * its AlphabetMapper dictionary map, so you measure just the rolling suffix segment hierarchy
+ * and not the global token to identifier HashMap.
+ *
+ * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
+ *
+ * Important
+ * We no longer pass lambda expressions or method references into HbiConfiguration.
+ * Instead we pass small named classes that implement Supplier. This avoids hidden
+ * lambda classes in the object graph. Java Object Layout in modern Java crashes
+ * when it tries to inspect hidden lambda classes. With these named classes, it
+ * will see only ordinary classes and it can compute the total size.
  */
 public final class MemoryBenchmark {
 
@@ -60,13 +77,13 @@ public final class MemoryBenchmark {
             throw new IllegalStateException("No dataset folders found under " + options.dataRoot());
         }
 
-        // Pick the first dataset directory by natural order
+        // pick first dataset directory by natural order
         Path pickedDir = datasetDirs.get(0);
         Path datasetFile = findSingleDatasetFile(pickedDir);
         System.out.printf(Locale.ROOT, "Using dataset %s -> %s%n",
                 pickedDir.getFileName(), datasetFile.getFileName());
 
-        // CSV header in MiB
+        // CSV header
         List<List<?>> csvRows = new ArrayList<>();
         csvRows.add(List.of("ngram", "hbi_mem_mib", "suffix_mem_mib", "regexp_mem_mib", "hbifp_rate"));
 
@@ -81,19 +98,28 @@ public final class MemoryBenchmark {
         System.out.println(GraphLayout.parseInstance(hbi).toFootprint());
         System.out.printf(Locale.ROOT, "HBI total: %d B (%.3f MiB)%n", hbiBytes, hbiMiB);
 
-        // ===== Suffix tree =====
-        SuffixTreeIndex suffix = newSuffixTree(options);
+        // ===== StreamingSlidingWindowIndex suffix-like baseline =====
+        StreamingSlidingWindowIndex suffix = newSuffixIndex(options);
         MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, options.ngram());
 
-        long suffixBytes = GraphLayout.parseInstance(suffix).totalSize();
-        double suffixMiB = suffixBytes / 1_048_576d;
-        System.out.println("\n=== SuffixTree JOL footprint ===");
+        long suffixTotalBytes = GraphLayout.parseInstance(suffix).totalSize();
+        long suffixCoreBytes = suffix.estimateRetainedBytesWithoutAlphabet();
+        double suffixMiB = suffixCoreBytes / 1_048_576d;
+
+        System.out.println("\n=== StreamingSlidingWindowIndex JOL footprint ===");
         System.out.println(GraphLayout.parseInstance(suffix).toFootprint());
-        System.out.printf(Locale.ROOT, "SuffixTree total: %d B (%.3f MiB)%n", suffixBytes, suffixMiB);
+        System.out.printf(Locale.ROOT,
+                "SuffixIndex total (full, incl. AlphabetMapper): %d B (%.3f MiB)%n",
+                suffixTotalBytes,
+                suffixTotalBytes / 1_048_576d);
+        System.out.printf(Locale.ROOT,
+                "SuffixIndex core (excluding AlphabetMapper): %d B (%.3f MiB)%n",
+                suffixCoreBytes,
+                suffixMiB);
 
         // ===== Regex baseline =====
         RegexIndex regex = new RegexIndex();
-        // Regex baseline indexes the raw character stream, so use ngram = 1
+        // Regex baseline indexes the raw token stream with ngram = 1
         MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
 
         long regexBytes = GraphLayout.parseInstance(regex).totalSize();
@@ -109,40 +135,55 @@ public final class MemoryBenchmark {
         System.out.printf(Locale.ROOT, "Wrote memory results to %s%n", out);
     }
 
-    // ===== Helpers mirroring HBIDatasetBenchmarkMulti =====
-
+    /**
+     * Build an HBI configured with small named Supplier classes, so there are no lambdas.
+     * We snapshot primitive configuration fields out of MemoryOptions and pass those
+     * into the Supplier implementations as final fields.
+     */
     private static HBI newHbi(MemoryOptions options) {
-        int alphabetSize = options.alphabetSize();
-        Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.treeLength());//new CSEstimator(options.treeLength(), 5, 16384);
-        Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
+        final int windowLen  = options.windowLength();
+        final double fpRate  = options.fpRate();
+        final int sigma      = options.alphabetSize();
+        final int treeLen    = options.treeLength();
+        final double runConf = options.runConfidence();
+        final int nGram      = options.ngram();
+
+        Supplier<Estimator> estFactory =
+                new EstimatorFactory(treeLen);
+        Supplier<Membership> memFactory =
+                new MembershipFactory();
+        Supplier<PruningPlan> prFactory =
+                new PruningPlanFactory(runConf, fpRate);
+
         Verifier verifier = new VerifierLinearLeafProbe();
 
         HbiConfiguration configuration = HbiConfiguration.builder()
                 .searchAlgorithm(new BlockSearch())
-                .windowLength(options.windowLength())
-                .fpRate(options.fpRate())
-                .alphabetSize(alphabetSize)
-                .treeLength(options.treeLength())
+                .windowLength(windowLen)
+                .fpRate(fpRate)
+                .alphabetSize(sigma)
+                .treeLength(treeLen)
                 .estimatorSupplier(estFactory)
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(verifier)
                 .costFunction(new CostFunctionMaxProb())
-                .confidence(options.runConfidence())
+                .confidence(runConf)
                 .experimentMode(false)
                 .collectStats(false)
-                .nGram(options.ngram())
+                .nGram(nGram)
                 .build();
 
         return new HBI(configuration);
     }
 
-    private static SuffixTreeIndex newSuffixTree(MemoryOptions options) {
-        long expectedDistinct = Math.max(1L, (long) options.windowLength());
-        double epsilon = 0.0001;
-        int totalTokens = options.treeLength();
-        return new SuffixTreeIndex(expectedDistinct, epsilon, totalTokens);
+    /**
+     * Create the streaming suffix baseline using the same window size and expected alphabet size.
+     */
+    private static StreamingSlidingWindowIndex newSuffixIndex(MemoryOptions options) {
+        int windowSize = options.windowLength();
+        int expectedAlphabetSize = options.alphabetSize();
+        return new StreamingSlidingWindowIndex(windowSize, expectedAlphabetSize);
     }
 
     private static List<Path> listDatasetDirectories(Path root) throws IOException {
@@ -175,7 +216,56 @@ public final class MemoryBenchmark {
         }
     }
 
-    // ===== Options focused on memory CSV =====
+    /**
+     * Supplier<Estimator> without lambdas, so JOL will not encounter a hidden lambda class.
+     */
+    private static final class EstimatorFactory implements Supplier<Estimator> {
+        private final int treeLen;
+
+        private EstimatorFactory(int treeLen) {
+            this.treeLen = treeLen;
+        }
+
+        @Override
+        public Estimator get() {
+            return new HashMapEstimator(treeLen);
+        }
+    }
+
+    /**
+     * Supplier<Membership> without lambdas.
+     */
+    private static final class MembershipFactory implements Supplier<Membership> {
+
+        private MembershipFactory() {
+        }
+
+        @Override
+        public Membership get() {
+            return new BloomFilter();
+        }
+    }
+
+    /**
+     * Supplier<PruningPlan> without lambdas.
+     * Stores the run time confidence and Bloom filter false positive rate as final fields.
+     */
+    private static final class PruningPlanFactory implements Supplier<PruningPlan> {
+        private final double runConf;
+        private final double fpRate;
+
+        private PruningPlanFactory(double runConf, double fpRate) {
+            this.runConf = runConf;
+            this.fpRate = fpRate;
+        }
+
+        @Override
+        public PruningPlan get() {
+            return new MostFreqPruning(runConf, fpRate);
+        }
+    }
+
+    // ===== Options and parsing logic =====
 
     private record MemoryOptions(Path dataRoot,
                                  String window,
@@ -194,7 +284,7 @@ public final class MemoryBenchmark {
             Integer windowLength = null;
             Integer treeLength = null;
             Integer alphabetBase = 150;
-            double fpRate = 0.35;
+            double fpRate = 0.15;
             double runConfidence = 0.99;
 
             for (int i = 0; i < args.length; i++) {

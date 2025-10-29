@@ -60,14 +60,14 @@ public final class HBIDatasetBenchmarkMulti {
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "caida21";
-            QueryType queryType = null;
-            String mode = "segments";           // default behavior stays chars/segments
-            Integer ngram = 4;
+            String window = "w21";
+            QueryType queryType = QueryType.UNIFORM;
+            String mode = "chars";           // default behavior stays chars/segments
+            Integer ngram = 8;
             Integer windowLength = 1 << 21;
             Integer treeLength = 1 << 21;
-            Integer alphabetBase = 130000;
-            double fpRate = 0.005;
+            Integer alphabetBase = 150;
+            double fpRate = 0.15;
             FP_Rate = fpRate;
             double runConfidence = 0.99;
             int warmupRuns = 0;
@@ -770,7 +770,7 @@ public final class HBIDatasetBenchmarkMulti {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.windowLength());//new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence());
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
         Verifier verifier = new VerifierLinearLeafProbe();
         int buckets = options.alphabetSize();
 
