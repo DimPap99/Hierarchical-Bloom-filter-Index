@@ -88,6 +88,7 @@ public final class HBIDatasetBenchmarkMulti {
             boolean runHbi = true;
             boolean runSuffix = true;
             Utils.MemPolicy policy = Utils.MemPolicy.NONE;
+            boolean reinsertPerWorkload = false; // NEW: control reinsertion between query sets
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -146,6 +147,7 @@ public final class HBIDatasetBenchmarkMulti {
                     case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
                     case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                     case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
+                    case "reinsert-per-workload" -> reinsertPerWorkload = Boolean.parseBoolean(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -213,7 +215,7 @@ public final class HBIDatasetBenchmarkMulti {
                     runRegexBaseline,
                     runHbi,
                     runSuffix,
-                    policy);
+                    policy).withReinsertPerWorkload(reinsertPerWorkload);
         }
 
         // alphabet size for a specific n-gram
@@ -278,6 +280,14 @@ public final class HBIDatasetBenchmarkMulti {
                     .formatted(window, queryTypeLabel(), ngToken, algo, fpToken);
             return Path.of(fileName);
         }
+
+        // --- extension: reinsert-per-workload flag plumbing
+        private static boolean reinsertPerWorkload = false;
+        BenchmarkOptions withReinsertPerWorkload(boolean flag) {
+            this.reinsertPerWorkload = flag;
+            return this;
+        }
+        boolean reinsertPerWorkload() { return reinsertPerWorkload; }
 
         // Utilities
         private static List<Integer> parseIntCsv(String csv) {
@@ -456,115 +466,176 @@ public final class HBIDatasetBenchmarkMulti {
 
                     // MEASURED RUNS for this (FPR, ngram)
                     for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
-                        HBI hbi = null;
-                        InsertStats hbiIns = null;
-                        if (options.runHbi()) {
-                            hbi = newHbi(options, currentFp, ng);
-                            hbi.strides = USE_STRIDES;
-                            hbi.memPolicy = options.memPolicy();
-                            hbi.stats().setCollecting(false);
-                            hbi.stats().setExperimentMode(false);
+                        if (!options.reinsertPerWorkload()) {
+                            // original behavior: insert once, run all workloads
+                            HBI hbi = null;
+                            InsertStats hbiIns = null;
+                            if (options.runHbi()) {
+                                hbi = newHbi(options, currentFp, ng);
+                                hbi.strides = USE_STRIDES;
+                                hbi.memPolicy = options.memPolicy();
+                                hbi.stats().setCollecting(false);
+                                hbi.stats().setExperimentMode(false);
 
-                            hbiIns = "segments".equalsIgnoreCase(options.mode())
-                                    ? insertDatasetSegments(datasetFile.toString(), hbi, ng)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
-                        }
+                                hbiIns = "segments".equalsIgnoreCase(options.mode())
+                                        ? insertDatasetSegments(datasetFile.toString(), hbi, ng)
+                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
+                            }
 
-                        IPMIndexing suffix = null;
-                        InsertStats suffixIns = null;
-                        if (options.runSuffix()) {
-                            suffix = newSuffixTree(options);
-                            suffixIns = "segments".equalsIgnoreCase(options.mode())
-                                    ? insertDatasetSegments(datasetFile.toString(), suffix, ng)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);
-                        }
+                            IPMIndexing suffix = null;
+                            InsertStats suffixIns = null;
+                            if (options.runSuffix()) {
+                                suffix = newSuffixTree(options);
+                                suffixIns = "segments".equalsIgnoreCase(options.mode())
+                                        ? insertDatasetSegments(datasetFile.toString(), suffix, ng)
+                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);
+                            }
 
-                        IPMIndexing regex = null;
-                        InsertStats regexIns = null;
-                        if (options.runRegexBaseline()) {
-                            regex = new RegexIndex();
-                            regexIns = "segments".equalsIgnoreCase(options.mode())
-                                    ? insertDatasetSegments(datasetFile.toString(), regex, 1)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
-                        }
+                            IPMIndexing regex = null;
+                            InsertStats regexIns = null;
+                            if (options.runRegexBaseline()) {
+                                regex = new RegexIndex();
+                                regexIns = "segments".equalsIgnoreCase(options.mode())
+                                        ? insertDatasetSegments(datasetFile.toString(), regex, 1)
+                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+                            }
 
-                        for (QueryType type : queryTypes) {
-                            List<QueryWorkload> workloads = workloadsByType.get(type);
-                            if (workloads == null || workloads.isEmpty()) continue;
+                            for (QueryType type : queryTypes) {
+                                List<QueryWorkload> workloads = workloadsByType.get(type);
+                                if (workloads == null || workloads.isEmpty()) continue;
 
-                            MultiRunResult hbiResults = null;
-                            if (hbi != null) {
-                                if (SKIP_QUERIES) {
-                                    hbiResults = buildSkippedQueryResults(workloads, hbiIns);
-                                } else if ("segments".equalsIgnoreCase(options.mode())) {
-                                    hbiResults = runQueriesSegments(datasetFile.toString(), workloads, hbi, ng, hbiIns, false, false);
-                                } else {
-                                    hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, ng, hbiIns, false, false);
+                                MultiRunResult hbiResults = null;
+                                if (hbi != null) {
+                                    if (SKIP_QUERIES) {
+                                        hbiResults = buildSkippedQueryResults(workloads, hbiIns);
+                                    } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                        hbiResults = runQueriesSegments(datasetFile.toString(), workloads, hbi, ng, hbiIns, false, false);
+                                    } else {
+                                        hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, ng, hbiIns, false, false);
+                                    }
+                                }
+
+                                MultiRunResult suffixResults = null;
+                                if (suffix != null) {
+                                    if (SKIP_QUERIES) {
+                                        suffixResults = buildSkippedQueryResults(workloads, suffixIns);
+                                    } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                        suffixResults = runQueriesSegments(datasetFile.toString(), workloads, suffix, ng, suffixIns, false, false);
+                                    } else {
+                                        suffixResults = MultiQueryExperiment.runQueries(workloads, suffix, ng, suffixIns, false, false);
+                                    }
+                                }
+
+                                MultiRunResult regexResults = null;
+                                if (regex != null) {
+                                    if (SKIP_QUERIES) {
+                                        regexResults = buildSkippedQueryResults(workloads, regexIns);
+                                    } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                        regexResults = runQueriesSegments(datasetFile.toString(), workloads, regex, 1, regexIns, false, false);
+                                    } else {
+                                        regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexIns, false, false);
+                                    }
+                                }
+
+                                // accumulate under [type][ngram][patternLen]
+                                Map<Integer, Map<Integer, AggregateStats>> perType = aggregated.get(type);
+                                Map<Integer, AggregateStats> byPattern =
+                                        perType.computeIfAbsent(ng, _k -> new TreeMap<>());
+
+                                if (hbiResults != null) {
+                                    hbiResults.results().forEach((workload, result) -> {
+                                        int pl = workload.patternLength();
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.HBI,
+                                                        result.avgInsertMsPerSymbol(),
+                                                        result.totalInsertTimeMs(),
+                                                        result.totalRunTimeMs());
+                                    });
+                                }
+                                if (suffixResults != null) {
+                                    suffixResults.results().forEach((workload, result) -> {
+                                        int pl = workload.patternLength();
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.SUFFIX,
+                                                        result.avgInsertMsPerSymbol(),
+                                                        result.totalInsertTimeMs(),
+                                                        result.totalRunTimeMs());
+                                    });
+                                }
+                                if (regexResults != null) {
+                                    regexResults.results().forEach((workload, result) -> {
+                                        int pl = workload.patternLength();
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.REGEX,
+                                                        result.avgInsertMsPerSymbol(),
+                                                        result.totalInsertTimeMs(),
+                                                        result.totalRunTimeMs());
+                                    });
                                 }
                             }
 
-                            MultiRunResult suffixResults = null;
-                            if (suffix != null) {
-                                if (SKIP_QUERIES) {
-                                    suffixResults = buildSkippedQueryResults(workloads, suffixIns);
-                                } else if ("segments".equalsIgnoreCase(options.mode())) {
-                                    suffixResults = runQueriesSegments(datasetFile.toString(), workloads, suffix, ng, suffixIns, false, false);
-                                } else {
-                                    suffixResults = MultiQueryExperiment.runQueries(workloads, suffix, ng, suffixIns, false, false);
-                                }
-                            }
+                            hbi = null;
+                            suffix = null;
+                            regex = null;
+                        } else {
+                            // NEW behavior: reinsert dataset for each workload
+                            for (QueryType type : queryTypes) {
+                                List<QueryWorkload> workloads = workloadsByType.get(type);
+                                if (workloads == null || workloads.isEmpty()) continue;
 
-                            MultiRunResult regexResults = null;
-                            if (regex != null) {
-                                if (SKIP_QUERIES) {
-                                    regexResults = buildSkippedQueryResults(workloads, regexIns);
-                                } else if ("segments".equalsIgnoreCase(options.mode())) {
-                                    regexResults = runQueriesSegments(datasetFile.toString(), workloads, regex, 1, regexIns, false, false);
-                                } else {
-                                    regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexIns, false, false);
-                                }
-                            }
+                                Map<Integer, Map<Integer, AggregateStats>> perType = aggregated.get(type);
+                                Map<Integer, AggregateStats> byPattern =
+                                        perType.computeIfAbsent(ng, _k -> new TreeMap<>());
 
-                            // accumulate under [type][ngram][patternLen]
-                            Map<Integer, Map<Integer, AggregateStats>> perType = aggregated.get(type);
-                            Map<Integer, AggregateStats> byPattern =
-                                    perType.computeIfAbsent(ng, _k -> new TreeMap<>());
+                                for (QueryWorkload workload : workloads) {
+                                    int pl = workload.patternLength();
 
-                            if (hbiResults != null) {
-                                hbiResults.results().forEach((workload, result) -> {
-                                    int pl = workload.patternLength();
-                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
-                                            .accumulate(IndexType.HBI,
-                                                    result.avgInsertMsPerSymbol(),
-                                                    result.totalInsertTimeMs(),
-                                                    result.totalRunTimeMs());
-                                });
-                            }
-                            if (suffixResults != null) {
-                                suffixResults.results().forEach((workload, result) -> {
-                                    int pl = workload.patternLength();
-                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
-                                            .accumulate(IndexType.SUFFIX,
-                                                    result.avgInsertMsPerSymbol(),
-                                                    result.totalInsertTimeMs(),
-                                                    result.totalRunTimeMs());
-                                });
-                            }
-                            if (regexResults != null) {
-                                regexResults.results().forEach((workload, result) -> {
-                                    int pl = workload.patternLength();
-                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
-                                            .accumulate(IndexType.REGEX,
-                                                    result.avgInsertMsPerSymbol(),
-                                                    result.totalInsertTimeMs(),
-                                                    result.totalRunTimeMs());
-                                });
-                            }
+                                    if (options.runHbi()) {
+                                        HBI hbi = newHbi(options, currentFp, ng);
+                                        hbi.strides = USE_STRIDES;
+                                        hbi.memPolicy = options.memPolicy();
+                                        hbi.stats().setCollecting(false);
+                                        hbi.stats().setExperimentMode(false);
+
+                                        InsertStats ins = "segments".equalsIgnoreCase(options.mode())
+                                                ? insertDatasetSegments(datasetFile.toString(), hbi, ng)
+                                                : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
+                                        MultiQueryExperiment.MultiRunResult res = "segments".equalsIgnoreCase(options.mode())
+                                                ? runQueriesSegments(datasetFile.toString(), List.of(workload), hbi, ng, ins, false, false)
+                                                : MultiQueryExperiment.runQueries(List.of(workload), hbi, ng, ins, false, false);
+                                        ExperimentRunResult r = res.results().get(workload);
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.HBI, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
+                                    }
+
+                                    if (options.runSuffix()) {
+                                        IPMIndexing suffix = newSuffixTree(options);
+                                        InsertStats ins = "segments".equalsIgnoreCase(options.mode())
+                                                ? insertDatasetSegments(datasetFile.toString(), suffix, ng)
+                                                : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);
+                                        MultiQueryExperiment.MultiRunResult res = "segments".equalsIgnoreCase(options.mode())
+                                                ? runQueriesSegments(datasetFile.toString(), List.of(workload), suffix, ng, ins, false, false)
+                                                : MultiQueryExperiment.runQueries(List.of(workload), suffix, ng, ins, false, false);
+                                        ExperimentRunResult r = res.results().get(workload);
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
+                                    }
+
+                                    if (options.runRegexBaseline()) {
+                                        IPMIndexing regex = new RegexIndex();
+                                        InsertStats ins = "segments".equalsIgnoreCase(options.mode())
+                                                ? insertDatasetSegments(datasetFile.toString(), regex, 1)
+                                                : MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+                                        MultiQueryExperiment.MultiRunResult res = "segments".equalsIgnoreCase(options.mode())
+                                                ? runQueriesSegments(datasetFile.toString(), List.of(workload), regex, 1, ins, false, false)
+                                                : MultiQueryExperiment.runQueries(List.of(workload), regex, 1, ins, false, false);
+                                        ExperimentRunResult r = res.results().get(workload);
+                                        byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                                .accumulate(IndexType.REGEX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
+                                    }
+                                } // workloads
+                            } // types
                         }
-
-                        hbi = null;
-                        suffix = null;
-                        regex = null;
                         // Optional: System.gc();
                     } // runs
                 } // datasets
