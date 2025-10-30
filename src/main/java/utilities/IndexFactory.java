@@ -5,11 +5,7 @@ import PMIndex.HbiConfiguration;
 import PMIndex.StreamingSlidingWindowIndex;
 import PMIndex.DelayedStreamingSlidingWindowIndex;
 import PMIndex.IPMIndexing;
-import estimators.CostFunction;
-import estimators.CostFunctionDefaultRoot;
-import estimators.CostFunctionMarkov;
-import estimators.Estimator;
-import estimators.HashMapEstimator;
+import estimators.*;
 import membership.BloomFilter;
 import membership.Membership;
 import search.BlockSearch;
@@ -56,8 +52,8 @@ public final class IndexFactory {
                                 Utils.MemPolicy memPolicy,
                                 int ngram,
                                 String algorithm) {
-
-        Supplier<Estimator> estFactory = () -> new HashMapEstimator(treeLength);
+        //Countsketch: ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
+        Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
         Verifier verifier = new VerifierLinearLeafProbe();
 

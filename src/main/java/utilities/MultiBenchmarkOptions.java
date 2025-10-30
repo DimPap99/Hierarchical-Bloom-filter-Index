@@ -91,7 +91,7 @@ public record MultiBenchmarkOptions(
                 }
                 case "window-length" -> windowLength = Integer.parseInt(value);
                 case "tree-length" -> treeLength = Integer.parseInt(value);
-                case "alphabet-base" -> alphabetBase = Integer.parseInt(value);
+                case "alphabet", "alphabet-base" -> alphabetBase = Integer.parseInt(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
                 case "fp-grid" -> fpGridArg = value; // start:end:step

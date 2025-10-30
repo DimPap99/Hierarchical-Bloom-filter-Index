@@ -61,6 +61,13 @@ public final class BenchmarkOrchestrator {
 
                     System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
                             datasetDir.getFileName(), datasetFile.getFileName());
+                    // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
+                    int effAlphabet = options.alphabetSizeFor(ng);
+                    System.out.printf(Locale.ROOT,
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, reinsert=%b%n",
+                            options.windowLength(), options.treeLength(), ng,
+                            options.alphabetBase(), effAlphabet, currentFp,
+                            options.runs(), options.algorithm(), options.mode(), options.reinsertPerWorkload());
 
                     Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
                     boolean hasQueries = false;
