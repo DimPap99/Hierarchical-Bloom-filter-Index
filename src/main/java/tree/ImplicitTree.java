@@ -23,6 +23,7 @@ public final class ImplicitTree< M extends Membership> {
     public int containCounter = 0;
     private final TreeLayout           layout;
     public int indexedItemsCounter=-1;
+    private final int[] visitedPerLevel = new int[64];
 
     private final LevelDirectory< M> levels;
     public final StreamBuffer         buffer;
@@ -51,6 +52,7 @@ public final class ImplicitTree< M extends Membership> {
 //        this.treeSize = size;
 //        this.tr
     }
+
 
     /**
      * Insert a character that occurs at {@code globalPos} in the full stream.
@@ -129,23 +131,28 @@ public final class ImplicitTree< M extends Membership> {
     public int effectiveRoot(){
         return layout.getEffectiveRootLevel();
     }
-    public void generateChildren(Frame currentFrame, Deque<Frame> framesStack, int positionOffset, int workingTreeIdx){
-        int rightChild = this.rightChild(currentFrame.intervalIdx());
-        int leftChild = this.leftChild(currentFrame.intervalIdx());
+    public void generateChildren(Frame currentFrame,
+                                 Deque<Frame> framesStack,
+                                 int positionOffset,
+                                 int workingTreeIdx) {
 
         int nextLevel = currentFrame.level() + 1;
-        Frame leftFrame = new Frame(nextLevel, leftChild);
-        Frame rightFrame = new Frame(nextLevel, rightChild);
-        int maxDepth = this.maxDepth();
-        //add right child
-//        if (this.isValidChild(positionOffset, rightChild, nextLevel, maxDepth, workingTreeIdx)) {
-            framesStack.push(rightFrame);
-        //}
-        //add left child
-//        if (isValidChild(positionOffset, leftChild, nextLevel, maxDepth, workingTreeIdx)) {
-            framesStack.push(leftFrame);
+        int maxDepth  = this.maxDepth();
+
+        int rightChildIdx = this.rightChild(currentFrame.intervalIdx());
+        int leftChildIdx  = this.leftChild(currentFrame.intervalIdx());
+
+        // Push right, then left, but only if that subtree can still
+        // contain a position >= positionOffset.
+//        if (this.isValidChild(positionOffset, rightChildIdx, nextLevel, maxDepth, workingTreeIdx)) {
+            framesStack.push(new Frame(nextLevel, rightChildIdx));
+//        }
+
+//        if (this.isValidChild(positionOffset, leftChildIdx, nextLevel, maxDepth, workingTreeIdx)) {
+            framesStack.push(new Frame(nextLevel, leftChildIdx));
 //        }
     }
+
 
 
     public ArrayList<Frame> generateChildren(Frame currentFrame, int positionOffset, int workingTreeIdx){
@@ -216,12 +223,27 @@ public final class ImplicitTree< M extends Membership> {
 
     //  Membership lookup
     public boolean contains(int level, long key) {
+
         containCounter++;
+        if (level >= 0 && level < visitedPerLevel.length) {
+            visitedPerLevel[level]++;
+        }
         return levels.contains(level, key);
+    }
+    public int[] snapshotVisitedPerLevel() {
+        return java.util.Arrays.copyOf(visitedPerLevel, visitedPerLevel.length);
+    }
+    /** Clear both the per-level visits and the aggregate Bloom counter */
+    public void clearVisitCounters() {
+        java.util.Arrays.fill(visitedPerLevel, 0);
+        containCounter = 0;
     }
 
     public boolean contains(int level, long hi, long lo) {
         containCounter++;
+        if (level >= 0 && level < visitedPerLevel.length) {
+            visitedPerLevel[level]++;
+        }
         return levels.contains(level, hi, lo);
     }
 

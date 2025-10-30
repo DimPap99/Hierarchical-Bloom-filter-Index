@@ -11,45 +11,66 @@ public class BlockSearch implements SearchAlgorithm{
     private boolean strides;
 
     @Override
-    public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
-        int currentIntervalSize = tree.intervalSize(f.level());
-        int childrenIntervalSize = currentIntervalSize / 2;
-        int treeBaseInterval = tree.baseIntervalSize();
+    public CandidateRange search(Frame f,
+                                 Pattern p,
+                                 ImplicitTree tree,
+                                 Deque<Frame> stack,
+                                 int positionOffset) {
+
+        int currentIntervalSize   = tree.intervalSize(f.level());
+        int childrenIntervalSize  = currentIntervalSize / 2;
+        int treeBaseInterval      = tree.baseIntervalSize();
+
+        // Absolute global start and end of this interval
+        int globalStart = tree.id * treeBaseInterval
+                + currentIntervalSize * f.intervalIdx();
+
+        int globalEnd   = globalStart + currentIntervalSize - 1;
+
+        // Set currentOffset so that candidate ranges never start before frontier
+        this.currentOffset = Math.max(positionOffset, globalStart);
+
+        // If this node's entire interval lies strictly before positionOffset,
+        // we can skip probing this node entirely
+        if (globalEnd < positionOffset) {
+            this.currentOffset = globalEnd + 1;
+            return null;
+        }
 
         long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
+
         Probe probe = probe(tree,
                 f.level(),
                 f.intervalIdx(),
                 p,
                 tokens,
                 currentIntervalSize);
-        this.currentOffset = positionOffset;
 
         if (probe.consumed() == 0) {
-            this.currentOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
+            // Bloom said "no match at this interval's left edge"
+            // We know everything up to globalEnd is dead
+            this.currentOffset = globalEnd + 1;
             return null;
-        } else {
-            //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-            boolean canDescend = f.level() + 1 < tree.maxDepth();
-            if (probe.complete() && childrenIntervalSize >= p.size && canDescend) {
-                //we just generate children as theres a chance that the pattern is in both of them
-                tree.generateChildren(f, stack, positionOffset, tree.id);
-                return null;
-            } else {
-                int intervalEndIdx = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval - 1;
+        }
 
-                if(probe.complete()) return new CandidateRange(this.currentOffset, intervalEndIdx);
-                else {
-                    //the probes were incomplete. Meaning:
-                    //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
-                    //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
-                    //neighboring child (we have an overlap).
-                    this.currentOffset = intervalEndIdx - probe.consumed() + 1;
-                    return new CandidateRange(this.currentOffset, intervalEndIdx);
-                }
-            }
+        boolean canDescend = f.level() + 1 < tree.maxDepth();
+
+        if (probe.complete()
+                && childrenIntervalSize >= p.size
+                ) {
+
+            tree.generateChildren(f, stack, positionOffset, tree.id);
+            return null;
+        }
+//        if(childrenIntervalSize < p.size) System.out.println(f);
+        if (probe.complete()) {
+            return new CandidateRange(this.currentOffset, globalEnd);
+        } else {
+            this.currentOffset = globalEnd - probe.consumed() + 1;
+            return new CandidateRange(this.currentOffset, globalEnd);
         }
     }
+
 
 
     public int getCurrentOffset(){return this.currentOffset;}
@@ -72,7 +93,8 @@ public class BlockSearch implements SearchAlgorithm{
         //p72xcHxRu1
 
         int matches = 0;
-        int effectiveLookupRange = Math.min(tokens.length, maxTokensForInterval(currentIntervalSize, pattern));
+        int effectiveLookupRange =
+                Math.min(tokens.length, maxTokensForInterval(currentIntervalSize, pattern));
         boolean contains = false;
         for (int i = 0; i < effectiveLookupRange; i+=1) {
             long token = tokens[i];

@@ -299,6 +299,63 @@ public final class HBI implements IPMIndexing {
     public boolean exists(String key) {
         return false;
     }
+    // Choose a target absolute seed span S from the pattern.
+// Heuristic: seed where children are ~4× the pattern length.
+// This keeps the descent to "pattern scale" short and stable.
+    private static int targetSeedSpanFor(search.Pattern p) {
+        int m = Math.max(1, p.originalSz);
+        return Math.max(64, 4 * m);
+    }
+
+    // Exact ceil(log2(x)) for positive integers.
+// Returns the smallest L such that 2^L >= x.
+    private static int ilog2ceil(int x) {
+        if (x <= 1) return 0;
+        return 32 - Integer.numberOfLeadingZeros(x - 1);
+    }
+
+    // Exact ceil(log2(W/S)) without floating point.
+// Finds the smallest L with (2^L) * S >= W.
+    private static int ceilLog2Ratio(int windowLength, int seedSpan) {
+        long span = Math.max(1, seedSpan);
+        int L = 0;
+        while (span < (long) windowLength) {
+            span <<= 1;
+            L++;
+        }
+        return L;
+    }
+
+    /**
+     * Compute the per-tree seed level so that across all active trees
+     * you seed the SAME absolute interval size you would have used if
+     * the whole window were one monolithic tree.
+     *
+     * L_global = ceil(log2(W / S))
+     * L_tree   = clamp( L_global - ceil(log2(T)), [0, maxDepth-1] )
+     */
+    private static int alignedSeedLevel(tree.ImplicitTree<?> tree,
+                                        int windowLength,
+                                        int numActiveTrees,
+                                        search.Pattern p, int S) {
+        int Lglobal  = ceilLog2Ratio(windowLength, S);     // ceil(log2(W/S))
+        int shift    = ilog2ceil(Math.max(1, numActiveTrees)); // ceil(log2(T))
+        int lp       = Math.max(0, Lglobal - shift);
+        return Math.min(lp, tree.maxDepth() - 1);
+    }
+
+    private static void printLevelHistogram(int[] visits, String label) {
+        // Print only non-zero levels for readability
+        System.out.printf(Locale.ROOT, "Visits per level (%s):", label);
+        boolean first = true;
+        for (int lvl = 0; lvl < visits.length; lvl++) {
+            int v = visits[lvl];
+            if (v == 0) continue;
+            System.out.printf(Locale.ROOT, "%s L%-2d=%d", first ? " " : ", ", lvl, v);
+            first = false;
+        }
+        System.out.println();
+    }
 
     @Override
     public ArrayList<Integer> report(Pattern pat) {
@@ -413,8 +470,9 @@ public final class HBI implements IPMIndexing {
                     stats.recordAlpha(cf.getAlpha());
                 }
             }
+//            int lp2 = alignedSeedLevel(tree, this.windowLength, this.trees.size(), pat, 1 << lp);
 
-            scn.seedLevel(lp);
+            scn.seedLevel(0);
 
             // Walk candidate intervals from this tree
             while (scn.hasNext()) {
@@ -437,6 +495,13 @@ public final class HBI implements IPMIndexing {
                 positionOffset = res.getSecond();
                 scn.positionOffset = positionOffset;
             }
+//            System.out.println(positionOffset);
+            // Print per-tree totals and histogram immediately after finishing this tree
+//            System.out.println("Tree id=" + tree.id + " lp=" + lp
+//                    + " span=" + span + " bloomProbes=" + tree.containCounter);
+//
+//            int[] perLevel = tree.snapshotVisitedPerLevel();
+//            printLevelHistogram(perLevel, "tree=" + tree.id);    }
         }
 
         // Experiment mode bookkeeping
@@ -465,6 +530,8 @@ public final class HBI implements IPMIndexing {
             long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
             stats.recordQueryTiming(totalQueryTimeNanos, totalLpTimeNanos);
         }
+//        int bfprobes2   = this.getAllprobes();
+//        System.out.println(pat.text +" Bloom Probes: " + bfprobes2);
 
         return results;
     }
