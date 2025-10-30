@@ -39,51 +39,60 @@ public final class HBIDatasetBenchmarkMulti {
     private static boolean SKIP_QUERIES = false;//toggle to run only to get insert stats
     private static int ALPHABET;
     private static double FP_Rate;
-    private record BenchmarkOptions(Path dataRoot,
-                                    Path queryRoot,
-                                    String window,
-                                    QueryType queryType,
-                                    String mode,            // <-- NEW: "chars" or "segments"
-                                    int ngram,
-                                    int windowLength,
-                                    int treeLength,
-                                    int alphabetBase,
-                                    double fpRate,
-                                    double runConfidence,
-                                    int warmupRuns,
-                                    int runs,
-                                    boolean runRegexBaseline,
-                                    boolean runHbi,
-                                    boolean runSuffix,
-                                    Utils.MemPolicy memPolicy) {
+    private record BenchmarkOptions(
+            Path dataRoot,
+            Path queryRoot,
+            String window,
+            QueryType queryType,
+            String mode,                 // "chars" or "segments"
+            Integer defaultNgram,        // keep a primary value for backwards-compat
+            List<Integer> ngrams,        // NEW: list to iterate
+            int windowLength,
+            int treeLength,
+            int alphabetBase,
+            double fpRate,               // legacy single value for backwards-compat
+            List<Double> fpRates,        // NEW: list to iterate
+            double runConfidence,
+            int warmupRuns,
+            int runs,
+            boolean runRegexBaseline,
+            boolean runHbi,
+            boolean runSuffix,
+            Utils.MemPolicy memPolicy) {
 
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
             Path queryRoot = Path.of("queries");
-            String window = "w21";
+            String window = "caida21";
             QueryType queryType = QueryType.UNIFORM;
-            String mode = "chars";           // default behavior stays chars/segments
-            Integer ngram = 8;
+            String mode = "segments";
+
+            // n-grams
+            Integer defaultNgram = 8;
+            List<Integer> ngramList = null; // if provided, overrides defaultNgram
+
             Integer windowLength = 1 << 21;
             Integer treeLength = 1 << 21;
-            Integer alphabetBase = 150;
-            double fpRate = 0.15;
-            FP_Rate = fpRate;
+            Integer alphabetBase = 130000;
+
+            // false positive rate inputs
+            double fpRate = 0.15;      // default single value
+            List<Double> fpRates = null;
+            String fpListArg = null;
+            String fpGridArg = null;
+
             double runConfidence = 0.99;
             int warmupRuns = 0;
             int runs = 1;
             boolean runRegexBaseline = false;
             boolean runHbi = true;
             boolean runSuffix = true;
-            int buckets = alphabetBase;
             Utils.MemPolicy policy = Utils.MemPolicy.NONE;
-
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
-                if (!arg.startsWith("--")) {
-                    continue;
-                }
+                if (!arg.startsWith("--")) continue;
+
                 String key;
                 String value;
                 int eq = arg.indexOf('=');
@@ -97,19 +106,40 @@ public final class HBIDatasetBenchmarkMulti {
                     }
                     value = args[++i];
                 }
+
                 switch (key) {
                     case "window" -> window = value;
-                    case "type" -> queryType = "all".equalsIgnoreCase(value)
-                            ? null
-                            : QueryType.fromString(value);
+                    case "type" -> queryType = "all".equalsIgnoreCase(value) ? null : QueryType.fromString(value);
                     case "data-root" -> dataRoot = Path.of(value);
                     case "query-root" -> queryRoot = Path.of(value);
-                    case "mode" -> mode = value;                        // <-- NEW
-                    case "ngrams" -> ngram = Integer.parseInt(value);
+                    case "mode" -> mode = value;
+
+                    // Accept either a single integer or a CSV list for n-grams
+                    case "ngrams" -> {
+                        if (value.contains(",")) {
+                            ngramList = parseIntCsv(value);
+                            if (ngramList.isEmpty()) throw new IllegalArgumentException("Empty --ngrams list");
+                            defaultNgram = ngramList.get(0);
+                        } else {
+                            defaultNgram = Integer.parseInt(value);
+                        }
+                    }
+
                     case "window-length" -> windowLength = Integer.parseInt(value);
                     case "tree-length" -> treeLength = Integer.parseInt(value);
                     case "alphabet-base" -> alphabetBase = Integer.parseInt(value);
-                    case "fp" -> fpRate = Double.parseDouble(value);
+
+                    // false positive rate options
+                    case "fp" -> {
+                        if (value.contains(",")) {
+                            fpListArg = value;
+                        } else {
+                            fpRate = Double.parseDouble(value);
+                        }
+                    }
+                    case "fp-list" -> fpListArg = value;
+                    case "fp-grid" -> fpGridArg = value; // "start:end:step"
+
                     case "confidence" -> runConfidence = Double.parseDouble(value);
                     case "warmup" -> warmupRuns = Integer.parseInt(value);
                     case "runs" -> runs = Integer.parseInt(value);
@@ -123,16 +153,9 @@ public final class HBIDatasetBenchmarkMulti {
             if (window == null) {
                 throw new IllegalArgumentException("--window is required");
             }
-
-            if (ngram == null) {
-                ngram = 4;
-            }
-            if (windowLength == null) {
-                windowLength = deriveWindowLength(window, 1 << 21);
-            }
-            if (treeLength == null) {
-                treeLength = windowLength;
-            }
+            if (defaultNgram == null) defaultNgram = 4;
+            if (windowLength == null) windowLength = deriveWindowLength(window, 1 << 21);
+            if (treeLength == null) treeLength = windowLength;
 
             Path resolvedDataRoot = dataRoot.resolve(window);
             Path resolvedQueryRoot = queryRoot.resolve(window);
@@ -143,10 +166,33 @@ public final class HBIDatasetBenchmarkMulti {
             if (!Files.isDirectory(resolvedQueryRoot)) {
                 throw new IllegalArgumentException("Query directory not found: " + resolvedQueryRoot);
             }
-
             if (!runRegexBaseline && !runHbi && !runSuffix) {
-                throw new IllegalArgumentException("At least one index must be enabled (HBI, suffix, or regex).");
+                throw new IllegalArgumentException("At least one index must be enabled");
             }
+
+            // finalize n-gram list
+            if (ngramList == null) {
+                ngramList = List.of(defaultNgram);
+            } else {
+                ngramList = ngramList.stream().distinct().sorted().collect(Collectors.toList());
+            }
+
+            // Build false positive rate list if requested
+            if (fpListArg != null || fpGridArg != null) {
+                List<Double> list = new ArrayList<>();
+                if (fpListArg != null) list.addAll(parseFpList(fpListArg));
+                if (fpGridArg != null) list.addAll(parseFpGrid(fpGridArg));
+                fpRates = list.stream().distinct().sorted().collect(Collectors.toList());
+                if (fpRates.isEmpty()) {
+                    throw new IllegalArgumentException("Empty false positive rate list after parsing");
+                }
+            } else {
+                fpRates = List.of(fpRate);
+            }
+
+            // keep legacy singletons in sync
+            fpRate = fpRates.get(0);
+            FP_Rate = fpRate;
 
             return new BenchmarkOptions(
                     resolvedDataRoot,
@@ -154,11 +200,13 @@ public final class HBIDatasetBenchmarkMulti {
                     window,
                     queryType,
                     mode,
-                    ngram,
+                    defaultNgram,
+                    ngramList,
                     windowLength,
                     treeLength,
                     alphabetBase,
                     fpRate,
+                    fpRates,
                     runConfidence,
                     warmupRuns,
                     runs,
@@ -168,15 +216,16 @@ public final class HBIDatasetBenchmarkMulti {
                     policy);
         }
 
-        int alphabetSize() {
+        // alphabet size for a specific n-gram
+        int alphabetSizeFor(int ngram) {
             double pow = Math.pow(alphabetBase, ngram);
-
             double sigma = Math.min(pow, windowLength);
-            if (sigma >= Integer.MAX_VALUE) {
-                return Integer.MAX_VALUE;
-            }
-            ALPHABET = (int) sigma;
-            return (int) sigma;
+            return (sigma >= Integer.MAX_VALUE) ? Integer.MAX_VALUE : (int) sigma;
+        }
+
+        // Backwards compatible, uses the default n-gram
+        int alphabetSize() {
+            return alphabetSizeFor(defaultNgram);
         }
 
         String queryTypeLabel() {
@@ -187,40 +236,24 @@ public final class HBIDatasetBenchmarkMulti {
             EnumSet<QueryType> selected = queryType != null
                     ? EnumSet.of(queryType)
                     : EnumSet.allOf(QueryType.class);
-
             List<QueryType> preferredOrder = List.of(QueryType.UNIFORM, QueryType.MISSING, QueryType.RARE);
             List<QueryType> entries = new ArrayList<>();
             for (QueryType candidate : preferredOrder) {
-                if (selected.contains(candidate)) {
-                    entries.add(candidate);
-                }
+                if (selected.contains(candidate)) entries.add(candidate);
             }
             return entries;
         }
 
         List<IndexType> activeIndexes() {
             List<IndexType> indexes = new ArrayList<>(3);
-            if (runHbi) {
-                indexes.add(IndexType.HBI);
-            }
-            if (runSuffix) {
-                indexes.add(IndexType.SUFFIX);
-            }
-            if (runRegexBaseline) {
-                indexes.add(IndexType.REGEX);
-            }
+            if (runHbi) indexes.add(IndexType.HBI);
+            if (runSuffix) indexes.add(IndexType.SUFFIX);
+            if (runRegexBaseline) indexes.add(IndexType.REGEX);
             return indexes;
         }
 
-        Path csvOutputFile() {
-            String fileName = "%s_%s_%d_%s.csv".formatted(window, queryTypeLabel(), ngram, algo);
-            return Path.of(fileName);
-        }
-
         static int deriveWindowLength(String window, int defaultValue) {
-            if (window == null || window.isEmpty()) {
-                return defaultValue;
-            }
+            if (window == null || window.isEmpty()) return defaultValue;
             for (int i = 0; i < window.length(); i++) {
                 if (Character.isDigit(window.charAt(i))) {
                     String numeric = window.substring(i);
@@ -234,14 +267,60 @@ public final class HBIDatasetBenchmarkMulti {
             }
             return defaultValue;
         }
+
+        // NEW: CSV name includes FPR; if multiple n-grams, mark "ngmulti"
+        Path csvOutputFile(double fp) {
+            String fpToken = String.format(Locale.ROOT, "%.6f", fp).replace('.', 'p');
+            String ngToken = (ngrams.size() == 1)
+                    ? String.valueOf(ngrams.get(0))
+                    : "ngmulti";
+            String fileName = "%s_%s_%s_%s_fp%s.csv"
+                    .formatted(window, queryTypeLabel(), ngToken, algo, fpToken);
+            return Path.of(fileName);
+        }
+
+        // Utilities
+        private static List<Integer> parseIntCsv(String csv) {
+            String[] parts = csv.split(",");
+            List<Integer> out = new ArrayList<>(parts.length);
+            for (String p : parts) {
+                if (!p.isBlank()) out.add(Integer.parseInt(p.trim()));
+            }
+            return out;
+        }
+
+        private static List<Double> parseFpList(String csv) {
+            String[] parts = csv.split(",");
+            List<Double> out = new ArrayList<>(parts.length);
+            for (String p : parts) {
+                if (!p.isBlank()) out.add(Double.parseDouble(p.trim()));
+            }
+            return out;
+        }
+
+        // "start:end:step" inclusive of end
+        private static List<Double> parseFpGrid(String grid) {
+            String[] parts = grid.split(":");
+            if (parts.length != 3) throw new IllegalArgumentException("--fp-grid must be start:end:step");
+            double start = Double.parseDouble(parts[0]);
+            double end = Double.parseDouble(parts[1]);
+            double step = Double.parseDouble(parts[2]);
+            if (step <= 0.0) throw new IllegalArgumentException("Step must be positive");
+            List<Double> out = new ArrayList<>();
+            for (double x = start; x <= end + 1e-12; x += step) {
+                double val = Math.max(start, Math.min(x, end));
+                out.add(val);
+            }
+            return out;
+        }
     }
+
+
 
     public static void main(String[] args) throws Exception {
         BenchmarkOptions options = BenchmarkOptions.parse(args);
         List<QueryType> queryTypes = options.orderedQueryTypes();
         List<IndexType> activeIndexes = options.activeIndexes();
-        Map<QueryType, Map<Integer, AggregateStats>> aggregated = new EnumMap<>(QueryType.class);
-        queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
 
         System.out.printf(Locale.ROOT,
                 "Running window %s (%s) with datasets under %s%n",
@@ -252,351 +331,367 @@ public final class HBIDatasetBenchmarkMulti {
             throw new IllegalStateException("No dataset folders found under " + options.dataRoot());
         }
 
-        for (Path datasetDir : datasetDirs) {
-            Path datasetFile = findSingleDatasetFile(datasetDir);
-            Path queryDir = options.queryRoot().resolve(datasetDir.getFileName());
-            if (!Files.isDirectory(queryDir)) {
-                System.out.printf(Locale.ROOT,
-                        "Skipping dataset %s (missing query folder %s)%n",
-                        datasetDir.getFileName(), queryDir);
-                continue;
-            }
+        // For each false positive rate: run ALL requested n-grams
+        for (double currentFp : options.fpRates()) {
+            FP_Rate = currentFp;
 
-            System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
-                    datasetDir.getFileName(), datasetFile.getFileName());
+            // aggregated[QueryType][ngram][patternLen] -> stats
+            Map<QueryType, Map<Integer, Map<Integer, AggregateStats>>> aggregated = new EnumMap<>(QueryType.class);
+            queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
 
-            Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
-            boolean hasQueries = false;
-            for (QueryType type : queryTypes) {
-                List<Path> queryFiles = findQueryFiles(queryDir, type);
-                if (queryFiles.isEmpty()) {
-                    System.out.printf(Locale.ROOT,
-                            "No %s queries in %s, skipping.%n",
-                            type.fileToken(), queryDir);
-                    workloadsByType.put(type, List.of());
-                    continue;
-                }
-                hasQueries = true;
-                System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
-                List<QueryWorkload> workloads = queryFiles.stream()
-                        .map(path -> new QueryWorkload(
-                                parsePatternLength(path.getFileName().toString()),
-                                path))
-                        .sorted(Comparator.comparingInt(QueryWorkload::patternLength))
-                        .collect(Collectors.toList());
-                workloadsByType.put(type, workloads);
-            }
+            System.out.printf(Locale.ROOT, "%n==== FPR = %.6f ====%n", currentFp);
 
-            if (!hasQueries && !SKIP_QUERIES) {
-                // If we actually wanted queries but none exist, just move on
-                continue;
-            }
+            for (int ng : options.ngrams()) {
+                System.out.printf(Locale.ROOT, "---- ngram = %d ----%n", ng);
 
-            // ------------------
-            // WARM-UP RUNS
-            // ------------------
-            for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
-
-                if (options.runHbi()) {
-                    HBI warmupIndex = newHbi(options);
-                    warmupIndex.strides = USE_STRIDES;
-                    warmupIndex.stats().setCollecting(false);
-                    warmupIndex.stats().setExperimentMode(false);
-
-                    InsertStats warmupInsert;
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        warmupInsert = insertDatasetSegments(datasetFile.toString(), warmupIndex, options.ngram());
-                    } else {
-                        warmupInsert = MultiQueryExperiment.populateIndex(datasetFile.toString(), warmupIndex, options.ngram());
-                    }
-
-                    if (!SKIP_QUERIES) {
-                        for (QueryType type : queryTypes) {
-                            List<QueryWorkload> workloads = workloadsByType.get(type);
-                            if (workloads == null || workloads.isEmpty()) {
-                                continue;
-                            }
-                            if ("segments".equalsIgnoreCase(options.mode())) {
-                                runQueriesSegments(datasetFile.toString(), workloads, warmupIndex, options.ngram(), warmupInsert, false, false);
-                            } else {
-                                MultiQueryExperiment.runQueries(workloads, warmupIndex, options.ngram(), warmupInsert, false, false);
-                            }
-                        }
-                    }
-                }
-
-                if (options.runSuffix()) {
-                    StreamingSlidingWindowIndex suffixWarm = newSuffixTree(options);
-
-                    InsertStats suffixWarmInsert;
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        suffixWarmInsert = insertDatasetSegments(datasetFile.toString(), suffixWarm, options.ngram());
-                    } else {
-                        suffixWarmInsert = MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, options.ngram());
-                    }
-
-                    if (!SKIP_QUERIES) {
-                        for (QueryType type : queryTypes) {
-                            List<QueryWorkload> workloads = workloadsByType.get(type);
-                            if (workloads == null || workloads.isEmpty()) {
-                                continue;
-                            }
-                            if ("segments".equalsIgnoreCase(options.mode())) {
-                                runQueriesSegments(datasetFile.toString(), workloads, suffixWarm, options.ngram(), suffixWarmInsert, false, false);
-                            } else {
-                                MultiQueryExperiment.runQueries(workloads, suffixWarm, options.ngram(), suffixWarmInsert, false, false);
-                            }
-                        }
-                    }
-                }
-
-                if (options.runRegexBaseline()) {
-                    IPMIndexing regexWarm = new RegexIndex();
-
-                    InsertStats regexWarmInsert;
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        regexWarmInsert = insertDatasetSegments(datasetFile.toString(), regexWarm, 1);
-                    } else {
-                        regexWarmInsert = MultiQueryExperiment.populateIndex(datasetFile.toString(), regexWarm, 1);
-                    }
-
-                    if (!SKIP_QUERIES) {
-                        for (QueryType type : queryTypes) {
-                            List<QueryWorkload> workloads = workloadsByType.get(type);
-                            if (workloads == null || workloads.isEmpty()) {
-                                continue;
-                            }
-                            if ("segments".equalsIgnoreCase(options.mode())) {
-                                runQueriesSegments(datasetFile.toString(), workloads, regexWarm, 1, regexWarmInsert, false, false);
-                            } else {
-                                MultiQueryExperiment.runQueries(workloads, regexWarm, 1, regexWarmInsert, false, false);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // MEASURED RUNS
-            for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
-                HBI hbi = null;
-                InsertStats hbiInsertStats = null;
-                if (options.runHbi()) {
-                    hbi = newHbi(options);
-                    hbi.strides = USE_STRIDES;
-                    hbi.memPolicy = options.memPolicy();
-                    hbi.stats().setCollecting(false);
-                    hbi.stats().setExperimentMode(false);
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        hbiInsertStats = insertDatasetSegments(datasetFile.toString(), hbi, options.ngram());
-                    } else {
-                        hbiInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, options.ngram());
-                    }
-                }
-
-                IPMIndexing suffix = null;
-                InsertStats suffixInsertStats = null;
-                if (options.runSuffix()) {
-                    suffix = newSuffixTree(options);
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        suffixInsertStats = insertDatasetSegments(datasetFile.toString(), suffix, options.ngram());
-                    } else {
-                        suffixInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, options.ngram());
-                    }
-                }
-
-                IPMIndexing regex = null;
-                InsertStats regexInsertStats = null;
-                if (options.runRegexBaseline()) {
-                    regex = new RegexIndex();
-                    if ("segments".equalsIgnoreCase(options.mode())) {
-                        regexInsertStats = insertDatasetSegments(datasetFile.toString(), regex, 1);
-                    } else {
-                        regexInsertStats = MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
-                    }
-                }
-
-                for (QueryType type : queryTypes) {
-                    List<QueryWorkload> workloads = workloadsByType.get(type);
-                    if (workloads == null || workloads.isEmpty()) {
+                for (Path datasetDir : datasetDirs) {
+                    Path datasetFile = findSingleDatasetFile(datasetDir);
+                    Path queryDir = options.queryRoot().resolve(datasetDir.getFileName());
+                    if (!Files.isDirectory(queryDir)) {
+                        System.out.printf(Locale.ROOT,
+                                "Skipping dataset %s (missing query folder %s)%n",
+                                datasetDir.getFileName(), queryDir);
                         continue;
                     }
 
-                    MultiRunResult hbiResults = null;
-                    if (hbi != null) {
-                        if (SKIP_QUERIES) {
-                            hbiResults = buildSkippedQueryResults(workloads, hbiInsertStats);
-                        } else if ("segments".equalsIgnoreCase(options.mode())) {
-                            hbiResults = runQueriesSegments(datasetFile.toString(), workloads, hbi, options.ngram(), hbiInsertStats, false, false);
-                        } else {
-                            hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, options.ngram(), hbiInsertStats, false, false);
+                    System.out.printf(Locale.ROOT, "Dataset %s -> %s%n",
+                            datasetDir.getFileName(), datasetFile.getFileName());
+
+                    // Build workloads once per dataset
+                    Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
+                    boolean hasQueries = false;
+                    for (QueryType type : queryTypes) {
+                        List<Path> queryFiles = findQueryFiles(queryDir, type);
+                        if (queryFiles.isEmpty()) {
+                            System.out.printf(Locale.ROOT,
+                                    "No %s queries in %s, skipping.%n",
+                                    type.fileToken(), queryDir);
+                            workloadsByType.put(type, List.of());
+                            continue;
                         }
+                        hasQueries = true;
+                        System.out.printf(Locale.ROOT, "  Query type %s%n", type.fileToken());
+                        List<QueryWorkload> workloads = queryFiles.stream()
+                                .map(path -> new QueryWorkload(
+                                        parsePatternLength(path.getFileName().toString()),
+                                        path))
+                                .sorted(Comparator.comparingInt(QueryWorkload::patternLength))
+                                .collect(Collectors.toList());
+                        workloadsByType.put(type, workloads);
                     }
 
-                    MultiRunResult suffixResults = null;
-                    if (suffix != null) {
-                        if (SKIP_QUERIES) {
-                            suffixResults = buildSkippedQueryResults(workloads, suffixInsertStats);
-                        } else if ("segments".equalsIgnoreCase(options.mode())) {
-                            suffixResults = runQueriesSegments(datasetFile.toString(), workloads, suffix, options.ngram(), suffixInsertStats, false, false);
-                        } else {
-                            suffixResults = MultiQueryExperiment.runQueries(workloads, suffix, options.ngram(), suffixInsertStats, false, false);
+                    if (!hasQueries && !SKIP_QUERIES) {
+                        continue;
+                    }
+
+                    // WARM-UP RUNS for this (FPR, ngram) with fresh indexes
+                    for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
+                        if (options.runHbi()) {
+                            HBI warm = newHbi(options, currentFp, ng);
+                            warm.strides = USE_STRIDES;
+                            warm.stats().setCollecting(false);
+                            warm.stats().setExperimentMode(false);
+
+                            InsertStats warmIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), warm, ng)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), warm, ng);
+
+                            if (!SKIP_QUERIES) {
+                                for (QueryType type : queryTypes) {
+                                    List<QueryWorkload> workloads = workloadsByType.get(type);
+                                    if (workloads == null || workloads.isEmpty()) continue;
+                                    if ("segments".equalsIgnoreCase(options.mode())) {
+                                        runQueriesSegments(datasetFile.toString(), workloads, warm, ng, warmIns, false, false);
+                                    } else {
+                                        MultiQueryExperiment.runQueries(workloads, warm, ng, warmIns, false, false);
+                                    }
+                                }
+                            }
+                            warm = null;
                         }
-                    }
 
-                    MultiRunResult regexResults = null;
-                    if (regex != null) {
-                        if (SKIP_QUERIES) {
-                            regexResults = buildSkippedQueryResults(workloads, regexInsertStats);
-                        } else if ("segments".equalsIgnoreCase(options.mode())) {
-                            regexResults = runQueriesSegments(datasetFile.toString(), workloads, regex, 1, regexInsertStats, false, false);
-                        } else {
-                            regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexInsertStats, false, false);
+                        if (options.runSuffix()) {
+                            StreamingSlidingWindowIndex suffixWarm = newSuffixTree(options);
+
+                            InsertStats suffixIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), suffixWarm, ng)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, ng);
+
+                            if (!SKIP_QUERIES) {
+                                for (QueryType type : queryTypes) {
+                                    List<QueryWorkload> workloads = workloadsByType.get(type);
+                                    if (workloads == null || workloads.isEmpty()) continue;
+                                    if ("segments".equalsIgnoreCase(options.mode())) {
+                                        runQueriesSegments(datasetFile.toString(), workloads, suffixWarm, ng, suffixIns, false, false);
+                                    } else {
+                                        MultiQueryExperiment.runQueries(workloads, suffixWarm, ng, suffixIns, false, false);
+                                    }
+                                }
+                            }
+                            suffixWarm = null;
                         }
+
+                        if (options.runRegexBaseline()) {
+                            IPMIndexing regexWarm = new RegexIndex();
+
+                            InsertStats regexIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), regexWarm, 1)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), regexWarm, 1);
+
+                            if (!SKIP_QUERIES) {
+                                for (QueryType type : queryTypes) {
+                                    List<QueryWorkload> workloads = workloadsByType.get(type);
+                                    if (workloads == null || workloads.isEmpty()) continue;
+                                    if ("segments".equalsIgnoreCase(options.mode())) {
+                                        runQueriesSegments(datasetFile.toString(), workloads, regexWarm, 1, regexIns, false, false);
+                                    } else {
+                                        MultiQueryExperiment.runQueries(workloads, regexWarm, 1, regexIns, false, false);
+                                    }
+                                }
+                            }
+                            regexWarm = null;
+                        }
+                        // Optional: System.gc();
                     }
 
-                    Map<Integer, AggregateStats> perTypeAggregated = aggregated.get(type);
+                    // MEASURED RUNS for this (FPR, ngram)
+                    for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
+                        HBI hbi = null;
+                        InsertStats hbiIns = null;
+                        if (options.runHbi()) {
+                            hbi = newHbi(options, currentFp, ng);
+                            hbi.strides = USE_STRIDES;
+                            hbi.memPolicy = options.memPolicy();
+                            hbi.stats().setCollecting(false);
+                            hbi.stats().setExperimentMode(false);
 
-                    if (hbiResults != null) {
-                        hbiResults.results().forEach((workload, result) -> {
-                            int patternLength = workload.patternLength();
-                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                                    .accumulate(IndexType.HBI,
-                                            result.avgInsertMsPerSymbol(),
-                                            result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
-                        });
-                    }
+                            hbiIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), hbi, ng)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
+                        }
 
-                    if (suffixResults != null) {
-                        suffixResults.results().forEach((workload, result) -> {
-                            int patternLength = workload.patternLength();
-                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                                    .accumulate(IndexType.SUFFIX,
-                                            result.avgInsertMsPerSymbol(),
-                                            result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
-                        });
-                    }
+                        IPMIndexing suffix = null;
+                        InsertStats suffixIns = null;
+                        if (options.runSuffix()) {
+                            suffix = newSuffixTree(options);
+                            suffixIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), suffix, ng)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);
+                        }
 
-                    if (regexResults != null) {
-                        regexResults.results().forEach((workload, result) -> {
-                            int patternLength = workload.patternLength();
-                            perTypeAggregated.computeIfAbsent(patternLength, ignored -> new AggregateStats())
-                                    .accumulate(IndexType.REGEX,
-                                            result.avgInsertMsPerSymbol(),
-                                            result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
-                        });
-                    }
-                }
-            }
-        }
+                        IPMIndexing regex = null;
+                        InsertStats regexIns = null;
+                        if (options.runRegexBaseline()) {
+                            regex = new RegexIndex();
+                            regexIns = "segments".equalsIgnoreCase(options.mode())
+                                    ? insertDatasetSegments(datasetFile.toString(), regex, 1)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+                        }
 
-        boolean anyResults = aggregated.values().stream()
-                .flatMap(map -> map.values().stream())
-                .anyMatch(AggregateStats::hasData);
-        if (!anyResults) {
-            System.out.println("No runs executed.");
-            return;
-        }
+                        for (QueryType type : queryTypes) {
+                            List<QueryWorkload> workloads = workloadsByType.get(type);
+                            if (workloads == null || workloads.isEmpty()) continue;
 
-        System.out.println();
+                            MultiRunResult hbiResults = null;
+                            if (hbi != null) {
+                                if (SKIP_QUERIES) {
+                                    hbiResults = buildSkippedQueryResults(workloads, hbiIns);
+                                } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                    hbiResults = runQueriesSegments(datasetFile.toString(), workloads, hbi, ng, hbiIns, false, false);
+                                } else {
+                                    hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, ng, hbiIns, false, false);
+                                }
+                            }
 
-        aggregated.forEach((type, statsByPattern) -> {
-            int datasetCount = activeIndexes.stream()
-                    .mapToInt(index -> statsByPattern.values().stream()
-                            .mapToInt(stats -> stats.count(index))
-                            .max()
-                            .orElse(0))
-                    .max()
-                    .orElse(0);
+                            MultiRunResult suffixResults = null;
+                            if (suffix != null) {
+                                if (SKIP_QUERIES) {
+                                    suffixResults = buildSkippedQueryResults(workloads, suffixIns);
+                                } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                    suffixResults = runQueriesSegments(datasetFile.toString(), workloads, suffix, ng, suffixIns, false, false);
+                                } else {
+                                    suffixResults = MultiQueryExperiment.runQueries(workloads, suffix, ng, suffixIns, false, false);
+                                }
+                            }
 
-            System.out.printf(Locale.ROOT,
-                    "Aggregated averages for %s across %d dataset(s):%n",
-                    type.fileToken(), datasetCount);
+                            MultiRunResult regexResults = null;
+                            if (regex != null) {
+                                if (SKIP_QUERIES) {
+                                    regexResults = buildSkippedQueryResults(workloads, regexIns);
+                                } else if ("segments".equalsIgnoreCase(options.mode())) {
+                                    regexResults = runQueriesSegments(datasetFile.toString(), workloads, regex, 1, regexIns, false, false);
+                                } else {
+                                    regexResults = MultiQueryExperiment.runQueries(workloads, regex, 1, regexIns, false, false);
+                                }
+                            }
 
-            if (statsByPattern.isEmpty()) {
-                System.out.println("  No data available.");
+                            // accumulate under [type][ngram][patternLen]
+                            Map<Integer, Map<Integer, AggregateStats>> perType = aggregated.get(type);
+                            Map<Integer, AggregateStats> byPattern =
+                                    perType.computeIfAbsent(ng, _k -> new TreeMap<>());
+
+                            if (hbiResults != null) {
+                                hbiResults.results().forEach((workload, result) -> {
+                                    int pl = workload.patternLength();
+                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                            .accumulate(IndexType.HBI,
+                                                    result.avgInsertMsPerSymbol(),
+                                                    result.totalInsertTimeMs(),
+                                                    result.totalRunTimeMs());
+                                });
+                            }
+                            if (suffixResults != null) {
+                                suffixResults.results().forEach((workload, result) -> {
+                                    int pl = workload.patternLength();
+                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                            .accumulate(IndexType.SUFFIX,
+                                                    result.avgInsertMsPerSymbol(),
+                                                    result.totalInsertTimeMs(),
+                                                    result.totalRunTimeMs());
+                                });
+                            }
+                            if (regexResults != null) {
+                                regexResults.results().forEach((workload, result) -> {
+                                    int pl = workload.patternLength();
+                                    byPattern.computeIfAbsent(pl, _k -> new AggregateStats())
+                                            .accumulate(IndexType.REGEX,
+                                                    result.avgInsertMsPerSymbol(),
+                                                    result.totalInsertTimeMs(),
+                                                    result.totalRunTimeMs());
+                                });
+                            }
+                        }
+
+                        hbi = null;
+                        suffix = null;
+                        regex = null;
+                        // Optional: System.gc();
+                    } // runs
+                } // datasets
+            } // for each ngram
+
+            // Write one CSV per FPR with an "ngram" column
+            boolean anyResults = aggregated.values().stream()
+                    .flatMap(m -> m.values().stream())
+                    .flatMap(m2 -> m2.values().stream())
+                    .anyMatch(AggregateStats::hasData);
+
+            if (!anyResults) {
+                System.out.println("No runs executed for FPR " + currentFp);
+            } else {
                 System.out.println();
-                return;
-            }
 
-            statsByPattern.forEach((patternLength, stats) -> {
-                System.out.printf(Locale.ROOT, "  Pattern %d%n", patternLength);
-                for (IndexType index : activeIndexes) {
-                    StatsSnapshot snapshot = stats.snapshot(index);
-                    if (snapshot == null || snapshot.count() == 0) {
-                        System.out.printf(Locale.ROOT, "    %s -> no data%n", index.displayName());
-                        continue;
-                    }
+                // Console summary
+                aggregated.forEach((type, byNgram) -> {
+                    int datasetCount = activeIndexes.stream()
+                            .mapToInt(index ->
+                                    byNgram.values().stream()
+                                            .flatMap(map -> map.values().stream())
+                                            .mapToInt(stats -> stats.count(index))
+                                            .max().orElse(0))
+                            .max().orElse(0);
+
                     System.out.printf(Locale.ROOT,
-                            "    %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
-                            index.displayName(),
-                            snapshot.avgInsertMsPerSymbol(),
-                            snapshot.avgInsertMs(),
-                            snapshot.avgQueryMs(),
-                            snapshot.count());
-                }
-                System.out.println();
-            });
+                            "Aggregated averages for %s across %d dataset(s) at FPR=%.6f%n",
+                            type.fileToken(), datasetCount, currentFp);
 
-            System.out.println();
-        });
+                    byNgram.forEach((ng, statsByPattern) -> {
+                        System.out.printf(Locale.ROOT, "  ngram %d%n", ng);
+                        statsByPattern.forEach((pl, stats) -> {
+                            System.out.printf(Locale.ROOT, "    Pattern %d%n", pl);
+                            for (IndexType index : activeIndexes) {
+                                StatsSnapshot snap = stats.snapshot(index);
+                                if (snap == null || snap.count() == 0) {
+                                    System.out.printf(Locale.ROOT, "      %s -> no data%n", index.displayName());
+                                    continue;
+                                }
+                                System.out.printf(Locale.ROOT,
+                                        "      %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d dataset(s)%n",
+                                        index.displayName(),
+                                        snap.avgInsertMsPerSymbol(),
+                                        snap.avgInsertMs(),
+                                        snap.avgQueryMs(),
+                                        snap.count());
+                            }
+                        });
+                    });
+                    System.out.println();
+                });
 
-        List<Object> header = new ArrayList<>();
-        header.add("patternLength");
-
-        queryTypes.forEach(type -> {
-            for (IndexType index : activeIndexes) {
-                String suffix = type.fileToken() + "_" + index.csvLabel();
-                header.add("avgInsertMsPerSymbol_" + suffix);
-                header.add("insertMs_" + suffix);
-                header.add("avgMs_" + suffix);
-                header.add("datasetCount_" + suffix);
-            }
-        });
-        header.add("algorithm");
-        header.add("alphabet");
-        header.add("fprate");
-
-        List<List<?>> csvRows = new ArrayList<>();
-        csvRows.add(header);
-
-        SortedSet<Integer> allPatternLengths = new TreeSet<>();
-        aggregated.values().forEach(map -> allPatternLengths.addAll(map.keySet()));
-
-        for (Integer patternLength : allPatternLengths) {
-            List<Object> row = new ArrayList<>();
-            row.add(patternLength);
-
-            for (QueryType type : queryTypes) {
-                AggregateStats stats = aggregated.get(type).get(patternLength);
-                for (IndexType index : activeIndexes) {
-                    StatsSnapshot snapshot = stats != null ? stats.snapshot(index) : null;
-                    if (snapshot == null || snapshot.count() == 0) {
-                        row.add(null);
-                        row.add(null);
-                        row.add(null);
-                        row.add(0);
-                        continue;
+                // CSV
+                List<Object> header = new ArrayList<>();
+                header.add("patternLength");
+                header.add("ngram");          // NEW column
+                queryTypes.forEach(type -> {
+                    for (IndexType index : activeIndexes) {
+                        String suffix = type.fileToken() + "_" + index.csvLabel();
+                        header.add("avgInsertMsPerSymbol_" + suffix);
+                        header.add("insertMs_" + suffix);
+                        header.add("avgMs_" + suffix);
+                        header.add("datasetCount_" + suffix);
                     }
-                    row.add(snapshot.avgInsertMsPerSymbol());
-                    row.add(snapshot.avgInsertMs());
-                    row.add(snapshot.avgQueryMs());
-                    row.add(snapshot.count());
-                }
-            }
-            row.add(algo);
-            row.add(ALPHABET);
-            row.add(FP_Rate);
-            csvRows.add(row);
-        }
+                });
+                header.add("algorithm");
+                header.add("alphabet");
+                header.add("fprate");
 
-        Path csvPath = options.csvOutputFile();
-        CsvUtil.writeRows(csvPath, csvRows);
-        System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
+                List<List<?>> csvRows = new ArrayList<>();
+                csvRows.add(header);
+
+                // Collect all n-grams present
+                SortedSet<Integer> allNgrams = new TreeSet<>();
+                aggregated.values().forEach(map -> allNgrams.addAll(map.keySet()));
+
+                for (int ng : allNgrams) {
+                    // For each n-gram, collect all pattern lengths present across types
+                    SortedSet<Integer> allPatternLengths = new TreeSet<>();
+                    for (QueryType type : queryTypes) {
+                        Map<Integer, Map<Integer, AggregateStats>> byN = aggregated.get(type);
+                        Map<Integer, AggregateStats> statsByPl = byN.get(ng);
+                        if (statsByPl != null) allPatternLengths.addAll(statsByPl.keySet());
+                    }
+
+                    for (Integer pl : allPatternLengths) {
+                        List<Object> row = new ArrayList<>();
+                        row.add(pl);
+                        row.add(ng);
+
+                        for (QueryType type : queryTypes) {
+                            Map<Integer, Map<Integer, AggregateStats>> byN = aggregated.get(type);
+                            Map<Integer, AggregateStats> byPl = byN.getOrDefault(ng, Map.of());
+                            AggregateStats stats = byPl.get(pl);
+
+                            for (IndexType index : activeIndexes) {
+                                StatsSnapshot snap = (stats != null) ? stats.snapshot(index) : null;
+                                if (snap == null || snap.count() == 0) {
+                                    row.add(null);
+                                    row.add(null);
+                                    row.add(null);
+                                    row.add(0);
+                                } else {
+                                    row.add(snap.avgInsertMsPerSymbol());
+                                    row.add(snap.avgInsertMs());
+                                    row.add(snap.avgQueryMs());
+                                    row.add(snap.count());
+                                }
+                            }
+                        }
+
+                        row.add(algo);
+                        row.add(options.alphabetSizeFor(ng)); // alphabet depends on this n-gram
+                        row.add(currentFp);
+                        csvRows.add(row);
+                    }
+                }
+
+                Path csvPath = options.csvOutputFile(currentFp);
+                CsvUtil.writeRows(csvPath, csvRows);
+                System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
+            }
+
+            // Optional: System.gc();
+        } // for each FPR
     }
-
 
     // ------------------------------------------------------------------
     // SEGMENTS HELPERS (used only when mode == "segments")
@@ -766,23 +861,26 @@ public final class HBIDatasetBenchmarkMulti {
         return new MultiRunResult(results);
     }
 
-    private static HBI newHbi(BenchmarkOptions options) {
-        int alphabetSize = options.alphabetSize();
-        Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.windowLength());//new CSEstimator(options.treeLength(), 5, 16384);
+    private static HBI newHbi(BenchmarkOptions options, double fpRate, int ngram) {
+        int alphabetSize = options.alphabetSizeFor(ngram);
+
+        Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.windowLength());
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
+        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), fpRate);
         Verifier verifier = new VerifierLinearLeafProbe();
-        int buckets = options.alphabetSize();
 
-        if (options.memPolicy() != Utils.MemPolicy.NONE){
-            buckets = Utils.designBucketsForRankTargetChebyshev(alphabetSize, 0.025, 0.05, 0.05).suggestedBuckets;
-
+        int buckets = alphabetSize;
+        if (options.memPolicy() != Utils.MemPolicy.NONE) {
+            buckets = Utils.designBucketsForRankTargetChebyshev(
+                    alphabetSize, 0.025, 0.05, 0.05
+            ).suggestedBuckets;
         }
+
         HbiConfiguration configuration = HbiConfiguration.builder()
                 .searchAlgorithm(new BlockSearch())
                 .windowLength(options.windowLength())
-                .fpRate(options.fpRate())
-                .alphabetSize(alphabetSize)
+                .fpRate(fpRate)                 // per-iteration FPR
+                .alphabetSize(alphabetSize)     // per-iteration alphabet size
                 .treeLength(options.treeLength())
                 .estimatorSupplier(estFactory)
                 .membershipSupplier(memFactory)
@@ -792,13 +890,14 @@ public final class HBIDatasetBenchmarkMulti {
                 .confidence(options.runConfidence())
                 .experimentMode(false)
                 .collectStats(false)
-                .nGram(options.ngram())
+                .nGram(ngram)                   // per-iteration n-gram
                 .memPolicy(options.memPolicy())
                 .buckets(buckets)
                 .build();
 
         return new HBI(configuration);
     }
+
 
     private static StreamingSlidingWindowIndex newSuffixTree(BenchmarkOptions options) {
         long expectedDistinct = Math.max(1L, (long) options.windowLength());
