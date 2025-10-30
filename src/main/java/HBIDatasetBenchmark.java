@@ -53,7 +53,7 @@ public class HBIDatasetBenchmark {
     private static final double FP_RATE   = 0.05;
     private static final int RUNS         = 1;
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS             = 2;
+    private static int NGRAMS             = 10;
 
     /**
      * Utility method from your original code.
@@ -261,7 +261,8 @@ public class HBIDatasetBenchmark {
      *  - we keep NGRAMS as the last constructor parameter so it respects your chosen n-gram size
      */
     private static HBI newHbi(double conf) {
-        Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
+        //ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
+        Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, FP_RATE);
         Verifier v = new VerifierLinearLeafProbe();

@@ -34,7 +34,7 @@ import utilities.CsvUtil;
 public final class HBIDatasetBenchmarkPerDataset {
 
     private static final boolean USE_STRIDES = true;
-    private static String algo = "root";
+    private static String algo = "bs"; // default algorithm label
 
     private record BenchmarkOptions(Path dataRoot,
                                     Path queryRoot,
@@ -48,6 +48,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     double runConfidence,
                                     int warmupRuns,
                                     int runs,
+                                    String algorithm,
                                     boolean runRegexBaseline,
                                     boolean runHbi,
                                     boolean runSuffix) {
@@ -68,6 +69,7 @@ public final class HBIDatasetBenchmarkPerDataset {
             boolean runRegexBaseline = false;
             boolean runHbi = true;
             boolean runSuffix = false;
+            String algorithm = "bs"; // default as requested
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -102,6 +104,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     case "confidence" -> runConfidence = Double.parseDouble(value);
                     case "warmup" -> warmupRuns = Integer.parseInt(value);
                     case "runs" -> runs = Integer.parseInt(value);
+                    case "algorithm", "algo" -> algorithm = value;
                     case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
                     case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                     case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
@@ -122,6 +125,12 @@ public final class HBIDatasetBenchmarkPerDataset {
             if (treeLength == null) {
                 treeLength = windowLength;
             }
+
+            // normalize algorithm label once
+            algorithm = (algorithm == null) ? "bs" : algorithm.toLowerCase(Locale.ROOT).trim();
+
+            // propagate chosen algorithm to CSV suffix and config
+            algo = algorithm;
 
             Path resolvedDataRoot = dataRoot.resolve(window);
             Path resolvedQueryRoot = queryRoot.resolve(window);
@@ -150,6 +159,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     runConfidence,
                     warmupRuns,
                     runs,
+                    algorithm,
                     runRegexBaseline,
                     runHbi,
                     runSuffix);
@@ -531,11 +541,43 @@ public final class HBIDatasetBenchmarkPerDataset {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
         Verifier verifier = new VerifierLinearLeafProbe();
 
+        // Choose search/pruning/cost by algorithm
+        String alg = options.algorithm();
+        SearchAlgorithm search;
+        Supplier<PruningPlan> prFactory;
+        estimators.CostFunction costFn;
+
+        switch (alg) {
+            case "cp" -> {
+                // BlockSearch + MostFreqPruning + null cost function
+                search = new BlockSearch();
+                prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
+                costFn = null;
+            }
+            case "cgbs" -> {
+                // BlockSearchCharSet + MultiLevelPruning + null cost function
+                search = new BlockSearchCharSet();
+                prFactory = () -> new MultiLevelPruning(options.runConfidence(), options.fpRate());
+                costFn = null;
+            }
+            case "bs" -> {
+                // Default: MostFreqPruning + BlockSearch + DefaultRoot cost function
+                search = new BlockSearch();
+                prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
+                costFn = new CostFunctionDefaultRoot();
+            }
+            default -> {
+                // Fallback to default behavior (bs)
+                search = new BlockSearch();
+                prFactory = () -> new MostFreqPruning(options.runConfidence(), options.fpRate());
+                costFn = new CostFunctionDefaultRoot();
+            }
+        }
+
         HbiConfiguration configuration = HbiConfiguration.builder()
-                .searchAlgorithm(new BlockSearch())
+                .searchAlgorithm(search)
                 .windowLength(options.windowLength())
                 .fpRate(options.fpRate())
                 .alphabetSize(alphabetSize)
@@ -544,7 +586,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(verifier)
-                .costFunction(new CostFunctionDefaultRoot())
+                .costFunction(costFn)
                 .confidence(options.runConfidence())
                 .experimentMode(false)
                 .collectStats(false)

@@ -4,13 +4,13 @@ package sswsi.staticds;
  * Sparse table for range-maximum queries returning the index of the maximum.
  * Preprocessing O(n log n), queries O(1), space O(n log n).
  */
-final class RMQSparseTable {
+public final class RMQSparseTable {
     private final int n;
     private final int[] log2;
     private final int[][] st; // indices into 'arr' of the max in the block
     private final int[] arr;
 
-    RMQSparseTable(int[] arr) {
+    public RMQSparseTable(int[] arr) {
         this.arr = arr;
         this.n = arr.length;
         this.log2 = new int[n + 1];
@@ -34,7 +34,7 @@ final class RMQSparseTable {
     }
 
     // Return index of max in [l, r]
-    int argmax(int l, int r) {
+    public int argmax(int l, int r) {
         if (l > r) return -1;
         int len = r - l + 1;
         int k = log2[len];
@@ -43,4 +43,3 @@ final class RMQSparseTable {
         return (arr[leftIdx] >= arr[rightIdx]) ? leftIdx : rightIdx;
     }
 }
-

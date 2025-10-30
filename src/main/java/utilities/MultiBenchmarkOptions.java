@@ -26,6 +26,7 @@ public record MultiBenchmarkOptions(
         double runConfidence,
         int warmupRuns,
         int runs,
+        String algorithm,
         boolean runRegexBaseline,
         boolean runHbi,
         boolean runSuffix,
@@ -60,6 +61,7 @@ public record MultiBenchmarkOptions(
         Utils.MemPolicy policy = Utils.MemPolicy.NONE;
         int suffixDelta = 160; // default delta for delayed suffix when not reinserting per-workload
         boolean reinsertPerWorkload = false;
+        String algorithm = "bs"; // default algorithm
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -96,6 +98,7 @@ public record MultiBenchmarkOptions(
                 case "confidence" -> runConfidence = Double.parseDouble(value);
                 case "warmup" -> warmupRuns = Integer.parseInt(value);
                 case "runs" -> runs = Integer.parseInt(value);
+                case "algorithm", "algo" -> algorithm = value;
                 case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
                 case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                 case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
@@ -134,6 +137,9 @@ public record MultiBenchmarkOptions(
 
         fpRate = fpRates.get(0);
 
+        // normalize algorithm token
+        algorithm = (algorithm == null) ? "bs" : algorithm.toLowerCase(Locale.ROOT).trim();
+
         return new MultiBenchmarkOptions(
                 resolvedDataRoot,
                 resolvedQueryRoot,
@@ -150,6 +156,7 @@ public record MultiBenchmarkOptions(
                 runConfidence,
                 warmupRuns,
                 runs,
+                algorithm,
                 runRegexBaseline,
                 runHbi,
                 runSuffix,

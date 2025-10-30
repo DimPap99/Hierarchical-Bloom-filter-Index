@@ -17,7 +17,7 @@ public class CSEstimator implements Estimator {
     private final int depth;
     private final long seed;
 
-    private CountSketch sketch;
+    private IntCountSketch sketch;
     private double totalRecords;
     private long minKey;
     private double minProbability;
@@ -46,7 +46,7 @@ public class CSEstimator implements Estimator {
     @Override
     public void init(int totalRecords) {
         int width = Math.max(baseWidth, deriveWidth(totalRecords));
-        this.sketch = new CountSketch(width, depth, seed);
+        this.sketch = new IntCountSketch(width, depth, seed);
         this.totalRecords = 0.0;
         this.minKey = Long.MAX_VALUE;
         this.minProbability = Double.POSITIVE_INFINITY;

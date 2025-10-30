@@ -25,6 +25,18 @@ public final class IndexFactory {
 
     private IndexFactory() {}
 
+    // Configurable n-gram for the StreamingSuffix baseline (default 1).
+    // Not exposed via CLI; set programmatically if you want a different value.
+    private static volatile int SUFFIX_NGRAM = 1;
+
+    public static void setSuffixNgram(int ngram) {
+        SUFFIX_NGRAM = Math.max(1, ngram);
+    }
+
+    public static int getSuffixNgram() {
+        return SUFFIX_NGRAM;
+    }
+
     public static HBI createHbi(int windowLength,
                                 int treeLength,
                                 int alphabetSize,
@@ -32,14 +44,54 @@ public final class IndexFactory {
                                 double confidence,
                                 Utils.MemPolicy memPolicy,
                                 int ngram) {
+        // Backward-compatible default: bs
+        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, "bs");
+    }
+
+    public static HBI createHbi(int windowLength,
+                                int treeLength,
+                                int alphabetSize,
+                                double fpRate,
+                                double confidence,
+                                Utils.MemPolicy memPolicy,
+                                int ngram,
+                                String algorithm) {
 
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
-        Supplier<search.PruningPlan> prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
         Verifier verifier = new VerifierLinearLeafProbe();
 
+        // Choose components by algorithm token
+        search.SearchAlgorithm search;
+        Supplier<search.PruningPlan> prFactory;
+        CostFunction costFn;
+        String alg = (algorithm == null) ? "bs" : algorithm.toLowerCase();
+
+        switch (alg) {
+            case "cp" -> {
+                search = new search.BlockSearch();
+                prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
+                costFn = null;
+            }
+            case "cgbs" -> {
+                search = new search.BlockSearchCharSet();
+                prFactory = () -> new search.MultiLevelPruning(confidence, fpRate);
+                costFn = null;
+            }
+            case "bs" -> {
+                search = new search.BlockSearch();
+                prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
+                costFn = new CostFunctionDefaultRoot();
+            }
+            default -> {
+                search = new search.BlockSearch();
+                prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
+                costFn = new CostFunctionDefaultRoot();
+            }
+        }
+
         HbiConfiguration configuration = HbiConfiguration.builder()
-                .searchAlgorithm(new BlockSearch())
+                .searchAlgorithm(search)
                 .windowLength(windowLength)
                 .fpRate(fpRate)
                 .alphabetSize(alphabetSize)
@@ -48,7 +100,7 @@ public final class IndexFactory {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(verifier)
-                .costFunction(null)
+                .costFunction(costFn)
                 .confidence(confidence)
                 .experimentMode(false)
                 .collectStats(false)
@@ -61,6 +113,10 @@ public final class IndexFactory {
 
     public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength) {
         return new StreamingSlidingWindowIndex(windowLength);
+    }
+
+    public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength, int expectedAlphabetSize) {
+        return new StreamingSlidingWindowIndex(windowLength, expectedAlphabetSize);
     }
 
     public static IPMIndexing createDelayedSuffixIndex(int windowLength,
