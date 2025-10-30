@@ -89,17 +89,14 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
                 // Return current best-effort answer immediately (optional); here we return the
                 // eager computation to keep synchronous semantics useful.
                 out.addAll(reportShortImmediate(pat));
-                dedupAndSort(out);
                 return out;
             } else {
                 out.addAll(reportShortImmediate(pat));
-                dedupAndSort(out);
                 return out;
             }
         } else {
             // Long pattern: immediate answer
             out.addAll(reportLongImmediate(pat));
-            dedupAndSort(out);
             return out;
         }
     }
@@ -199,14 +196,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private void dedupAndSort(ArrayList<Integer> out) {
-        Collections.sort(out);
-        int w = 0;
-        for (int r = 0; r < out.size(); r++) {
-            if (w == 0 || !out.get(r).equals(out.get(w - 1))) out.set(w++, out.get(r));
-        }
-        while (out.size() > w) out.remove(out.size() - 1);
-    }
+    // Removed explicit sorting to match Streaming index behavior and reduce overhead.
 
     private int currentRightBoundary() {
         return nextTokenPosition; // last appended position + 1
@@ -475,4 +465,3 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 }
-
