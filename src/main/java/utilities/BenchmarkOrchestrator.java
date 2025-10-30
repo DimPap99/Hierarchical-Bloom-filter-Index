@@ -111,12 +111,12 @@ public final class BenchmarkOrchestrator {
                         }
                         if (options.runSuffix()) {
                             // Use delayed SSWSI; warmups don't target a specific pattern length, use configured default delta
-
-                            IPMIndexing suffixWarm = IndexFactory.createDelayedSuffixIndex(
-                                    options.windowLength(), options.alphabetSizeFor(ng), options.suffixDelta(), true);
+                            //dont use ngrams for suffix cause it hurts performance
+                            IPMIndexing suffixWarm = IndexFactory.createSuffixIndex(
+                                    options.windowLength());
                             InsertStats suffixIns = isSegments(options)
-                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixWarm, ng)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, ng);
+                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixWarm, 1)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, 1);
                             for (QueryType type : queryTypes) {
                                 List<QueryWorkload> workloads = workloadsByType.get(type);
                                 if (workloads == null || workloads.isEmpty()) continue;
@@ -164,8 +164,8 @@ public final class BenchmarkOrchestrator {
                             IPMIndexing suffix = null; InsertStats suffixIns = null;
                             if (options.runSuffix()) {
                                 // Non-reinsert path: single index for all workloads. Use configured default delta.
-                                suffix = IndexFactory.createDelayedSuffixIndex(
-                                        options.windowLength(), options.alphabetSizeFor(ng), options.suffixDelta(), true);
+                                suffix = IndexFactory.createSuffixIndex(
+                                        options.windowLength());
                                 suffixIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, ng)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);
@@ -241,8 +241,8 @@ public final class BenchmarkOrchestrator {
                                     }
                                     if (options.runSuffix()) {
                                         // Reinsert per workload: set delta to inferred pattern length from query filename
-                                        IPMIndexing suffix = IndexFactory.createDelayedSuffixIndex(
-                                                options.windowLength(), options.alphabetSizeFor(ng), pl, true);
+                                        IPMIndexing suffix = IndexFactory.createSuffixIndex(
+                                                options.windowLength());
                                         InsertStats ins = isSegments(options)
                                                 ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, ng)
                                                 : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ng);

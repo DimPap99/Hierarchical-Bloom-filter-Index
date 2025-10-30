@@ -1,5 +1,6 @@
 package tree.ssws;
 
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
 import java.util.ArrayList;
@@ -26,13 +27,16 @@ public final class SuffixTree {
 
     private final Node root;
     private static final  int SENTINEL =0; //reserve 0 as sentinel
-    private final int[] text;           // includes sentinel at end
+    private final int[] text;           // includes sentinel at end (remapped per-tree)
     private final int originalLength;   // length before sentinel
+    // Map original token -> local remapped token in [1..distinct]. Missing => not present.
+    private final Int2IntOpenHashMap tokenRemap;
 
-    private SuffixTree(Node root, int[] text, int originalLength) {
+    private SuffixTree(Node root, int[] text, int originalLength, Int2IntOpenHashMap tokenRemap) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
+        this.tokenRemap = tokenRemap;
     }
 
     /**
@@ -62,17 +66,43 @@ public final class SuffixTree {
             throw new IllegalArgumentException("text cannot be null");
         }
 
-        // Precondition that must now hold:
-        // Every symbol in alphabetMappedText is >= 1.
-        // No real symbol is 0.
-        // We will append 0 (SENTINEL) as the only sentinel at the end.
+        // Precondition on incoming symbols from the global AlphabetMapper:
+        //  - All real symbols are >= 1 (0 is reserved for the sentinel globally).
+        // However, their numeric IDs can be very large (global alphabet growth),
+        // which would blow up counting-sort buckets inside DC3 if used directly.
+        // To keep construction and queries independent of global alphabet size,
+        // we remap the per-text symbols to a dense local range 1..distinct.
 
         final int n0 = alphabetMappedText.length;
 
-        // Append the sentinel directly.
-        // The sentinel is a fixed constant 0, defined in SENTINEL.
-        final int[] terminated = Arrays.copyOf(alphabetMappedText, n0 + 1);
-        terminated[n0] = SENTINEL; // SENTINEL must be 0
+        // Build a dense remap: collect and sort a copy, assign ranks in [1..distinct].
+        // We avoid allocating an enormous direct-address table by using a compact map.
+        int[] copy = Arrays.copyOf(alphabetMappedText, n0);
+        // Sort in-place (LSD radix) to get non-decreasing order.
+        RadixSorter.sortInPlace(copy);
+        Int2IntOpenHashMap remap = new Int2IntOpenHashMap(Math.max(4, n0 * 2));
+        remap.defaultReturnValue(-1);
+        int rank = 1; // start at 1; 0 is reserved for the sentinel
+        int prev = Integer.MIN_VALUE;
+        for (int v : copy) {
+            if (v != prev) {
+                remap.put(v, rank++);
+                prev = v;
+            }
+        }
+
+        // Apply remap to the text and append sentinel 0 at the end.
+        final int[] terminated = new int[n0 + 1];
+        for (int i = 0; i < n0; i++) {
+            int mapped = remap.getOrDefault(alphabetMappedText[i], -1);
+            if (mapped <= 0) {
+                // Should never happen as all symbols in alphabetMappedText were inserted above.
+                // Guard defensively to keep the structure valid.
+                throw new IllegalStateException("Missing remap for symbol " + alphabetMappedText[i]);
+            }
+            terminated[i] = mapped;
+        }
+        terminated[n0] = SENTINEL; // 0 is unique sentinel
 
         final int n = n0 + 1;
 
@@ -92,7 +122,7 @@ public final class SuffixTree {
         Node root = LinearBuilder.buildFromSuffixArray(terminated, sa, lcp);
 
         // originalLength is the logical text length before the sentinel was appended.
-        return new SuffixTree(root, terminated, n0);
+        return new SuffixTree(root, terminated, n0, remap);
     }
 
 
@@ -129,12 +159,23 @@ public final class SuffixTree {
             return Collections.emptyList();
         }
 
+        // Translate pattern symbols via per-tree remap. If any symbol
+        // does not exist in this tree, there can be no occurrences.
+        int[] q = new int[pattern.length];
+        for (int i = 0; i < pattern.length; i++) {
+            int mapped = tokenRemap.getOrDefault(pattern[i], -1);
+            if (mapped <= 0) {
+                return Collections.emptyList();
+            }
+            q[i] = mapped;
+        }
+
         Node current = root;
         int patternIndex = 0;
 
         while (patternIndex < pattern.length) {
 
-            int symbol = pattern[patternIndex];
+            int symbol = q[patternIndex];
             Edge edge = current.getEdge(symbol);
             if (edge == null) {
                 return Collections.emptyList();
@@ -146,7 +187,7 @@ public final class SuffixTree {
 
             int consumed = 0;
             while (consumed < edgeLen && patternIndex < pattern.length) {
-                if (text[edgeStart + consumed] != pattern[patternIndex]) {
+                if (text[edgeStart + consumed] != q[patternIndex]) {
                     return Collections.emptyList();
                 }
                 consumed++;
