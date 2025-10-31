@@ -23,6 +23,13 @@ public final class BenchmarkOrchestrator {
     private BenchmarkOrchestrator() {}
     public static void run(MultiBenchmarkOptions options) throws Exception {
 
+        // Cache for Suffix baseline results so we don't rerun identical work
+        // across FPR or n-gram loops when its configuration is stable.
+        // We populate this during the first encountered (fp, ngram) combo and
+        // reuse for subsequent iterations. Multiple 'runs' within the very first
+        // (fp, ngram) still execute to preserve averaging semantics.
+        Map<SuffixCacheKey, MultiRunResult> suffixResultsCache = new HashMap<>();
+
         List<QueryType> queryTypes = (options.queryType() != null)
                 ? List.of(options.queryType())
                 : List.of(QueryType.UNIFORM, QueryType.MISSING, QueryType.RARE);
@@ -40,12 +47,14 @@ public final class BenchmarkOrchestrator {
             throw new IllegalStateException("No dataset folders found under " + options.dataRoot());
         }
 
+        int fpIndex = 0;
         for (double currentFp : options.fpRates()) {
             Map<QueryType, Map<Integer, Map<Integer, Aggregation.AggregateStats>>> aggregated = new EnumMap<>(QueryType.class);
             queryTypes.forEach(type -> aggregated.put(type, new TreeMap<>()));
 
             System.out.printf(Locale.ROOT, "%n==== FPR = %.6f ====%n", currentFp);
 
+            int ngIndex = 0;
             for (int ng : options.ngrams()) {
                 System.out.printf(Locale.ROOT, "---- ngram = %d ----%n", ng);
 
@@ -100,7 +109,7 @@ public final class BenchmarkOrchestrator {
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm());
                             warm.strides = true;
-                            warm.stats().setCollecting(false);
+                            warm.stats().setCollecting(true);
                             warm.stats().setExperimentMode(false);
                             InsertStats warmIns = isSegments(options)
                                     ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), warm, ng)
@@ -155,6 +164,9 @@ public final class BenchmarkOrchestrator {
                     }
 
                     // Measured runs
+                    // For suffix reuse: during the first (fp, ng) combination only, we accumulate
+                    // per-run suffix results so we can cache the averaged result for reuse.
+                    Map<SuffixCacheKey, MRAccumulator> suffixAvgBuilders = new HashMap<>();
                     for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
                         if (!options.reinsertPerWorkload()) {
                             HBI hbi = null; InsertStats hbiIns = null;
@@ -163,16 +175,18 @@ public final class BenchmarkOrchestrator {
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm());
                                 hbi.strides = true;
-                                hbi.stats().setCollecting(false);
+                                hbi.stats().setCollecting(true);
                                 hbi.stats().setExperimentMode(false);
                                 hbiIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbi, ng)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
                             }
+                            // For Suffix baseline, decide whether to reuse cached results.
+                            final int suffixNg = IndexFactory.getSuffixNgram();
+                            final boolean canReuseSuffix = options.runSuffix() && options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
                             IPMIndexing suffix = null; InsertStats suffixIns = null;
-                            if (options.runSuffix()) {
-                                final int suffixNg = IndexFactory.getSuffixNgram();
-                                // Non-reinsert path: single index for all workloads. Use configured default delta.
+                            if (options.runSuffix() && !canReuseSuffix) {
+                                // Build the suffix index only if we're not reusing results.
                                 suffix = IndexFactory.createSuffixIndex(
                                         options.windowLength(), options.alphabetSizeFor(suffixNg));
                                 suffixIns = isSegments(options)
@@ -198,11 +212,33 @@ public final class BenchmarkOrchestrator {
                                             : MultiQueryExperiment.runQueries(workloads, hbi, ng, hbiIns, false, false);
                                 }
                                 MultiRunResult suffixResults = null;
-                                if (suffix != null) {
-                                    final int suffixNg = IndexFactory.getSuffixNgram();
-                                    suffixResults = isSegments(options)
-                                            ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffix, suffixNg, suffixIns, false, false)
-                                            : MultiQueryExperiment.runQueries(workloads, suffix, suffixNg, suffixIns, false, false);
+                                if (options.runSuffix()) {
+                                    // Build the cache key per dataset + type workload set
+                                    SuffixCacheKey cacheKey = SuffixCacheKey.forWorkloads(
+                                            datasetFile.toString(), suffixNg, options.mode(), false, workloads);
+                                    if (canReuseSuffix) {
+                                        suffixResults = suffixResultsCache.get(cacheKey);
+                                        if (suffixResults == null) {
+                                            // Fallback: compute and cache now if missing
+                                            IPMIndexing tmpSuffix = IndexFactory.createSuffixIndex(
+                                                    options.windowLength(), options.alphabetSizeFor(suffixNg));
+                                            InsertStats tmpIns = isSegments(options)
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tmpSuffix, suffixNg)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tmpSuffix, suffixNg);
+                                            suffixResults = isSegments(options)
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, tmpSuffix, suffixNg, tmpIns, false, false)
+                                                    : MultiQueryExperiment.runQueries(workloads, tmpSuffix, suffixNg, tmpIns, false, false);
+                                            if (options.reuseSuffixResults()) suffixResultsCache.put(cacheKey, suffixResults);
+                                        }
+                                    } else if (suffix != null) {
+                                        suffixResults = isSegments(options)
+                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffix, suffixNg, suffixIns, false, false)
+                                                : MultiQueryExperiment.runQueries(workloads, suffix, suffixNg, suffixIns, false, false);
+                                        // For averaging across runs, collect during first (fp,ng)
+                                        if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
+                                            suffixAvgBuilders.computeIfAbsent(cacheKey, _k -> new MRAccumulator()).add(suffixResults);
+                                        }
+                                    }
                                 }
                                 MultiRunResult regexResults = null;
                                 if (regex != null) {
@@ -250,17 +286,39 @@ public final class BenchmarkOrchestrator {
                                         addOne(aggregated, IndexType.HBI, ng, type, pl, res, workload);
                                     }
                                     if (options.runSuffix()) {
-                                        final int suffixNg = IndexFactory.getSuffixNgram();
-                                        // Reinsert per workload: set delta to inferred pattern length from query filename
-                                        IPMIndexing suffix = IndexFactory.createSuffixIndex(
-                                                options.windowLength(), options.alphabetSizeFor(suffixNg));
-                                        InsertStats ins = isSegments(options)
-                                                ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNg)
-                                                : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNg);
-                                        MultiRunResult res = isSegments(options)
-                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), suffix, suffixNg, ins, false, false)
-                                                : MultiQueryExperiment.runQueries(List.of(workload), suffix, suffixNg, ins, false, false);
-                                        addOne(aggregated, IndexType.SUFFIX, suffixNg, type, pl, res, workload);
+                                        final int sfxNg = IndexFactory.getSuffixNgram();
+                                        boolean canReuse = options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
+                                        // Build a cache key per single-workload when reinserting per workload
+                                        SuffixCacheKey cacheKey = SuffixCacheKey.forWorkloads(
+                                                datasetFile.toString(), sfxNg, options.mode(), true, List.of(workload));
+                                        MultiRunResult res;
+                                        if (canReuse) {
+                                            res = suffixResultsCache.get(cacheKey);
+                                            if (res == null) {
+                                                IPMIndexing suffix = IndexFactory.createSuffixIndex(
+                                                        options.windowLength(), options.alphabetSizeFor(sfxNg));
+                                                InsertStats ins = isSegments(options)
+                                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, sfxNg)
+                                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, sfxNg);
+                                                res = isSegments(options)
+                                                        ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), suffix, sfxNg, ins, false, false)
+                                                        : MultiQueryExperiment.runQueries(List.of(workload), suffix, sfxNg, ins, false, false);
+                                                if (options.reuseSuffixResults()) suffixResultsCache.put(cacheKey, res);
+                                            }
+                                        } else {
+                                            IPMIndexing suffix = IndexFactory.createSuffixIndex(
+                                                    options.windowLength(), options.alphabetSizeFor(sfxNg));
+                                            InsertStats ins = isSegments(options)
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, sfxNg)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, sfxNg);
+                                            res = isSegments(options)
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), suffix, sfxNg, ins, false, false)
+                                                    : MultiQueryExperiment.runQueries(List.of(workload), suffix, sfxNg, ins, false, false);
+                                            if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
+                                                suffixAvgBuilders.computeIfAbsent(cacheKey, _k -> new MRAccumulator()).add(res);
+                                            }
+                                        }
+                                        addOne(aggregated, IndexType.SUFFIX, sfxNg, type, pl, res, workload);
                                     }
                                     if (regexSingle != null) {
                                         MultiRunResult res = isSegments(options)
@@ -272,9 +330,20 @@ public final class BenchmarkOrchestrator {
                             }
                             hbiSingle = null; regexSingle = null;
                         }
+                        // If we are building cache averages, after finishing all runs for this dataset
+                        // synthesize averaged results and store in the cache for reuse by later n-grams/FPRs.
+                        if (options.runSuffix() && options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0
+                                && runIndex == options.runs() - 1 && !suffixAvgBuilders.isEmpty()) {
+                            for (Map.Entry<SuffixCacheKey, MRAccumulator> e : suffixAvgBuilders.entrySet()) {
+                                suffixResultsCache.put(e.getKey(), e.getValue().buildAveraged());
+                            }
+                            suffixAvgBuilders.clear();
+                        }
                     }
                 }
+                ngIndex++;
             }
+            fpIndex++;
 
             boolean anyResults = aggregated.values().stream()
                     .flatMap(m -> m.values().stream())
@@ -353,5 +422,73 @@ public final class BenchmarkOrchestrator {
                         .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
             }
         }
+    }
+}
+
+// Local cache key for suffix results reuse
+record SuffixCacheKey(String dataset,
+                      int suffixNgram,
+                      String mode,
+                      boolean reinsertPerWorkload,
+                      String workloadKey) {
+
+    static SuffixCacheKey forWorkloads(String dataset,
+                                       int suffixNgram,
+                                       String mode,
+                                       boolean reinsertPerWorkload,
+                                       List<QueryWorkload> workloads) {
+        // Build a stable key from the query file paths in order
+        String joined = workloads.stream()
+                .map(w -> w.queryFile().toString())
+                .collect(Collectors.joining("|"));
+        return new SuffixCacheKey(dataset, suffixNgram, mode, reinsertPerWorkload, joined);
+    }
+}
+
+// Helper to average MultiRunResult across multiple runs for reuse.
+final class MRAccumulator {
+    private static final class Sum {
+        double sumAvgInsertMsPerSymbol;
+        double sumTotalInsertMs;
+        double sumTotalQueryMs;
+        double sumAvgQuerySize;
+        int count;
+    }
+
+    private final Map<QueryWorkload, Sum> sums = new LinkedHashMap<>();
+
+    void add(MultiRunResult res) {
+        for (Map.Entry<QueryWorkload, ExperimentRunResult> e : res.results().entrySet()) {
+            QueryWorkload wl = e.getKey();
+            ExperimentRunResult r = e.getValue();
+            Sum s = sums.computeIfAbsent(wl, _k -> new Sum());
+            s.sumAvgInsertMsPerSymbol += r.avgInsertMsPerSymbol();
+            s.sumTotalInsertMs += r.totalInsertTimeMs();
+            s.sumTotalQueryMs += r.totalRunTimeMs();
+            s.sumAvgQuerySize += r.avgQuerySize();
+            s.count++;
+        }
+    }
+
+    MultiRunResult buildAveraged() {
+        Map<QueryWorkload, ExperimentRunResult> avg = new LinkedHashMap<>();
+        for (Map.Entry<QueryWorkload, Sum> e : sums.entrySet()) {
+            Sum s = e.getValue();
+            double c = Math.max(1, s.count);
+            double avgInsSym = s.sumAvgInsertMsPerSymbol / c;
+            double avgInsMs = s.sumTotalInsertMs / c;
+            double avgQueryMs = s.sumTotalQueryMs / c;
+            double avgQSize = s.sumAvgQuerySize / c;
+            avg.put(e.getKey(), new ExperimentRunResult(
+                    avgQueryMs,
+                    avgInsMs,
+                    null,
+                    avgQSize,
+                    avgInsSym,
+                    avgQueryMs,
+                    null
+            ));
+        }
+        return new MultiRunResult(avg);
     }
 }

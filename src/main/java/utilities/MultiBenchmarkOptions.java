@@ -32,6 +32,7 @@ public record MultiBenchmarkOptions(
         boolean runSuffix,
         Utils.MemPolicy memPolicy,
         int suffixDelta,
+        boolean reuseSuffixResults,
         boolean reinsertPerWorkload) {
 
     public static MultiBenchmarkOptions parse(String[] args) {
@@ -60,6 +61,7 @@ public record MultiBenchmarkOptions(
         boolean runSuffix = true;
         Utils.MemPolicy policy = Utils.MemPolicy.NONE;
         int suffixDelta = 160; // default delta for delayed suffix when not reinserting per-workload
+        boolean reuseSuffixResults = true; // default: reuse suffix results across FPR/ng loops
         boolean reinsertPerWorkload = false;
         String algorithm = "bs"; // default algorithm
 
@@ -104,6 +106,7 @@ public record MultiBenchmarkOptions(
                 case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
                 case "reinsert-per-workload" -> reinsertPerWorkload = Boolean.parseBoolean(value);
                 case "suffix-delta" -> suffixDelta = Integer.parseInt(value);
+                case "reuse-suffix", "reuse-suffix-results" -> reuseSuffixResults = Boolean.parseBoolean(value);
                 default -> throw new IllegalArgumentException("Unknown option --" + key);
             }
         }
@@ -162,6 +165,7 @@ public record MultiBenchmarkOptions(
                 runSuffix,
                 policy,
                 suffixDelta,
+                reuseSuffixResults,
                 reinsertPerWorkload
         );
     }
