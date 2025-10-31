@@ -14,6 +14,8 @@ public record MultiBenchmarkOptions(
         Path dataRoot,
         Path queryRoot,
         String window,
+        int windowPower,
+        int treePower,
         QueryType queryType,
         String mode,                 // "chars" or "segments"
         Integer defaultNgram,        // primary n-gram
@@ -44,8 +46,10 @@ public record MultiBenchmarkOptions(
 
         Integer defaultNgram = 4;
         List<Integer> ngramList = null;
-        Integer windowLength = 1 << 21;
-        Integer treeLength = 1 << 21;
+        Integer windowLength = null; // derive after parsing from power or token
+        Integer treeLength = null;   // derive after parsing from power or explicit
+        Integer windowPower = 21;
+        Integer treePower = 21;
         Integer alphabetBase = 150;
 
         double fpRate = 0.15;
@@ -82,6 +86,7 @@ public record MultiBenchmarkOptions(
                 case "data-root" -> dataRoot = Path.of(value);
                 case "query-root" -> queryRoot = Path.of(value);
                 case "mode" -> mode = value;
+                case "policy", "mem-policy", "memory-policy" -> policy = parseMemPolicy(value);
                 case "ngrams" -> {
                     if (value.contains(",")) {
                         ngramList = parseIntCsv(value);
@@ -93,6 +98,8 @@ public record MultiBenchmarkOptions(
                 }
                 case "window-length" -> windowLength = Integer.parseInt(value);
                 case "tree-length" -> treeLength = Integer.parseInt(value);
+                case "window-power", "wpow", "wpower" -> windowPower = Integer.parseInt(value);
+                case "tree-power", "tpow", "tpower" -> treePower = Integer.parseInt(value);
                 case "alphabet", "alphabet-base" -> alphabetBase = Integer.parseInt(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
@@ -113,8 +120,32 @@ public record MultiBenchmarkOptions(
 
         if (window == null) throw new IllegalArgumentException("--window is required");
         if (defaultNgram == null) defaultNgram = 4;
-        if (windowLength == null) windowLength = deriveWindowLength(window, 1 << 21);
-        if (treeLength == null) treeLength = windowLength;
+        // derive lengths if not provided explicitly
+        if (windowLength == null) {
+            // Prefer explicit power if provided; else derive from window token
+            int derivedFromToken = deriveWindowLength(window, 1 << 21);
+            windowLength = (windowPower != null) ? (1 << windowPower) : derivedFromToken;
+        } else {
+            // keep a best-effort power for reporting if not overridden
+            if (windowPower == null) {
+                windowPower = 31 - Integer.numberOfLeadingZeros(windowLength);
+            }
+        }
+        if (treeLength == null) {
+            treeLength = (treePower != null) ? (1 << treePower) : windowLength;
+        } else if (treePower == null) {
+            treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
+        }
+
+        // Validate relationship: window must be >= tree
+        if (windowLength < treeLength) {
+            throw new IllegalArgumentException(
+                    "Invalid sizes: window length (" + windowLength + ") must be >= tree length (" + treeLength + ")");
+        }
+        if (windowPower != null && treePower != null && windowPower < treePower) {
+            throw new IllegalArgumentException(
+                    "Invalid powers: window power (" + windowPower + ") must be >= tree power (" + treePower + ")");
+        }
 
         Path resolvedDataRoot = dataRoot.resolve(window);
         Path resolvedQueryRoot = queryRoot.resolve(window);
@@ -147,6 +178,8 @@ public record MultiBenchmarkOptions(
                 resolvedDataRoot,
                 resolvedQueryRoot,
                 window,
+                windowPower != null ? windowPower : 21,
+                treePower != null ? treePower : 21,
                 queryType,
                 mode,
                 defaultNgram,
@@ -218,5 +251,14 @@ public record MultiBenchmarkOptions(
             out.add(val);
         }
         return out;
+    }
+
+    private static Utils.MemPolicy parseMemPolicy(String token) {
+        if (token == null || token.isBlank()) return Utils.MemPolicy.NONE;
+        String t = token.trim().toUpperCase();
+        if ("NONE".equals(t)) return Utils.MemPolicy.NONE;
+        if ("REACTIVE".equals(t)) return Utils.MemPolicy.REACTIVE;
+        if ("PREDICTIVE".equals(t)) return Utils.MemPolicy.PREDICTIVE;
+        throw new IllegalArgumentException("Unknown mem policy '" + token + "' (expected NONE, REACTIVE, PREDICTIVE)");
     }
 }

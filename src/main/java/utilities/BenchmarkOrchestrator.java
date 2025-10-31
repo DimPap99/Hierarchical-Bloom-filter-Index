@@ -73,10 +73,10 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, reinsert=%b%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b%n",
                             options.windowLength(), options.treeLength(), ng,
                             options.alphabetBase(), effAlphabet, currentFp,
-                            options.runs(), options.algorithm(), options.mode(), options.reinsertPerWorkload());
+                            options.runs(), options.algorithm(), options.mode(), options.memPolicy(), options.reinsertPerWorkload());
 
                     Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
                     boolean hasQueries = false;
@@ -339,6 +339,10 @@ public final class BenchmarkOrchestrator {
                             }
                             suffixAvgBuilders.clear();
                         }
+
+                        // Encourage collection between iterations to reduce cross-run interference.
+                        // This happens outside the measured sections and should not skew per-run timings.
+                        System.gc();
                     }
                 }
                 ngIndex++;

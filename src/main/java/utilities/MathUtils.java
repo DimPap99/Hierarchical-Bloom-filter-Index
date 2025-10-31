@@ -124,41 +124,44 @@ public final class  MathUtils {
 
     public static int pruningLevelBloom(
             ImplicitTree<?> tree,
-            double conf,   // target confidence α (for example 0.95)
-            double prob,   // empirical per-slot rate p_i (that is, \hat p_i)
-            double beta    // Bloom filter false positive rate β at this level
+            double conf,   // target confidence (alpha), for example 0.95
+            double prob,   // empirical per-slot rate (p_i)
+            double beta    // Bloom filter false positive rate (beta) at this level
     ) {
+        // Clamp inputs to safe ranges
+        conf = Math.max(0.0, Math.min(1.0, conf));
+        beta = Math.max(0.0, Math.min(1.0, beta));
+        prob = Math.max(0.0, Math.min(1.0 - 1e-15, prob)); // avoid log(0)
 
-        final double logOneMinusProb = Math.log(1.0 - prob);
-
-        double lp; // this will become the return depth after adjustment
+        final int Lmax = tree.maxDepth() - 1;
+        double lp;
 
         if (conf <= beta) {
-            // Bloom filter alone (without real content) is already as "confident"
-            // as we require. That means shallow levels will just say YES anyway.
-            // We therefore bias all the way down.
-            int L = tree.maxDepth() - 1;
-            lp = L;
+            // Bloom answers YES often enough by itself; bias to the deepest usable level
+            lp = Lmax;
         } else {
-            // Normal case: solve q_i(L) >= conf
+            // Solve q_i(L) >= conf
+            // bAlphaQ = log((1-conf)/(1-beta)) / log(1-prob)
+            // Use log1p for stability: log(1-x)
+            final double logOneMinusProb = Math.log1p(-prob);           // < 0
+            final double numerator       = Math.log1p(-conf) - Math.log1p(-beta); // < 0 when conf > beta
+            final double bAlphaQ         = numerator / logOneMinusProb; // > 0
 
-            double numerator = Math.log((1.0 - conf) / (1.0 - beta));
-            double bAlphaQ   = numerator / logOneMinusProb; // strictly > 0 here
+            // L = ceil( log2( baseIntervalSize / bAlphaQ ) )
+            final double ratio = tree.baseIntervalSize() / bAlphaQ;
+            final double val   = log2(ratio); // <-- this is where base-2 is required
+            final int L        = (int) Math.ceil(val);
 
-
-            double val = Math.log(tree.baseIntervalSize() / bAlphaQ);
-
-            int L = (int) Math.ceil(val);
-
-            // Clamp to the tree geometry just like the original code
-            lp = Math.min(L, tree.maxDepth() - 1);
+            lp = Math.min(L, Lmax);
         }
-
-
-
-
         return (int) Math.max(0, lp);
     }
+
+    // If you do not already have one
+    private static double log2(double x) {
+        return Math.log(x) / Math.log(2.0);
+    }
+
 
 
     public static double clamp01(double value) {

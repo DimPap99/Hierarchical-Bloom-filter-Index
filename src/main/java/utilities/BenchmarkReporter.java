@@ -69,9 +69,12 @@ public final class BenchmarkReporter {
             }
         }
         header.add("algo");
+        header.add("policy");
         header.add("alphabet");
         header.add("fpr");
         header.add("delta");
+        header.add("window_power");
+        header.add("tree_power");
 
         List<List<Object>> csvRows = new ArrayList<>();
         csvRows.add(header);
@@ -106,18 +109,22 @@ public final class BenchmarkReporter {
                     }
                 }
                 row.add(algo);
+                row.add(options.memPolicy());
                 row.add(options.alphabetSizeFor(ng));
                 row.add(currentFp);
                 int deltaVal = options.reinsertPerWorkload() ? pl : options.suffixDelta(); // delayed suffix default delta
                 row.add(deltaVal);
+                row.add(options.windowPower());
+                row.add(options.treePower());
                 csvRows.add(row);
             }
         }
 
         String fpToken = String.format(Locale.ROOT, "%.6f", currentFp).replace('.', 'p');
         String ngToken = (options.ngrams().size() == 1) ? String.valueOf(options.ngrams().get(0)) : "ngmulti";
-        String fileName = "%s_%s_%s_%s_fp%s.csv"
-                .formatted(options.window(), options.queryTypeLabel(), ngToken, algo, fpToken);
+        String treeToken = "t" + options.treePower();
+        String fileName = "%s_%s_%s_%s_%s_fp%s.csv"
+                .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken);
         Path csvPath = Path.of(fileName);
         CsvUtil.writeRows(csvPath, csvRows);
         return csvPath;

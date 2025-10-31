@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import utilities.CsvUtil;
+import utilities.Utils;
 
 public final class HBIDatasetBenchmarkPerDataset {
 
@@ -49,6 +50,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     int warmupRuns,
                                     int runs,
                                     String algorithm,
+                                    Utils.MemPolicy memPolicy,
                                     boolean runRegexBaseline,
                                     boolean runHbi,
                                     boolean runSuffix) {
@@ -70,6 +72,7 @@ public final class HBIDatasetBenchmarkPerDataset {
             boolean runHbi = true;
             boolean runSuffix = false;
             String algorithm = "bs"; // default as requested
+            Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -108,6 +111,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
                     case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                     case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
+                    case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -160,6 +164,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     warmupRuns,
                     runs,
                     algorithm,
+                    memPolicy,
                     runRegexBaseline,
                     runHbi,
                     runSuffix);
@@ -491,6 +496,7 @@ public final class HBIDatasetBenchmarkPerDataset {
             }
         }
         header.add("algorithm");
+        header.add("policy");
 
         List<List<?>> csvRows = new ArrayList<>();
         csvRows.add(header);
@@ -528,6 +534,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     }
                 }
                 row.add(algo);
+                row.add(options.memPolicy());
                 csvRows.add(row);
             }
         }
@@ -591,9 +598,21 @@ public final class HBIDatasetBenchmarkPerDataset {
                 .experimentMode(false)
                 .collectStats(false)
                 .nGram(options.ngram())
+                .memPolicy(options.memPolicy())
                 .build();
 
         return new HBI(configuration);
+    }
+
+    private static Utils.MemPolicy parseMemPolicy(String token) {
+        if (token == null || token.isBlank()) return Utils.MemPolicy.NONE;
+        String t = token.trim().toUpperCase(Locale.ROOT);
+        return switch (t) {
+            case "NONE" -> Utils.MemPolicy.NONE;
+            case "REACTIVE" -> Utils.MemPolicy.REACTIVE;
+            case "PREDICTIVE" -> Utils.MemPolicy.PREDICTIVE;
+            default -> throw new IllegalArgumentException("Unknown mem policy '" + token + "' (expected NONE, REACTIVE, PREDICTIVE)");
+        };
     }
 
     private static OnlineSuffixTree newSuffixTree(BenchmarkOptions options) {

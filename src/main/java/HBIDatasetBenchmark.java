@@ -42,10 +42,10 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static String DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/3/3_W21.txt";
 
     private static String QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/160.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/3/10.uniform.txt";
 
     private static final int WINDOW_LEN   = 1 << 21;
     private static final int TREE_LEN     = 1 << 21;
@@ -53,7 +53,7 @@ public class HBIDatasetBenchmark {
     private static final double FP_RATE   = 0.05;
     private static final int RUNS         = 1;
     private static final boolean USE_STRIDES = true;
-    private static int NGRAMS             = 10;
+    private static int NGRAMS             = 2;
 
     /**
      * Utility method from your original code.
@@ -317,6 +317,7 @@ public class HBIDatasetBenchmark {
         double suffixTotalMsInsert = 0.0;
 
         double lpShareSum = 0.0;
+        double avgLpLevelSum = 0.0; // average chosen LP level per run
         double avgQueryTimeSum = 0.0;
         double avgLpTimeSum = 0.0;
         int statsSamples = 0;
@@ -413,6 +414,15 @@ public class HBIDatasetBenchmark {
                 lpShareSum      += stats.lpShareOfQuery();
                 avgQueryTimeSum += stats.averageQueryTimeMillis();
                 avgLpTimeSum    += stats.averageLpTimeMillis();
+                // compute average LP level chosen this run
+                double runAvgLp = 0.0;
+                List<Integer> lps = stats.lpLevels();
+                if (!lps.isEmpty()) {
+                    long sum = 0L;
+                    for (int lp : lps) sum += lp;
+                    runAvgLp = (double) sum / lps.size();
+                }
+                avgLpLevelSum += runAvgLp;
                 statsSamples++;
             }
 
@@ -480,6 +490,11 @@ public class HBIDatasetBenchmark {
                         Locale.ROOT,
                         "HBI LP time share of query (%%): %.2f%n",
                         (lpShareSum / statsSamples) * 100.0
+                );
+                System.out.printf(
+                        Locale.ROOT,
+                        "HBI avg chosen LP level: %.3f%n",
+                        (avgLpLevelSum / statsSamples)
                 );
             }
 
