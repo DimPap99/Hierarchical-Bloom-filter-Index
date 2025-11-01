@@ -57,8 +57,8 @@ import java.util.stream.Stream;
  * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
  *
  * suffix_mem_mib is the retained size of the StreamingSlidingWindowIndex after subtracting
- * its AlphabetMapper dictionary map, so you measure just the rolling suffix segment hierarchy
- * and not the global token to identifier HashMap.
+ * its token dictionary (string hash mapper), so you measure just the rolling suffix segment hierarchy
+ * and not the global token identifier structure.
  *
  * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
  *

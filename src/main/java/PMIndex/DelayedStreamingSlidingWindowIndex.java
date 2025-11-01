@@ -2,7 +2,7 @@ package PMIndex;
 
 import search.Pattern;
 import tree.ssws.SuffixTree;
-import utilities.AlphabetMapper;
+import utilities.HashedStringMapper;
 import utilities.PatternResult;
 
 import java.util.*;
@@ -26,7 +26,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     private final int windowSize;
     private final int delta; // delay parameter
     private final int minSegLen; // == delta/2 (rounded)
-    private final AlphabetMapper<String> alphabetMapper;
+    private final HashedStringMapper tokenMapper;
 
     private Segment head;
     private Segment tail;
@@ -44,7 +44,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         this.windowSize = windowSize;
         this.delta = delta;
         this.minSegLen = Math.max(1, delta / 2);
-        this.alphabetMapper = new AlphabetMapper<>(Math.max(expectedAlphabetSize, 16));
+        this.tokenMapper = new HashedStringMapper(Math.max(expectedAlphabetSize, 16));
         this.bufferedMode = bufferedMode;
     }
 
@@ -55,7 +55,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     @Override
     public void insert(String key) {
         if (key == null) return;
-        int token = alphabetMapper.getId(key);
+        int token = tokenMapper.getId(key);
         Segment singleton = createSingletonSegment(token, nextTokenPosition);
         appendSegment(singleton);
         nextTokenPosition++;
@@ -323,7 +323,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         String[] grams = pattern.nGramArr;
         if (grams == null) return new int[0];
         int[] tokens = new int[grams.length];
-        for (int i = 0; i < grams.length; i++) tokens[i] = alphabetMapper.getId(grams[i]);
+        for (int i = 0; i < grams.length; i++) tokens[i] = tokenMapper.getId(grams[i]);
         return tokens;
     }
 
@@ -414,7 +414,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     public PatternResult getLatestStats() { return new PatternResult(0.0, 0, 0, null, 0, 0.0, 0, 0); }
 
     @Override
-    public int getTokenId(String key) { return alphabetMapper.getId(key); }
+    public int getTokenId(String key) { return tokenMapper.getId(key); }
 
     // ===== data holders =====
     private static final class Segment {

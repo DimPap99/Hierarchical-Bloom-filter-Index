@@ -3,7 +3,7 @@ package PMIndex;
 import org.openjdk.jol.info.GraphLayout;
 import search.Pattern;
 import tree.ssws.SuffixTree;
-import utilities.AlphabetMapper;
+import utilities.HashedStringMapper;
 import utilities.PatternResult;
 
 import java.util.ArrayList;
@@ -25,7 +25,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private final int windowSize;
     //this is not counted in memory overhead in the experiments
-    private final AlphabetMapper<String> alphabetMapper;
+    private final HashedStringMapper tokenMapper;
 
     private Segment head;
     private Segment tail;
@@ -38,7 +38,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
             throw new IllegalArgumentException("windowSize must be positive");
         }
         this.windowSize = windowSize;
-        this.alphabetMapper = new AlphabetMapper<>(Math.max(expectedAlphabetSize, 16));
+        this.tokenMapper = new HashedStringMapper(Math.max(expectedAlphabetSize, 16));
     }
 
     public StreamingSlidingWindowIndex(int windowSize) {
@@ -47,7 +47,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     public long estimateRetainedBytesWithoutAlphabet() {
         long total = GraphLayout.parseInstance(this).totalSize();
-        long dict = GraphLayout.parseInstance(this.alphabetMapper).totalSize();
+        long dict = GraphLayout.parseInstance(this.tokenMapper).totalSize();
         return total - dict;
     }
     @Override
@@ -55,7 +55,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (key == null) {
             return;
         }
-        int token = alphabetMapper.getId(key);
+        int token = tokenMapper.getId(key);
         Segment singleton = createSingletonSegment(token, nextTokenPosition);
         appendSegment(singleton);
         nextTokenPosition++;
@@ -382,7 +382,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
         int[] tokens = new int[grams.length];
         for (int i = 0; i < grams.length; i++) {
-            tokens[i] = alphabetMapper.getId(grams[i]);
+            tokens[i] = tokenMapper.getId(grams[i]);
         }
         return tokens;
     }
@@ -413,7 +413,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     @Override
     public int getTokenId(String key) {
         Objects.requireNonNull(key, "key");
-        return alphabetMapper.getId(key);
+        return tokenMapper.getId(key);
     }
 
     private void onSegmentInserted(Segment segment) {

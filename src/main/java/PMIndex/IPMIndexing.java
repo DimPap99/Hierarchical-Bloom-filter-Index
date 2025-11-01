@@ -1,7 +1,6 @@
 package PMIndex;
 
 import search.Pattern;
-import utilities.AlphabetMapper;
 import utilities.PatternResult;
 
 import java.util.ArrayList;
