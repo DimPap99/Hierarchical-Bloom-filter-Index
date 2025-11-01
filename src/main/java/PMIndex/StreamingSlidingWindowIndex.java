@@ -7,6 +7,7 @@ import utilities.AlphabetMapper;
 import utilities.PatternResult;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -108,9 +109,13 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         Segment prev = left.prev;
         Segment next = right.next;
 
-        clearBoundary(left.leftBoundary);
-        clearBoundary(left.rightBoundary); // also clears right.leftBoundary
-        clearBoundary(right.rightBoundary);
+        Boundary leftLeftBoundary = left.leftBoundary;
+        Boundary leftRightBoundary = left.rightBoundary;
+        Boundary rightRightBoundary = right.rightBoundary;
+
+        clearBoundary(leftLeftBoundary);
+        clearBoundary(leftRightBoundary); // also clears right.leftBoundary
+        clearBoundary(rightRightBoundary);
 
         if (prev != null) {
             prev.next = merged;
@@ -133,6 +138,12 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         left.prev = left.next = null;
         right.prev = right.next = null;
         segmentCount--; // two segments became one
+
+        releaseBoundary(leftLeftBoundary);
+        releaseBoundary(leftRightBoundary);
+        releaseBoundary(rightRightBoundary);
+        releaseSegment(left);
+        releaseSegment(right);
     }
 
     private void clearBoundary(Boundary boundary) {
@@ -145,6 +156,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (boundary.right != null && boundary.right.leftBoundary == boundary) {
             boundary.right.leftBoundary = null;
         }
+        releaseBoundary(boundary);
     }
 
     private void trimToWindow() {
@@ -153,6 +165,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
             totalStoredLength -= expired.length;
             removeHead();
             onSegmentExpired(expired);
+            releaseSegment(expired);
         }
     }
 
@@ -185,7 +198,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         SuffixTree tree = SuffixTree.build(tokens);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
-        Boundary boundary = new Boundary(left, right, tokens, boundaryStart, boundaryPosition, tree);
+        Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);
         left.rightBoundary = boundary;
         right.leftBoundary = boundary;
 //        SuffixTree.compactForQuerying(boundary.tree.getRoot());
@@ -383,6 +396,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         Segment expired = head;
         removeHead();
         onSegmentExpired(expired);
+        releaseSegment(expired);
         trimToWindow();
     }
 
@@ -414,6 +428,35 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         // hook for instrumentation or logging
     }
 
+    private void releaseSegment(Segment segment) {
+        if (segment == null) {
+            return;
+        }
+        wipeArray(segment.tokens);
+        if (segment.suffixTree != null) {
+            segment.suffixTree.release();
+        }
+        releaseBoundary(segment.leftBoundary);
+        releaseBoundary(segment.rightBoundary);
+        segment.leftBoundary = null;
+        segment.rightBoundary = null;
+        segment.prev = null;
+        segment.next = null;
+    }
+
+    private void releaseBoundary(Boundary boundary) {
+        if (boundary == null) {
+            return;
+        }
+        boundary.tree.release();
+    }
+
+    private void wipeArray(int[] data) {
+        if (data != null) {
+            Arrays.fill(data, 0);
+        }
+    }
+
     private static final class Segment {
         private final int startPosition;
         private final int level;
@@ -437,16 +480,14 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     private static final class Boundary {
         private final Segment left;
         private final Segment right;
-        private final int[] tokens;
         private final int globalStart;
         private final int boundaryPosition;
         private final SuffixTree tree;
 
-        private Boundary(Segment left, Segment right, int[] tokens, int globalStart,
+        private Boundary(Segment left, Segment right, int globalStart,
                          int boundaryPosition, SuffixTree tree) {
             this.left = left;
             this.right = right;
-            this.tokens = tokens;
             this.globalStart = globalStart;
             this.boundaryPosition = boundaryPosition;
             this.tree = tree;

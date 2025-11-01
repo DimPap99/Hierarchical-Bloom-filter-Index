@@ -286,7 +286,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         SuffixTree tree = SuffixTree.build(tokens);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
-        Boundary boundary = new Boundary(left, right, tokens, boundaryStart, boundaryPosition, tree);
+        Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);
         left.rightBoundary = boundary;
         right.leftBoundary = boundary;
     }
@@ -440,16 +440,14 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     private static final class Boundary {
         private final Segment left;
         private final Segment right;
-        private final int[] tokens;
         private final int globalStart;
         private final int boundaryPosition;
         private final SuffixTree tree;
 
-        private Boundary(Segment left, Segment right, int[] tokens, int globalStart,
+        private Boundary(Segment left, Segment right, int globalStart,
                          int boundaryPosition, SuffixTree tree) {
             this.left = left;
             this.right = right;
-            this.tokens = tokens;
             this.globalStart = globalStart;
             this.boundaryPosition = boundaryPosition;
             this.tree = tree;

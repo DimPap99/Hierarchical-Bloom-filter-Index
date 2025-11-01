@@ -31,6 +31,7 @@ public final class SuffixTree {
     private final int originalLength;   // length before sentinel
     // Map original token -> local remapped token in [1..distinct]. Missing => not present.
     private final Int2IntOpenHashMap tokenRemap;
+    private boolean released = false;
 
     private SuffixTree(Node root, int[] text, int originalLength, Int2IntOpenHashMap tokenRemap) {
         this.root = root;
@@ -355,6 +356,44 @@ public final class SuffixTree {
                 return Collections.emptyList();
             }
         }
+    }
+
+    /**
+     * Release internal structures eagerly so that detached trees relinquish memory sooner.
+     * Safe to call multiple times.
+     */
+    public void release() {
+        if (released) {
+            return;
+        }
+        released = true;
+        Arrays.fill(text, 0);
+        tokenRemap.clear();
+        clearNode(root);
+    }
+
+    private void clearNode(Node node) {
+        if (node == null) {
+            return;
+        }
+        if (node.edgeA != null) {
+            clearNode(node.edgeA.child);
+            node.edgeA = null;
+            node.keyA = Integer.MIN_VALUE;
+        }
+        if (node.edgeB != null) {
+            clearNode(node.edgeB.child);
+            node.edgeB = null;
+            node.keyB = Integer.MIN_VALUE;
+        }
+        if (node.edgeMap != null) {
+            for (Edge edge : node.edgeMap.values()) {
+                clearNode(edge.child);
+            }
+            node.edgeMap.clear();
+            node.edgeMap = null;
+        }
+        node.suffixIndex = -1;
     }
 
     /**

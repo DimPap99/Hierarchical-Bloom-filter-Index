@@ -78,6 +78,7 @@ public final class HBI implements IPMIndexing {
     public double QUANTILE = 0.05;
     private long lastPolicyQuantileKey = -1L;
     private int lastPolicyQuantileFrequency = 0;
+    private int lastPredictiveLp = -1;
     public boolean isRootAlg = false;
     public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
     public int pctEstimatorBuckets;
@@ -221,6 +222,9 @@ public final class HBI implements IPMIndexing {
             }
 
             ImplicitTree<Membership> fresh = createTree(nextTreeId++);
+            if (this.memPolicy == Utils.MemPolicy.PREDICTIVE && this.lastPredictiveLp > 0) {
+                fresh.dropFiltersUpToLp(this.lastPredictiveLp);
+            }
             if(!isRootAlg) {
                 fresh.estimator.insert(token);
             }
@@ -282,10 +286,14 @@ public final class HBI implements IPMIndexing {
         double minp = latestTree.estimator.estimate(this.lastPolicyQuantileKey);
         int lp = pruningLevel(latestTree, 0.99, minp);
         latestTree.dropFiltersUpToLp(lp);
+        if (this.memPolicy == Utils.MemPolicy.PREDICTIVE) {
+            this.lastPredictiveLp = Math.max(0, Math.min(lp, latestTree.maxDepth() - 1));
+        }
         //clear samples
         this.pctEstimator.clear();
         // Additional policies (e.g., PREDICTIVE) can consume lastPolicyQuantileKey as needed.
     }
+
 
     public long getLastPolicyQuantileKey() {
         return lastPolicyQuantileKey;
