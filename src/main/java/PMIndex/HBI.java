@@ -80,6 +80,7 @@ public final class HBI implements IPMIndexing {
     private int lastPolicyQuantileFrequency = 0;
     private int lastPredictiveLp = -1;
     public boolean isRootAlg = false;
+    public boolean activateEstim = false;
     public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
     public int pctEstimatorBuckets;
     private final int maxActiveTrees;
@@ -95,6 +96,14 @@ public final class HBI implements IPMIndexing {
             // maxOrder = context length + 1
             this.modelBuilder = new NgramModel.Builder(sigma, 3);
         }
+    }
+
+    private boolean estimatorsActive() {
+        return this.activateEstim || !this.isRootAlg;
+    }
+
+    private boolean memoryPolicyActive() {
+        return this.memoryPolicy && estimatorsActive();
     }
 
     public HBI(HbiConfiguration config) {
@@ -113,6 +122,7 @@ public final class HBI implements IPMIndexing {
         this.conf = config.confidence();
         this.keyMapper = new StringKeyMapper(this.alphabetSize, 0.0001);
         this.nGram = config.nGram();
+        this.activateEstim = config.activateEstim();
         if(this.cf instanceof CostFunctionDefaultRoot) {
             this.isRootAlg = true;
         }
@@ -125,11 +135,7 @@ public final class HBI implements IPMIndexing {
         Utils.MemPolicy configuredPolicy = config.memPolicy();
         this.memPolicy = configuredPolicy == null ? Utils.MemPolicy.NONE : configuredPolicy;
         this.memoryPolicy = this.memPolicy != Utils.MemPolicy.NONE;
-        if(this.isRootAlg){
-            this.memPolicy = Utils.MemPolicy.NONE;
-            this.memoryPolicy = false;
-        }
-        if (this.memoryPolicy) {
+        if (memoryPolicyActive()) {
             this.pctEstimatorBuckets = Math.max(1, this.alphabetSize);
 
             int configuredBuckets = config.buckets();
@@ -201,8 +207,8 @@ public final class HBI implements IPMIndexing {
 //        this.strhs.add(c);
 //        this.assignedkeys.add(intC);
 //        if(intC == 146) System.out.println(c);
-        if (!this.isRootAlg && this.memPolicy != Utils.MemPolicy.NONE) {
-            this.pctEstimator.insert(token);
+        if (memoryPolicyActive()) {
+            ensurePctEstimator().insert(token);
         }
         if(isMarkov) {
             ensureMarkovBuilder();
@@ -214,7 +220,7 @@ public final class HBI implements IPMIndexing {
         ImplicitTree<Membership> lastTree = trees.getLast();
         if (lastTree.isFull()) {
 
-            if(this.memoryPolicy && !this.isRootAlg){
+            if (memoryPolicyActive()) {
                 applyMemoryPolicy();
 //                if(this.memPolicy == Utils.MemPolicy.PREDICTIVE){
 //
@@ -225,14 +231,22 @@ public final class HBI implements IPMIndexing {
             if (this.memPolicy == Utils.MemPolicy.PREDICTIVE && this.lastPredictiveLp > 0) {
                 fresh.dropFiltersUpToLp(this.lastPredictiveLp);
             }
-            if(!isRootAlg) {
+            if (estimatorsActive()) {
+                if (fresh.estimator == null) {
+                    fresh.estimator = estimatorFac.get();
+                }
                 fresh.estimator.insert(token);
             }
             fresh.append(token, indexedItemsCounter);
             trees.add(fresh);
 //            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
         } else {
-            if(!isRootAlg) { lastTree.estimator.insert(token);}
+            if (estimatorsActive()) {
+                if (lastTree.estimator == null) {
+                    lastTree.estimator = estimatorFac.get();
+                }
+                lastTree.estimator.insert(token);
+            }
             lastTree.append(token, indexedItemsCounter);
         }
 
@@ -262,11 +276,14 @@ public final class HBI implements IPMIndexing {
     }
 
     public void applyMemoryPolicy() {
-        if (!memoryPolicy || this.trees.isEmpty()) {
+        if (!memoryPolicyActive() || this.trees.isEmpty()) {
             return;
         }
 
         ImplicitTree<Membership> latestTree = this.trees.getLast();
+        if (latestTree.estimator == null) {
+            return;
+        }
         HOPS hopsSampler = ensurePctEstimator();
 
         HOPS.QuantileEstimate estimate = hopsSampler.estimateQuantileWithKey(key -> {
@@ -460,7 +477,7 @@ public final class HBI implements IPMIndexing {
                             this.leafCost,
                             this.strides));
                 } else {
-                    if (!this.isRootAlg) {
+                    if (estimatorsActive() && tree.pruningPlan != null) {
                         lps = tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
                     } else {
                         lps.add(0);
@@ -642,7 +659,7 @@ public final class HBI implements IPMIndexing {
         };
 
         Estimator est = null;
-        if (!this.isRootAlg) {
+        if (estimatorsActive()) {
             est = estimatorFac.get();
         }
 
@@ -656,7 +673,7 @@ public final class HBI implements IPMIndexing {
         // assign the globally unique id right here
         tree.id = treeGlobalId;
 
-        if (!isRootAlg) {
+        if (estimatorsActive()) {
             tree.pruningPlan = pruningPlanFac.get();
         }
 

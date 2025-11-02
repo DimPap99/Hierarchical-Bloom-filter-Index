@@ -32,6 +32,7 @@ public final class HbiConfiguration {
     private final int buckets;
     private final boolean experimentMode;
     private final boolean collectStats;
+    private final boolean activateEstim;
 
     private int nGram;
 
@@ -52,6 +53,7 @@ public final class HbiConfiguration {
         this.nGram = builder.nGram;
         this.memPolicy = builder.memPolicy;
         this.buckets = builder.buckets;
+        this.activateEstim = builder.activateEstim;
         validate();
     }
 
@@ -89,6 +91,7 @@ public final class HbiConfiguration {
     public boolean experimentMode() { return experimentMode; }
     public int nGram(){return nGram;}
     public boolean collectStats() { return collectStats; }
+    public boolean activateEstim() { return activateEstim; }
 
     public Utils.MemPolicy memPolicy() {
         return memPolicy;
@@ -110,6 +113,7 @@ public final class HbiConfiguration {
         private double confidence;
         private boolean experimentMode = true;
         private boolean collectStats;
+        private boolean activateEstim;
 
         private int nGram;
 
@@ -191,6 +195,11 @@ public final class HbiConfiguration {
 
         public Builder collectStats(boolean collectStats) {
             this.collectStats = collectStats;
+            return this;
+        }
+
+        public Builder activateEstim(boolean activateEstim) {
+            this.activateEstim = activateEstim;
             return this;
         }
 
