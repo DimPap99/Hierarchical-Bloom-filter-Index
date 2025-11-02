@@ -240,7 +240,8 @@ public final class MemoryBenchmark {
         MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ngram);
 
         GraphLayout layout = GraphLayout.parseInstance(suffix);
-        long totalBytes = layout.totalSize();
+        long dictBytes = suffix.estimateTokenDictionaryBytes();
+        long totalBytes = layout.totalSize() - dictBytes;
         long coreBytes = suffix.estimateRetainedBytesWithoutAlphabet();
         double coreMiB = coreBytes / 1_048_576d;
         double totalMiB = totalBytes / 1_048_576d;
@@ -248,7 +249,7 @@ public final class MemoryBenchmark {
         System.out.println("\n=== StreamingSlidingWindowIndex JOL footprint ===");
         System.out.println(layout.toFootprint());
         System.out.printf(Locale.ROOT,
-                "SuffixIndex total (full, incl. AlphabetMapper): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex total (excluding token dictionary): %d B (%.3f MiB) [ngram=%d]%n",
                 totalBytes,
                 totalMiB,
                 ngram);

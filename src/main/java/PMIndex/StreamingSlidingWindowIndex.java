@@ -50,6 +50,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         long dict = GraphLayout.parseInstance(this.tokenMapper).totalSize();
         return total - dict;
     }
+
+    public long estimateTokenDictionaryBytes() {
+        return GraphLayout.parseInstance(this.tokenMapper).totalSize();
+    }
     @Override
     public void insert(String key) {
         if (key == null) {
