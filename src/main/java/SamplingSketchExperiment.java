@@ -1,21 +1,31 @@
-    import estimators.BottomKSampler;
-    import estimators.HOPS;
-    import org.apache.commons.math3.distribution.ZipfDistribution;
-    import org.apache.commons.math3.random.RandomGenerator;
-    import org.apache.commons.math3.random.Well19937c;
+import estimators.BottomKSampler;
+import estimators.HOPS;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.apache.commons.math3.distribution.ZipfDistribution;
+import org.apache.commons.math3.random.RandomGenerator;
+import org.apache.commons.math3.random.Well19937c;
 import utilities.CsvUtil;
+import utilities.TokenHasher;
 import utilities.Utils;
 
-    import java.nio.file.Files;
-    import java.nio.file.Path;
-    import java.nio.file.StandardOpenOption;
-    import java.io.OutputStream;
-    import java.nio.file.StandardOpenOption.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Random;
 
-    import java.io.IOException;
-    import java.util.*;
-
-    import static estimators.HOPS.mix64;
+import static estimators.HOPS.mix64;
 
     public class SamplingSketchExperiment {
 
@@ -24,7 +34,55 @@ import utilities.Utils;
         // =========================
 
         private enum Dist {UNIFORM, ZIPF}
+        private enum DatasetMode { SEGMENTS, WORDS, CHARS }
+
+        private static final List<Double> DEFAULT_DELTA_QS = List.of(0.05, 0.075, 0.01);
+        private static final List<Double> DEFAULT_DELTA_SAMPS = List.of(0.05, 0.025, 0.09);
+        private static final String DEFAULT_CSV_FILENAME = "sampling_results.csv";
+
         private static double EXPONENT;
+        private static double SUMMARY_DELTA = Double.NaN;
+
+        private static final class Options {
+            long streamLen = 10_000_000L;
+            boolean streamLenProvided = false;
+            int alphabet = 10_000;
+            boolean alphabetProvided = false;
+            int buckets = 2_500;
+            Dist dist = Dist.ZIPF;
+            double zipfExponent = 1.5;
+            List<Double> quantiles = List.of(0.05);
+            boolean quantilesProvided = false;
+            long seed = 123_456_789L;
+            int trials = 50;
+            boolean verbose = false;
+            boolean autoDesign = true;
+            Integer distinctGuess = null;
+            boolean distinctProvided = false;
+            List<Double> rankEpsTargets = List.of(0.05);
+            boolean rankEpsProvided = false;
+            List<Double> deltaQs = DEFAULT_DELTA_QS;
+            boolean deltaQsProvided = false;
+            List<Double> deltaSamps = DEFAULT_DELTA_SAMPS;
+            boolean deltaSampsProvided = false;
+            Path csvPath = Paths.get(DEFAULT_CSV_FILENAME);
+            boolean csvAppend = true;
+            Path datasetPath = null;
+            DatasetMode datasetMode = DatasetMode.SEGMENTS;
+            int datasetNgram = 1;
+            double summaryDelta = Double.NaN;
+            boolean summaryDeltaProvided = false;
+            String datasetLabel = "synthetic";
+        }
+
+        private record DatasetStream(ArrayList<Long> tokens, int alphabetSize) {}
+
+        private static final class TokenEncoder {
+            long encode(String token) {
+                return TokenHasher.hashToPositiveLong(token);
+            }
+        }
+
         // =========================
         //  Core utilities
         // =========================
@@ -40,6 +98,8 @@ import utilities.Utils;
         // --- replace suiteACsvHeader() with this ---
         private static List<?> suiteACsvHeader() {
             return List.of(
+                    "dataset","dataset_mode","stream_len","alphabet","buckets_configured",
+                    "source_dist","zipf_exponent","quantile_target",
                     "eps_target","delta_q","delta_samp","delta_tot","Dhat",
                     "B_suggested","n_req","E_nb","Var_nb","LB_nb",
                     "Sactive","Bused","nb_MPQ","eps_DKW_MPQ",
@@ -70,6 +130,8 @@ import utilities.Utils;
             int     xBandWidth   = r.xHiMPQ - r.xLoMPQ;
 
             return List.of(
+                    r.datasetLabel, r.datasetMode, r.streamLength, r.alphabetConfigured, r.bucketsConfigured,
+                    r.distributionLabel, r.zipfExponent, r.pTarget,
                     // knobs
                     r.epsTargetUsed, r.delta, r.deltaSampUsed, deltaTot, r.DhatUsed,
                     // design
@@ -95,6 +157,251 @@ import utilities.Utils;
             );
         }
 
+        private static Options parseArgs(String[] args) {
+            if (args.length > 0 && !args[0].startsWith("--")) {
+                return parseLegacyArgs(args);
+            }
+
+            Options opts = new Options();
+
+            for (int i = 0; i < args.length; i++) {
+                String flag = args[i];
+                String value;
+                switch (flag) {
+                    case "--stream-len" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.streamLen = Long.parseLong(value);
+                        opts.streamLenProvided = true;
+                    }
+                    case "--alphabet" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.alphabet = Integer.parseInt(value);
+                        opts.alphabetProvided = true;
+                    }
+                    case "--buckets" -> opts.buckets = Integer.parseInt(requireValue(flag, args, ++i));
+                    case "--dist" -> opts.dist = Dist.valueOf(requireValue(flag, args, ++i).toUpperCase(Locale.ROOT));
+                    case "--zipf" -> opts.zipfExponent = Double.parseDouble(requireValue(flag, args, ++i));
+                    case "--quantile" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.quantiles = parseDoubleList(value);
+                        if (opts.quantiles.isEmpty()) {
+                            throw new IllegalArgumentException("--quantile list may not be empty");
+                        }
+                        opts.quantilesProvided = true;
+                    }
+                    case "--seed" -> opts.seed = Long.parseLong(requireValue(flag, args, ++i));
+                    case "--trials" -> opts.trials = Integer.parseInt(requireValue(flag, args, ++i));
+                    case "--verbose" -> opts.verbose = Boolean.parseBoolean(requireValue(flag, args, ++i));
+                    case "--auto-design" -> opts.autoDesign = Boolean.parseBoolean(requireValue(flag, args, ++i));
+                    case "--distinct" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.distinctGuess = Integer.parseInt(value);
+                        opts.distinctProvided = true;
+                    }
+                    case "--rank-eps" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.rankEpsTargets = parseDoubleList(value);
+                        if (opts.rankEpsTargets.isEmpty()) {
+                            throw new IllegalArgumentException("--rank-eps list may not be empty");
+                        }
+                        opts.rankEpsProvided = true;
+                    }
+                    case "--delta" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.summaryDelta = Double.parseDouble(value);
+                        opts.summaryDeltaProvided = true;
+                    }
+                    case "--delta-q" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.deltaQs = parseDoubleList(value);
+                        opts.deltaQsProvided = true;
+                    }
+                    case "--delta-samp" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.deltaSamps = parseDoubleList(value);
+                        opts.deltaSampsProvided = true;
+                    }
+                    case "--csv" -> {
+                        value = requireValue(flag, args, ++i);
+                        opts.csvPath = value.equalsIgnoreCase("none") ? null : Paths.get(value);
+                    }
+                    case "--csv-append" -> opts.csvAppend = Boolean.parseBoolean(requireValue(flag, args, ++i));
+                    case "--dataset" -> opts.datasetPath = Paths.get(requireValue(flag, args, ++i));
+                    case "--dataset-mode" -> opts.datasetMode = parseDatasetMode(requireValue(flag, args, ++i));
+                    case "--dataset-ngram" -> opts.datasetNgram = parsePositiveInt(flag, requireValue(flag, args, ++i));
+                    case "--help" -> {
+                        printUsage();
+                        System.exit(0);
+                    }
+                    default -> throw new IllegalArgumentException("Unknown option '" + flag + "'. Use --help for usage.");
+                }
+            }
+
+            if (opts.summaryDeltaProvided && !opts.deltaQsProvided) {
+                opts.deltaQs = List.of(opts.summaryDelta);
+                opts.deltaQsProvided = true;
+            }
+            if (!opts.deltaSampsProvided && opts.deltaQsProvided && opts.deltaQs.size() == 1) {
+                opts.deltaSamps = List.of(DEFAULT_DELTA_SAMPS.get(0));
+            }
+
+            if (opts.deltaQs.isEmpty()) {
+                opts.deltaQs = DEFAULT_DELTA_QS;
+            }
+            if (opts.deltaSamps.isEmpty()) {
+                opts.deltaSamps = DEFAULT_DELTA_SAMPS;
+            }
+
+            if (opts.deltaQs.size() != opts.deltaSamps.size()) {
+                throw new IllegalArgumentException("delta_q and delta_samp must have the same number of entries");
+            }
+
+            if (opts.summaryDeltaProvided) {
+                SUMMARY_DELTA = opts.summaryDelta;
+            } else if (!opts.deltaQs.isEmpty()) {
+                SUMMARY_DELTA = opts.deltaQs.size() == 1 ? opts.deltaQs.get(0) : Double.NaN;
+            }
+
+            return opts;
+        }
+
+        private static Options parseLegacyArgs(String[] args) {
+            Options opts = new Options();
+
+            long N = opts.streamLen;
+            int A = opts.alphabet;
+            int B = opts.buckets;
+            Dist dist = opts.dist;
+            double s = opts.zipfExponent;
+            double p = opts.quantiles.get(0);
+            long seed = opts.seed;
+            double delta = 0.01;
+            int trials = opts.trials;
+            boolean verbose = opts.verbose;
+            boolean autoDesignB = opts.autoDesign;
+            Integer distinctGuess = null;
+            Double rankEpsTarget = opts.rankEpsTargets.get(0);
+            Double deltaSamp = DEFAULT_DELTA_SAMPS.get(0);
+            String csvPath = DEFAULT_CSV_FILENAME;
+            boolean csvAppend = true;
+
+            if (args.length >= 1) { N = Long.parseLong(args[0]); opts.streamLenProvided = true; }
+            if (args.length >= 2) { A = Integer.parseInt(args[1]); opts.alphabetProvided = true; }
+            if (args.length >= 3) { B = Integer.parseInt(args[2]); }
+            if (args.length >= 4) { dist = Dist.valueOf(args[3].toUpperCase(Locale.ROOT)); }
+            if (args.length >= 5) { s = Double.parseDouble(args[4]); }
+            if (args.length >= 6) { p = Double.parseDouble(args[5]); opts.quantilesProvided = true; }
+            if (args.length >= 7) { seed = Long.parseLong(args[6]); }
+            if (args.length >= 8) { delta = Double.parseDouble(args[7]); opts.summaryDelta = delta; opts.summaryDeltaProvided = true; }
+            if (args.length >= 9) { trials = Integer.parseInt(args[8]); }
+            if (args.length >= 10) { verbose = Boolean.parseBoolean(args[9]); }
+            if (args.length >= 11) { autoDesignB = Boolean.parseBoolean(args[10]); }
+            if (args.length >= 12) { distinctGuess = Integer.parseInt(args[11]); opts.distinctProvided = true; }
+            if (args.length >= 13) { rankEpsTarget = Double.parseDouble(args[12]); opts.rankEpsProvided = true; }
+            if (args.length >= 14) { deltaSamp = Double.parseDouble(args[13]); opts.deltaSamps = List.of(deltaSamp); opts.deltaSampsProvided = true; }
+            if (args.length >= 15) { csvPath = args[14]; }
+            if (args.length >= 16) { csvAppend = Boolean.parseBoolean(args[15]); }
+            if (args.length >= 17) { opts.datasetNgram = parsePositiveInt("--dataset-ngram", args[16]); }
+
+            opts.streamLen = N;
+            opts.alphabet = A;
+            opts.buckets = B;
+            opts.dist = dist;
+            opts.zipfExponent = s;
+            opts.quantiles = List.of(p);
+            opts.quantilesProvided = true;
+            opts.seed = seed;
+            opts.trials = trials;
+            opts.verbose = verbose;
+            opts.autoDesign = autoDesignB;
+            opts.distinctGuess = distinctGuess;
+            opts.rankEpsTargets = List.of(rankEpsTarget);
+            opts.deltaQs = List.of(opts.summaryDeltaProvided ? opts.summaryDelta : delta);
+            opts.deltaQsProvided = true;
+            if (!opts.deltaSampsProvided) {
+                opts.deltaSamps = List.of(deltaSamp);
+            }
+            if (opts.deltaQs.isEmpty()) {
+                opts.deltaQs = DEFAULT_DELTA_QS;
+            }
+            if (opts.deltaSamps.isEmpty()) {
+                opts.deltaSamps = DEFAULT_DELTA_SAMPS;
+            }
+            opts.csvPath = csvPath != null && csvPath.equalsIgnoreCase("none") ? null : Paths.get(csvPath);
+            opts.csvAppend = csvAppend;
+
+            SUMMARY_DELTA = opts.summaryDeltaProvided ? opts.summaryDelta : delta;
+
+            return opts;
+        }
+
+        private static DatasetMode parseDatasetMode(String value) {
+            String norm = value.trim().toUpperCase(Locale.ROOT);
+            return switch (norm) {
+                case "SEGMENTS" -> DatasetMode.SEGMENTS;
+                case "WORDS" -> DatasetMode.WORDS;
+                case "CHARS", "CHARACTERS" -> DatasetMode.CHARS;
+                default -> throw new IllegalArgumentException("Unknown dataset mode '" + value + "' (expected segments, words, chars)");
+            };
+        }
+
+        private static List<Double> parseDoubleList(String csv) {
+            if (csv == null || csv.isBlank()) {
+                return List.of();
+            }
+            String[] parts = csv.split(",");
+            List<Double> out = new ArrayList<>(parts.length);
+            for (String part : parts) {
+                if (part.isBlank()) continue;
+                out.add(Double.parseDouble(part.trim()));
+            }
+            return out.isEmpty() ? List.of() : List.copyOf(out);
+        }
+
+        private static String requireValue(String flag, String[] args, int index) {
+            if (index >= args.length) {
+                throw new IllegalArgumentException("Missing value for " + flag);
+            }
+            return args[index];
+        }
+
+        private static int parsePositiveInt(String flag, String value) {
+            try {
+                int parsed = Integer.parseInt(value);
+                if (parsed <= 0) {
+                    throw new IllegalArgumentException(flag + " must be > 0 (was " + value + ")");
+                }
+                return parsed;
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException(flag + " must be an integer (was " + value + ")", ex);
+            }
+        }
+
+        private static void printUsage() {
+            System.out.println("SamplingSketchExperiment usage:\n" +
+                    "  --stream-len <long>      Number of stream items (default 10M)\n" +
+                    "  --alphabet <int>         Alphabet size for synthetic streams (default 10k)\n" +
+                    "  --buckets <int>          HOPS/BK buckets (default 2500)\n" +
+                    "  --dist <uniform|zipf>    Synthetic distribution (default zipf)\n" +
+                    "  --zipf <double>          Zipf exponent if dist=zipf (default 1.5)\n" +
+                    "  --quantile <list>        Target quantile(s) p (comma-separated, default 0.05)\n" +
+                    "  --seed <long>            Base RNG seed (default 123456789)\n" +
+                    "  --trials <int>           Number of trials (default 50)\n" +
+                    "  --verbose <bool>         Per-trial logging (default false)\n" +
+                    "  --auto-design <bool>     Enable Chebyshev auto-design (default true)\n" +
+                    "  --distinct <int>         Override distinct guess D̂ (default depends on stream)\n" +
+                    "  --rank-eps <list>        Target rank epsilon(s) (default 0.05)\n" +
+                    "  --delta <double>         Convenience shorthand when using a single delta_q\n" +
+                    "  --delta-q <list>         Comma-separated delta_q values (default 0.05,0.075,0.01)\n" +
+                    "  --delta-samp <list>      Comma-separated delta_samp values (default 0.05,0.025,0.09)\n" +
+                    "  --csv <path>             Output CSV path (default sampling_results.csv)\n" +
+                    "  --csv-append <bool>      Append to CSV (default true)\n" +
+                    "  --dataset <path>         Use dataset file instead of synthetic stream\n" +
+                    "  --dataset-mode <mode>    segments: each line, words: whitespace tokens, chars: per character\n" +
+                    "  --dataset-ngram <int>    N-gram width for dataset tokens (default 1)\n" +
+                    "  --help                   Show this message\n");
+        }
+
 
         /** Write rows to CSV with append semantics; auto-writes header if file is new/empty. */
         private static void writeSuiteACsv(Path out, List<TrialResult> rs) throws IOException {
@@ -113,6 +420,92 @@ import utilities.Utils;
                 CsvUtil.writeRows(os, rows, CsvUtil.Config.defaults());
             }
             System.out.printf("CSV: wrote %d trial row(s) to %s (append)\n", rs.size(), out.toAbsolutePath());
+        }
+
+        private static DatasetStream loadDataset(Options opts) throws IOException {
+            Objects.requireNonNull(opts.datasetPath, "datasetPath");
+
+            ArrayList<Long> tokens = new ArrayList<>();
+            LongOpenHashSet distinct = new LongOpenHashSet();
+            TokenEncoder encoder = new TokenEncoder();
+
+            int ngram = Math.max(1, opts.datasetNgram);
+            long limit = opts.streamLenProvided ? opts.streamLen : Long.MAX_VALUE;
+
+            ArrayDeque<String> window = new ArrayDeque<>(ngram);
+
+            try (BufferedReader reader = Files.newBufferedReader(opts.datasetPath, StandardCharsets.UTF_8)) {
+                String line;
+                outer: while ((line = reader.readLine()) != null) {
+                    if (opts.datasetMode == DatasetMode.SEGMENTS) {
+                        String token = line.trim();
+                        if (token.isEmpty()) continue;
+                        if (emitNgram(token, window, ngram, encoder, tokens, distinct, limit)) break;
+                    } else if (opts.datasetMode == DatasetMode.WORDS) {
+                        String trimmed = line.trim();
+                        if (trimmed.isEmpty()) continue;
+                        String[] parts = trimmed.split("\\s+");
+                        for (String part : parts) {
+                            if (emitNgram(part, window, ngram, encoder, tokens, distinct, limit)) {
+                                break outer;
+                            }
+                        }
+                    } else { // CHARS
+                        for (int idx = 0, len = line.length(); idx < len; idx++) {
+                            String ch = String.valueOf(line.charAt(idx));
+                            if (emitNgram(ch, window, ngram, encoder, tokens, distinct, limit)) {
+                                break outer;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (tokens.isEmpty()) {
+                throw new IllegalStateException("Dataset produced no tokens (after applying n-gram size " + ngram + ")");
+            }
+
+            return new DatasetStream(tokens, distinct.size());
+        }
+
+        private static boolean emitNgram(String rawToken,
+                                         ArrayDeque<String> window,
+                                         int ngram,
+                                         TokenEncoder encoder,
+                                         ArrayList<Long> outTokens,
+                                         LongOpenHashSet distinct,
+                                         long limit) {
+            if (ngram <= 1) {
+                long value = encoder.encode(rawToken);
+                outTokens.add(value);
+                distinct.add(value);
+                return outTokens.size() >= limit;
+            }
+
+            window.addLast(rawToken);
+            if (window.size() < ngram) {
+                return false;
+            }
+
+            String ngramToken = buildNgram(window);
+            long value = encoder.encode(ngramToken);
+            outTokens.add(value);
+            distinct.add(value);
+            window.removeFirst();
+            return outTokens.size() >= limit;
+        }
+
+        private static String buildNgram(ArrayDeque<String> window) {
+            StringBuilder sb = new StringBuilder();
+            boolean first = true;
+            for (String token : window) {
+                if (!first) {
+                    sb.append('\u0001');
+                }
+                sb.append(token);
+                first = false;
+            }
+            return sb.toString();
         }
 
         /**
@@ -268,34 +661,49 @@ import utilities.Utils;
          * Reports both value errors and rank errors, plus guarantee checks.
          */
         private static TrialResult runExperiment(
+                List<Long> prebuiltStream,
                 long streamLen,
                 int alphabetSize,
-                int buckets,                 // used for both MPQ and Bottom-k unless autoB overrides
+                int buckets,
                 Dist dist,
                 double zipfS,
-                double p,                    // target quantile in (0,1], for example 0.01
+                double p,
                 long seed,
-                double delta,                // DKW delta for rank band (delta_q)
+                double delta,
                 boolean verbose,
-                // Auto-design knobs
-                boolean autoDesignB,         // if true, compute B from rank target using Chebyshev
-                Integer distinctGuess,       // if non-null, use this Dhat for design, else use Sactive
-                Double rankEpsTarget,        // absolute rank error target (eps_target)
-                Double deltaSamp             // sampling failure probability (delta_samp)
+                boolean autoDesignB,
+                Integer distinctGuess,
+                Double rankEpsTarget,
+                Double deltaSamp,
+                String datasetLabel,
+                DatasetMode datasetMode,
+                String distributionLabel,
+                int datasetNgram
         ) {
             if (!(p > 0.0 && p <= 1.0)) {
                 throw new IllegalArgumentException("p must be in (0,1]");
             }
 
-            Random rng = new Random(seed);
-
-            // Generate stream once
-            ArrayList<Long> stream = new ArrayList<>((int) Math.min(streamLen, Integer.MAX_VALUE));
-            ZipfDistribution z = makeZipfIntDist(alphabetSize, zipfS, seed);
-            for (long t = 0; t < streamLen; t++) {
-                long key = (dist == Dist.UNIFORM) ? rng.nextInt(alphabetSize) : sampleZipfInt(z);
-                stream.add(key);
+            final ArrayList<Long> stream;
+            if (prebuiltStream != null) {
+                if (prebuiltStream instanceof ArrayList<?> arr && prebuiltStream.getClass() == ArrayList.class) {
+                    @SuppressWarnings("unchecked")
+                    ArrayList<Long> cast = (ArrayList<Long>) arr;
+                    stream = cast;
+                } else {
+                    stream = new ArrayList<>(prebuiltStream);
+                }
+            } else {
+                Random rng = new Random(seed);
+                stream = new ArrayList<>((int) Math.min(streamLen, Integer.MAX_VALUE));
+                ZipfDistribution z = (dist == Dist.ZIPF) ? makeZipfIntDist(alphabetSize, zipfS, seed) : null;
+                for (long t = 0; t < streamLen; t++) {
+                    long key = (dist == Dist.UNIFORM) ? rng.nextInt(alphabetSize) : sampleZipfInt(Objects.requireNonNull(z));
+                    stream.add(key);
+                }
             }
+
+            streamLen = stream.size();
 
             // Exact truth
             long tTruth0 = System.currentTimeMillis();
@@ -415,6 +823,14 @@ import utilities.Utils;
             }
 
             return new TrialResult(
+                    datasetLabel,
+                    datasetMode != null ? datasetMode.name().toLowerCase(Locale.ROOT) : "n/a",
+                    streamLen,
+                    alphabetSize,
+                    buckets,
+                    distributionLabel,
+                    zipfS,
+                    datasetNgram,
                     // sizes and occupancy
                     Sactive, Bused, nbMPQ, nbBK,
                     // truth and estimates
@@ -449,6 +865,16 @@ import utilities.Utils;
          * Immutable result for one trial with both value/rank diagnostics, guarantees, costs, and design knobs.
          */
         private static final class TrialResult {
+            // Metadata
+            final String datasetLabel;
+            final String datasetMode;
+            final long streamLength;
+            final int alphabetConfigured;
+            final int bucketsConfigured;
+            final String distributionLabel;
+            final double zipfExponent;
+            final int datasetNgram;
+
             // Sizes
             final int Sactive;
             final int Bused;
@@ -506,6 +932,14 @@ import utilities.Utils;
             final Utils.HopsDesignResult design;
 
             TrialResult(
+                    String datasetLabel,
+                    String datasetMode,
+                    long streamLength,
+                    int alphabetConfigured,
+                    int bucketsConfigured,
+                    String distributionLabel,
+                    double zipfExponent,
+                    int datasetNgram,
                     int Sactive, int Bused, int nbMPQ, int nbBK,
                     int xTrue, int xMPQ, int xBK,
                     double pctErrMPQ, double pctErrBK,
@@ -519,6 +953,15 @@ import utilities.Utils;
                     double epsTargetUsed, double deltaSampUsed, int DhatUsed,
                     Utils.HopsDesignResult design
             ) {
+                this.datasetLabel = datasetLabel;
+                this.datasetMode = datasetMode;
+                this.streamLength = streamLength;
+                this.alphabetConfigured = alphabetConfigured;
+                this.bucketsConfigured = bucketsConfigured;
+                this.distributionLabel = distributionLabel;
+                this.zipfExponent = zipfExponent;
+                this.datasetNgram = datasetNgram;
+
                 this.Sactive = Sactive;
                 this.Bused = Bused;
                 this.nbMPQ = nbMPQ;
@@ -686,7 +1129,8 @@ import utilities.Utils;
             avgNsCloseBK   /= T;
 
             System.out.println("\n=== Aggregate over " + T + " trials ===");
-            System.out.printf("Target percentile p = %.5f (delta_q = %.3f)\n", p, delta);
+            String deltaText = Double.isNaN(delta) ? "varies" : String.format(Locale.ROOT, "%.3f", delta);
+            System.out.printf("Target percentile p = %.5f (delta_q = %s)\n", p, deltaText);
 
             System.out.printf("Avg Sactive = %.1f, Avg Bused = %.1f\n", avgS, avgB);
             System.out.printf("Avg sample sizes: MPQ nb=%.1f, BK nb=%.1f\n", avgNbMPQ, avgNbBK);
@@ -729,7 +1173,8 @@ import utilities.Utils;
          */
         private static void printSuiteACsvHeader() {
             System.out.println(
-                    "eps_target,delta_q,delta_samp,Dhat,B_suggested,n_req,E_nb,Var_nb,LB_nb," +
+                    "dataset,dataset_mode,stream_len,alphabet,buckets_configured,source_dist,zipf_exponent,quantile_target,dataset_ngram," +
+                            "eps_target,delta_q,delta_samp,Dhat,B_suggested,n_req,E_nb,Var_nb,LB_nb," +
                             "Sactive,Bused,nb_MPQ,eps_DKW_MPQ,p_lo_MPQ,p_hi_MPQ,x_lo_MPQ,x_hi_MPQ," +
                             "MPQ_xhat,MPQ_value_error_pct,MPQ_achieved_percentile,MPQ_rank_error," +
                             "inside_band_MPQ,occupancy_ok,ns_per_insert_MPQ,ns_close_MPQ," +
@@ -755,11 +1200,14 @@ import utilities.Utils;
 
             System.out.printf(
                     Locale.US,
-                    "%.3f,%.2f,%.3f,%d,%d,%d,%.2f,%.2f,%d," +   // eps_target, delta_q, delta_samp, Dhat, B_suggested, n_req, E_nb, Var_nb, LB_nb
+                    "%s,%s,%d,%d,%d,%s,%.4f,%.5f,%d," +         // dataset metadata
+                            "%.3f,%.2f,%.3f,%d,%d,%d,%.2f,%.2f,%d," +   // eps_target, delta_q, delta_samp, Dhat, B_suggested, n_req, E_nb, Var_nb, LB_nb
                             "%d,%d,%d,%.5f,%.5f,%.5f,%d,%d," +          // Sactive, Bused, nb_MPQ, eps_DKW_MPQ, p_lo_MPQ, p_hi_MPQ, x_lo_MPQ, x_hi_MPQ
                             "%d,%.3f,%.5f,%.5f,%s,%s,%.3f,%.3f," +      // MPQ_xhat, MPQ_value_error_pct, MPQ_achieved_percentile, MPQ_rank_error, inside_band_MPQ, occupancy_ok, ns_per_insert_MPQ, ns_close_MPQ
                             "%d,%.5f,%d,%d,%d,%.3f,%.5f,%.5f,%.3f,%.3f," + // nb_BK, eps_DKW_BK, x_lo_BK, x_hi_BK, BK_xhat, BK_value_error_pct, BK_achieved_percentile, BK_rank_error, ns_per_insert_BK, ns_close_BK
                             "%d,%d,%d%n",                                // truth_x_p, mpq_time_ms, bk_time_ms
+                    r.datasetLabel, r.datasetMode, r.streamLength, r.alphabetConfigured, r.bucketsConfigured, r.distributionLabel,
+                    r.zipfExponent, r.pTarget, r.datasetNgram,
                     r.epsTargetUsed, r.delta, r.deltaSampUsed, r.DhatUsed, B_suggested, n_req, E_nb, Var_nb, LB_nb,
                     r.Sactive, r.Bused, r.nbMPQ, r.epsMPQ, r.pLoMPQ, r.pHiMPQ, r.xLoMPQ, r.xHiMPQ,
                     r.xMPQ, r.pctErrMPQ, r.pAchMPQ, r.rankErrMPQ, inside, occOK, r.nsPerInsertMPQ, r.closeNsPerItemMPQ,
@@ -789,103 +1237,145 @@ import utilities.Utils;
         // =========================
 
         public static void main(String[] args) throws IOException {
-            // Defaults
-            long N = 10_000_000L;   // stream length
-            int A = 10000;          // alphabet size
-            int B = 2500;             // buckets (also k for Bottom-k)
-            Dist dist = Dist.ZIPF;  // UNIFORM or ZIPF
-            double s = 1.5;           // Zipf exponent if ZIPF
-            EXPONENT = s;
-            double p = 0.05;        // target quantile
-            long seed = 123456789L; // RNG seed
-            int trials = 50;         // trials
-            boolean verbose = false; // per-trial prints
+            Options opts = parseArgs(args);
 
-            boolean autoDesignB = true;     // compute B from rank target if true
-            Integer distinctGuess = A;   // if null, we will use Sactive from the stream
+            ArrayList<Long> datasetStream = null;
+            int effectiveAlphabet = opts.alphabet;
 
-            Double rankEpsTarget = 0.05;   // eps_target
-            double delta = 0.01;    // DKW delta (delta_q)
-            Double deltaSamp = 0.09;        // delta_samp
-//            # (δ_q, δ_samp) = (0.01, 0.09)  [sampling-heavy]
-//            # (δ_q, δ_samp) = (0.05, 0.05)  [balanced]
-//            # (δ_q, δ_samp) = (0.09, 0.01)  [quantile-heavy]
-
-            //11877 2952
-            //7000 4239
-            //6233 2481
-            // CLI: N A B dist s p seed delta trials verbose autoB distinctGuess rankEpsTarget deltaSamp
-            if (args.length >= 1) N = Long.parseLong(args[0]);
-            if (args.length >= 2) A = Integer.parseInt(args[1]);
-            if (args.length >= 3) B = Integer.parseInt(args[2]);
-            if (args.length >= 4) dist = Dist.valueOf(args[3].toUpperCase());
-            if (args.length >= 5) s = Double.parseDouble(args[4]);
-            if (args.length >= 6) p = Double.parseDouble(args[5]);
-            if (args.length >= 7) seed = Long.parseLong(args[6]);
-            if (args.length >= 8) delta = Double.parseDouble(args[7]);
-            if (args.length >= 9) trials = Integer.parseInt(args[8]);
-            if (args.length >= 10) verbose = Boolean.parseBoolean(args[9]);
-            if (args.length >= 11) autoDesignB = Boolean.parseBoolean(args[10]);
-            if (args.length >= 12) distinctGuess = Integer.parseInt(args[11]);
-            if (args.length >= 13) rankEpsTarget = Double.parseDouble(args[12]);
-            if (args.length >= 14) deltaSamp = Double.parseDouble(args[13]);
-
-            // NEW: optional CSV out path and append flag
-            String csvPath = "/home/dimpap/Desktop/util_scripts/mpq_res_auto"+EXPONENT+".csv";             // if null, no file output
-            boolean csvAppend = true;          // we always append; header handled automatically
-
-            // CLI: N A B dist s p seed delta trials verbose autoB distinctGuess rankEpsTarget deltaSamp [csvPath] [append]
-            if (args.length >= 15) csvPath = args[14];
-            if (args.length >= 16) csvAppend = Boolean.parseBoolean(args[15]); // kept for symmetry; we still append
-//            List<Double> delta_samp    = new ArrayList<>(Arrays.asList(0.001, 0.025, 0.05, 0.075, 0.09));
-//            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.099, 0.075, 0.05, 0.025, 0.01));
-            List<Double> delta_samp    = new ArrayList<>(Arrays.asList(0.05, 0.025, 0.09));
-            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.05, 0.075,  0.01));
-//            List<Double> delta_q = new ArrayList<>(Arrays.asList(0.05, 0.05, 0.05, 0.05, 0.05));
-
-            List<TrialResult> results = new ArrayList<>(trials);
-            for(int z = 0; z < delta_q.size(); z++) {
-
-                for (int i = 0; i < trials; i++) {
-                    long trialSeed = mix64(
-                            seed
-                                    + i * 0x9E3779B97F4A7C15L   // per-trial
-                                    + z * 0xD1B54A32D192ED03L   // per-split
-                    );
-                    TrialResult r = runExperiment(
-                            N, A, B, dist, s, p, trialSeed, delta_q.get(z), /*verbose*/ verbose,
-                            autoDesignB, distinctGuess, rankEpsTarget, delta_samp.get(z)
-                    );
-                    results.add(r);
-                }
-                int base = z * trials; // first row of the current split in `results`
-                if (autoDesignB && results.size() > base && results.get(base).design != null) {
-                    Utils.HopsDesignResult d = results.get(base).design;
-                    if (verbose) {
-                        System.out.printf("Design summary (split %d): suggested B=%d, n_req=%d, LB(n_b)=%d, E[n_b]=%.2f%n",
-                                z, d.suggestedBuckets, d.requiredSampleSize, d.occupancyLowerBound, d.expectedNonEmpty);
-                    }
-
-                    if (d.impossible) {
-                        System.out.println("WARNING: Dhat < n_req, impossible to meet the requested rank target");
-                    }
-                }
-
+            opts.datasetLabel = "synthetic-" + opts.dist.name().toLowerCase(Locale.ROOT);
+            if (opts.datasetNgram > 1) {
+                opts.datasetLabel = opts.datasetLabel + "-ng" + opts.datasetNgram;
             }
 
+            if (opts.datasetPath != null) {
+                DatasetStream ds = loadDataset(opts);
+                datasetStream = ds.tokens();
+                if (!opts.alphabetProvided) {
+                    effectiveAlphabet = ds.alphabetSize();
+                }
+                if (!opts.streamLenProvided) {
+                    opts.streamLen = datasetStream.size();
+                } else if (opts.streamLen < datasetStream.size()) {
+                    datasetStream = new ArrayList<>(datasetStream.subList(0, (int) opts.streamLen));
+                }
+                if (!opts.distinctProvided) {
+                    opts.distinctGuess = null;
+                }
+                opts.streamLen = Math.min(opts.streamLen, datasetStream.size());
+                EXPONENT = Double.NaN;
+                opts.datasetLabel = opts.datasetPath.getFileName().toString();
+                if (opts.datasetNgram > 1) {
+                    opts.datasetLabel = opts.datasetLabel + "-ng" + opts.datasetNgram;
+                }
+            } else {
+                effectiveAlphabet = opts.alphabet;
+                EXPONENT = opts.zipfExponent;
+                if (!opts.distinctProvided) {
+                    opts.distinctGuess = effectiveAlphabet;
+                }
+            }
+            opts.alphabet = effectiveAlphabet;
 
+            if (!opts.deltaQsProvided) {
+                opts.deltaQs = DEFAULT_DELTA_QS;
+            }
+            if (!opts.deltaSampsProvided) {
+                opts.deltaSamps = DEFAULT_DELTA_SAMPS;
+            }
+            if (opts.deltaQs.size() != opts.deltaSamps.size()) {
+                throw new IllegalArgumentException("delta_q and delta_samp must have the same number of entries");
+            }
 
-            // === CSV export ===
-            if (csvPath != null && !csvPath.isEmpty()) {
-                // write all trials (append; header if needed)
-                writeSuiteACsv(Path.of(csvPath), results);
-            } else if (results.size() == 1) {
-                // fallback: keep your old single-trial stdout CSV
+            if (Double.isNaN(SUMMARY_DELTA)) {
+                SUMMARY_DELTA = opts.deltaQs.size() == 1 ? opts.deltaQs.get(0) : Double.NaN;
+            }
+
+            String distributionLabel = (opts.datasetPath != null) ? "dataset" : opts.dist.name().toLowerCase(Locale.ROOT);
+
+            System.out.printf("Stream source: %s%n", opts.datasetPath != null ? opts.datasetPath + " (mode=" + opts.datasetMode + ")" : "synthetic (" + opts.dist + ")");
+            if (opts.datasetPath != null) {
+                String modeDesc = switch (opts.datasetMode) {
+                    case SEGMENTS -> "each non-empty line treated as a token";
+                    case WORDS -> "tokens split on whitespace";
+                    case CHARS -> "individual UTF-16 characters";
+                };
+                System.out.printf("Tokenisation: %s%n", modeDesc);
+            }
+            System.out.printf("Stream length: %d, alphabet=%d, buckets=%d%n", opts.streamLen, effectiveAlphabet, opts.buckets);
+            System.out.printf("Quantiles: %s  Rank eps targets: %s%n", opts.quantiles, opts.rankEpsTargets);
+            System.out.printf("Dataset n-gram: %d%n", opts.datasetNgram);
+            System.out.printf("delta_q values: %s  delta_samp values: %s%n", opts.deltaQs, opts.deltaSamps);
+
+            List<TrialResult> allResults = new ArrayList<>(opts.trials * opts.deltaQs.size() * opts.quantiles.size());
+
+            for (int qIdx = 0; qIdx < opts.quantiles.size(); qIdx++) {
+                double quantile = opts.quantiles.get(qIdx);
+                double epsTarget = opts.rankEpsTargets.size() == 1
+                        ? opts.rankEpsTargets.get(0)
+                        : opts.rankEpsTargets.get(Math.min(qIdx, opts.rankEpsTargets.size() - 1));
+                double zipfForCall = opts.datasetPath != null ? Double.NaN : opts.zipfExponent;
+
+                for (int z = 0; z < opts.deltaQs.size(); z++) {
+                    double deltaQ = opts.deltaQs.get(z);
+                    double deltaSamp = opts.deltaSamps.get(z);
+
+                    List<TrialResult> comboResults = new ArrayList<>(opts.trials);
+
+                    for (int i = 0; i < opts.trials; i++) {
+                        long trialSeed = mix64(
+                                opts.seed
+                                        + i * 0x9E3779B97F4A7C15L
+                                        + qIdx * 0x6A09E667F3BCC909L
+                                        + z * 0xD1B54A32D192ED03L
+                        );
+                        TrialResult r = runExperiment(
+                                datasetStream,
+                                opts.streamLen,
+                                effectiveAlphabet,
+                                opts.buckets,
+                                opts.dist,
+                                zipfForCall,
+                                quantile,
+                                trialSeed,
+                                deltaQ,
+                                opts.verbose,
+                                opts.autoDesign,
+                                opts.distinctGuess,
+                                epsTarget,
+                                deltaSamp,
+                                opts.datasetLabel,
+                                opts.datasetPath != null ? opts.datasetMode : null,
+                                distributionLabel,
+                                opts.datasetNgram
+                        );
+                        comboResults.add(r);
+                        allResults.add(r);
+                    }
+
+                    if (opts.autoDesign && !comboResults.isEmpty() && comboResults.get(0).design != null && opts.verbose) {
+                        Utils.HopsDesignResult d = comboResults.get(0).design;
+                        System.out.printf("Design summary (quantile %.5f, delta_q %.3f): suggested B=%d, n_req=%d, LB(n_b)=%d, E[n_b]=%.2f%s%n",
+                                quantile,
+                                deltaQ,
+                                d.suggestedBuckets,
+                                d.requiredSampleSize,
+                                d.occupancyLowerBound,
+                                d.expectedNonEmpty,
+                                d.impossible ? " (WARNING: target impossible)" : "");
+                    }
+
+                    summarize(comboResults, quantile, deltaQ);
+                }
+            }
+
+            if (opts.csvPath != null) {
+                if (!opts.csvAppend) {
+                    Files.deleteIfExists(opts.csvPath);
+                }
+                writeSuiteACsv(opts.csvPath, allResults);
+            } else if (allResults.size() == 1) {
                 printSuiteACsvHeader();
-                printSuiteACsvRow(results.get(0));
+                printSuiteACsvRow(allResults.get(0));
             }
-
-            // keep your summary prints for multi-trial runs
-            summarize(results, p, delta);
         }
     }
