@@ -1,13 +1,14 @@
 package tree.ssws;
 
-import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import org.openjdk.jol.info.GraphLayout;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * SuffixTree
@@ -15,26 +16,27 @@ import java.util.List;
  * Compressed suffix tree built from an integer token sequence.
  * Build pipeline:
  *   1. Append sentinel smaller than any real token.
- *   2. Normalize tokens to a dense non-negative alphabet using radix/ranking.
+ *   2. Normalize tokens to a dense non-negative alphabet using a per-tree remap.
  *   3. Build suffix array in O(n) time using DC3 (Skew).
  *   4. Build Longest Common Prefix (LCP) with Kasai in O(n).
  *   5. Build explicit compressed suffix tree in O(n) from suffix array + LCP.
  *
  * Query:
- *   findOccurrences(int[] pattern) returns all start offsets in the original text
+ *   findOccurrences(long[] pattern) returns all start offsets in the original text
  *   (no sentinel) where 'pattern' occurs.
  */
 public final class SuffixTree {
 
     private final Node root;
-    private static final  int SENTINEL =0; //reserve 0 as sentinel
+    private static final int MAX_HASH_ATTEMPTS = 11;
+    private static final int SENTINEL =0; //reserve 0 as sentinel
     private final int[] text;           // includes sentinel at end (remapped per-tree)
     private final int originalLength;   // length before sentinel
     // Map original token -> local remapped token in [1..distinct]. Missing => not present.
-    private final Int2IntOpenHashMap tokenRemap;
+    private final Long2IntOpenHashMap tokenRemap;
     private boolean released = false;
 
-    private SuffixTree(Node root, int[] text, int originalLength, Int2IntOpenHashMap tokenRemap) {
+    private SuffixTree(Node root, int[] text, int originalLength, Long2IntOpenHashMap tokenRemap) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
@@ -63,7 +65,7 @@ public final class SuffixTree {
      * This skips the expensive rank-normalization and 64-bit radix prepass,
      * because the caller guarantees that 0 is already the unique global minimum.
      */
-    public static SuffixTree build(int[] alphabetMappedText) {
+    public static SuffixTree build(long[] alphabetMappedText, int windowSize) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
@@ -77,34 +79,9 @@ public final class SuffixTree {
 
         final int n0 = alphabetMappedText.length;
 
-        // Build a dense remap: collect and sort a copy, assign ranks in [1..distinct].
-        // We avoid allocating an enormous direct-address table by using a compact map.
-        int[] copy = Arrays.copyOf(alphabetMappedText, n0);
-        // Sort in-place (LSD radix) to get non-decreasing order.
-        RadixSorter.sortInPlace(copy);
-        Int2IntOpenHashMap remap = new Int2IntOpenHashMap(Math.max(4, n0 * 2));
-        remap.defaultReturnValue(-1);
-        int rank = 1; // start at 1; 0 is reserved for the sentinel
-        int prev = Integer.MIN_VALUE;
-        for (int v : copy) {
-            if (v != prev) {
-                remap.put(v, rank++);
-                prev = v;
-            }
-        }
-
-        // Apply remap to the text and append sentinel 0 at the end.
-        final int[] terminated = new int[n0 + 1];
-        for (int i = 0; i < n0; i++) {
-            int mapped = remap.getOrDefault(alphabetMappedText[i], -1);
-            if (mapped <= 0) {
-                // Should never happen as all symbols in alphabetMappedText were inserted above.
-                // Guard defensively to keep the structure valid.
-                throw new IllegalStateException("Missing remap for symbol " + alphabetMappedText[i]);
-            }
-            terminated[i] = mapped;
-        }
-        terminated[n0] = SENTINEL; // 0 is unique sentinel
+        RemapResult remapResult = remapTokens(alphabetMappedText, windowSize);
+        Long2IntOpenHashMap remap = remapResult.map;
+        int[] terminated = remapResult.terminated;
 
         final int n = n0 + 1;
 
@@ -163,7 +140,7 @@ public final class SuffixTree {
      * we gather all leaf suffix indices below that point. We filter out matches that
      * would run past the original-length boundary.
      */
-    public List<Integer> findOccurrences(int[] pattern) {
+    public List<Integer> findOccurrences(long[] pattern) {
         if (pattern == null || pattern.length == 0) {
             return Collections.emptyList();
         }
@@ -247,6 +224,137 @@ public final class SuffixTree {
         }
 
         return matches;
+    }
+
+    private static RemapResult remapTokens(long[] text, int windowSize) {
+        final int n0 = text.length;
+        if (n0 == 0) {
+            Long2IntOpenHashMap empty = new Long2IntOpenHashMap(2);
+            empty.defaultReturnValue(-1);
+            return new RemapResult(empty, new int[]{SENTINEL});
+        }
+
+        long w = Math.max(windowSize, 1);
+        int smallThreshold = (int) Math.ceil(Math.pow(w, 0.2));
+        if (smallThreshold < 8) {
+            smallThreshold = 8;
+        }
+
+        RemapResult randomized = null;
+        if (n0 >= smallThreshold) {
+            randomized = tryRandomRemap(text, n0);
+        }
+
+        if (randomized != null) {
+            return randomized;
+        }
+
+        return buildDeterministicRemap(text, n0);
+    }
+
+    private static RemapResult tryRandomRemap(long[] text, int n0) {
+        for (int attempt = 0; attempt < MAX_HASH_ATTEMPTS; attempt++) {
+            UniversalHash hash = UniversalHash.random();
+
+            Long2IntOpenHashMap remap = new Long2IntOpenHashMap(Math.max(4, n0 * 2));
+            remap.defaultReturnValue(-1);
+            Long2IntOpenHashMap seenHashes = new Long2IntOpenHashMap(Math.max(4, n0 * 2));
+            seenHashes.defaultReturnValue(-1);
+
+            int[] terminated = new int[n0 + 1];
+            int nextId = 1;
+            boolean collision = false;
+
+            for (int i = 0; i < n0; i++) {
+                long symbol = text[i];
+                int mapped = remap.get(symbol);
+                if (mapped != -1) {
+                    terminated[i] = mapped;
+                    continue;
+                }
+
+                long hashed = hash.apply(symbol);
+                int existing = seenHashes.get(hashed);
+                if (existing != -1) {
+                    collision = true;
+                    break;
+                }
+
+                int assigned = nextId++;
+                seenHashes.put(hashed, assigned);
+                remap.put(symbol, assigned);
+                terminated[i] = assigned;
+            }
+
+            if (!collision) {
+                terminated[n0] = SENTINEL;
+                return new RemapResult(remap, terminated);
+            }
+        }
+
+        return null;
+    }
+
+    private static RemapResult buildDeterministicRemap(long[] text, int n0) {
+        Long2IntOpenHashMap remap = new Long2IntOpenHashMap(Math.max(4, n0 * 2));
+        remap.defaultReturnValue(-1);
+        int[] terminated = new int[n0 + 1];
+        int nextId = 1;
+        for (int i = 0; i < n0; i++) {
+            long symbol = text[i];
+            int mapped = remap.get(symbol);
+            if (mapped == -1) {
+                mapped = nextId++;
+                remap.put(symbol, mapped);
+            }
+            terminated[i] = mapped;
+        }
+        terminated[n0] = SENTINEL;
+        return new RemapResult(remap, terminated);
+    }
+
+    private static final class RemapResult {
+        final Long2IntOpenHashMap map;
+        final int[] terminated;
+
+        RemapResult(Long2IntOpenHashMap map, int[] terminated) {
+            this.map = map;
+            this.terminated = terminated;
+        }
+    }
+
+    private static final class UniversalHash {
+        private final long mul;
+        private final long add;
+
+        private UniversalHash(long mul, long add) {
+            this.mul = mul;
+            this.add = add;
+        }
+
+        static UniversalHash random() {
+            ThreadLocalRandom rng = ThreadLocalRandom.current();
+            long mul;
+            do {
+                mul = rng.nextLong();
+            } while ((mul & 1L) == 0L);
+            long add = rng.nextLong();
+            return new UniversalHash(mul, add);
+        }
+
+        long apply(long value) {
+            long z = mul * value + add;
+            return mix64(z);
+        }
+    }
+
+    private static long mix64(long z) {
+        z ^= (z >>> 33);
+        z *= 0xff51afd7ed558ccdL;
+        z ^= (z >>> 33);
+        z *= 0xc4ceb9fe1a85ec53L;
+        z ^= (z >>> 33);
+        return z;
     }
 
     /**

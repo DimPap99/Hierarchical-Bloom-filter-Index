@@ -3,8 +3,8 @@ package PMIndex;
 import org.openjdk.jol.info.GraphLayout;
 import search.Pattern;
 import tree.ssws.SuffixTree;
-import utilities.HashedStringMapper;
 import utilities.PatternResult;
+import utilities.TokenHasher;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -25,8 +25,6 @@ import java.util.Set;
 public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private final int windowSize;
-    //this is not counted in memory overhead in the experiments
-    private final HashedStringMapper tokenMapper;
 
     private Segment head;
     private Segment tail;
@@ -39,7 +37,6 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
             throw new IllegalArgumentException("windowSize must be positive");
         }
         this.windowSize = windowSize;
-        this.tokenMapper = new HashedStringMapper(Math.max(expectedAlphabetSize, 16));
     }
 
     public StreamingSlidingWindowIndex(int windowSize) {
@@ -48,12 +45,11 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     public long estimateRetainedBytesWithoutAlphabet() {
         long total = GraphLayout.parseInstance(this).totalSize();
-        long dict = GraphLayout.parseInstance(this.tokenMapper).totalSize();
-        return total - dict;
+        return total;
     }
 
     public long estimateTokenDictionaryBytes() {
-        return GraphLayout.parseInstance(this.tokenMapper).totalSize();
+        return 0L;
     }
 
     public long estimateSuffixTreeRemapBytes() {
@@ -76,7 +72,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (key == null) {
             return;
         }
-        int token = tokenMapper.getId(key);
+        long token = TokenHasher.hashToPositiveLong(key);
         Segment singleton = createSingletonSegment(token, nextTokenPosition);
         appendSegment(singleton);
         nextTokenPosition++;
@@ -86,9 +82,9 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         trimToWindow();
     }
 
-    private Segment createSingletonSegment(int token, int position) {
-        int[] tokens = new int[]{token};
-        SuffixTree tree = SuffixTree.build(tokens);
+    private Segment createSingletonSegment(long token, int position) {
+        long[] tokens = new long[]{token};
+        SuffixTree tree = SuffixTree.build(tokens, windowSize);
         return new Segment(position, 0, tokens, tree);
     }
 
@@ -117,10 +113,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private Segment mergeSegments(Segment left, Segment right) {
         int newLength = left.length + right.length;
-        int[] tokens = new int[newLength];
+        long[] tokens = new long[newLength];
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
-        SuffixTree tree = SuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens, windowSize);
 //        SuffixTree.compactForQuerying(tree.getRoot());
 
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
@@ -213,10 +209,10 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
         int span = right.length;
         int leftSpan = Math.min(left.length, span);
-        int[] tokens = new int[leftSpan + right.length];
+        long[] tokens = new long[leftSpan + right.length];
         System.arraycopy(left.tokens, left.length - leftSpan, tokens, 0, leftSpan);
         System.arraycopy(right.tokens, 0, tokens, leftSpan, right.length);
-        SuffixTree tree = SuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens, windowSize);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
         Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);
@@ -237,7 +233,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (key == null || key.nGramArr == null) {
             return noResult;
         }
-        int[] patternTokens = toPatternTokens(key);
+        long[] patternTokens = toPatternTokens(key);
         if (patternTokens.length == 0) {
             return noResult;
         }
@@ -259,7 +255,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         return result;
     }
 
-    private void collectSegmentMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectSegmentMatches(long[] patternTokens, int patternLength, int windowStart,
                                        int windowEnd, Set<Integer> occurrences) {
         Segment current = head;
         while (current != null) {
@@ -276,7 +272,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private void collectBoundaryMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectBoundaryMatches(long[] patternTokens, int patternLength, int windowStart,
                                         int windowEnd, Set<Integer> occurrences) {
         Segment current = head;
         while (current != null) {
@@ -296,7 +292,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private void collectSuffixMatches(int[] patternTokens, int patternLength, int windowStart,
+    private void collectSuffixMatches(long[] patternTokens, int patternLength, int windowStart,
                                       int windowEnd, Set<Integer> occurrences) {
         if (patternLength == 0) {
             return;
@@ -313,7 +309,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (substring.tokens.length < patternLength) {
             return;
         }
-        SuffixTree tree = SuffixTree.build(substring.tokens);
+        SuffixTree tree = SuffixTree.build(substring.tokens, windowSize);
         List<Integer> matches = tree.findOccurrences(patternTokens);
         for (int local : matches) {
             int global = substring.globalStart + local;
@@ -345,7 +341,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (total == 0) {
             return QuerySubstring.empty();
         }
-        int[] tokens = new int[total];
+        long[] tokens = new long[total];
         int offset = 0;
         if (pivotSuffix > 0) {
             System.arraycopy(pivot.tokens, pivot.length - pivotSuffix, tokens, 0, pivotSuffix);
@@ -368,7 +364,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (length <= 0 || tail == null) {
             return QuerySubstring.empty();
         }
-        int[] tokens = new int[length];
+        long[] tokens = new long[length];
         int writeIndex = length;
         Segment current = tail;
         while (current != null && writeIndex > 0) {
@@ -391,19 +387,23 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         if (actualLength <= 0) {
             return QuerySubstring.empty();
         }
-        int[] trimmed = new int[actualLength];
+        long[] trimmed = new long[actualLength];
         System.arraycopy(tokens, writeIndex, trimmed, 0, actualLength);
         return new QuerySubstring(trimmed, windowStart + writeIndex);
     }
 
-    private int[] toPatternTokens(Pattern pattern) {
+    private long[] toPatternTokens(Pattern pattern) {
         String[] grams = pattern.nGramArr;
         if (grams == null) {
-            return new int[0];
+            return new long[0];
         }
-        int[] tokens = new int[grams.length];
+        long[] tokens = new long[grams.length];
         for (int i = 0; i < grams.length; i++) {
-            tokens[i] = tokenMapper.getId(grams[i]);
+            long hashed = TokenHasher.hashToPositiveLong(grams[i]);
+            tokens[i] = hashed;
+            if (pattern.nGramToLong != null && i < pattern.nGramToLong.length) {
+                pattern.nGramToLong[i] = hashed;
+            }
         }
         return tokens;
     }
@@ -434,7 +434,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     @Override
     public int getTokenId(String key) {
         Objects.requireNonNull(key, "key");
-        return tokenMapper.getId(key);
+        return TokenHasher.hashToPositiveInt(key);
     }
 
     private void onSegmentInserted(Segment segment) {
@@ -472,9 +472,9 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         boundary.tree.release();
     }
 
-    private void wipeArray(int[] data) {
+    private void wipeArray(long[] data) {
         if (data != null) {
-            Arrays.fill(data, 0);
+            Arrays.fill(data, 0L);
         }
     }
 
@@ -482,14 +482,14 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         private final int startPosition;
         private final int level;
         private final int length;
-        private final int[] tokens;
+        private final long[] tokens;
         private final SuffixTree suffixTree;
         private Segment prev;
         private Segment next;
         private Boundary leftBoundary;
         private Boundary rightBoundary;
 
-        private Segment(int startPosition, int level, int[] tokens, SuffixTree suffixTree) {
+        private Segment(int startPosition, int level, long[] tokens, SuffixTree suffixTree) {
             this.startPosition = startPosition;
             this.level = level;
             this.tokens = tokens;
@@ -516,11 +516,11 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     private static final class QuerySubstring {
-        private static final QuerySubstring EMPTY = new QuerySubstring(new int[0], 0);
-        private final int[] tokens;
+        private static final QuerySubstring EMPTY = new QuerySubstring(new long[0], 0);
+        private final long[] tokens;
         private final int globalStart;
 
-        private QuerySubstring(int[] tokens, int globalStart) {
+        private QuerySubstring(long[] tokens, int globalStart) {
             this.tokens = tokens;
             this.globalStart = globalStart;
         }

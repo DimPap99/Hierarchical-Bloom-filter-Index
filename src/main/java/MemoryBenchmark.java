@@ -62,8 +62,9 @@ import java.util.stream.Stream;
  * dense remap maps (Int2IntOpenHashMap instances inside each suffix tree). This keeps the token
  * dictionary in the total so the figure matches the memory that needs to be resident at runtime.
  *
- * suffix_core_mem_mib further removes the token dictionary, isolating the rolling suffix
- * segment hierarchy for comparisons with prior runs that reported dictionary-free numbers.
+ * suffix_core_mem_mib additionally subtracts the (now-empty) token dictionary so the
+ * column remains comparable with historical runs. With the stateless token hasher, this
+ * value currently matches suffix_total_mem_mib.
  *
  * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
  *
@@ -131,7 +132,7 @@ public final class MemoryBenchmark {
                             suffixStats.totalMiB(),
                             ngram);
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex core (reuse, excluding token dictionary & remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex core (reuse, excluding token dictionary (if any) & remaps): %d B (%.3f MiB) [ngram=%d]%n",
                             suffixStats.coreBytes(),
                             suffixStats.coreMiB(),
                             ngram);
@@ -268,7 +269,7 @@ public final class MemoryBenchmark {
                 totalMiB,
                 ngram);
         System.out.printf(Locale.ROOT,
-                "SuffixIndex core (excluding token dictionary & remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex core (excluding token dictionary (if any) & remaps): %d B (%.3f MiB) [ngram=%d]%n",
                 coreBytes,
                 coreMiB,
                 ngram);

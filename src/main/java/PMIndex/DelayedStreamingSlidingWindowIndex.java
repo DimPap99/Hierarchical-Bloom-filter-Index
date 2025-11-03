@@ -2,8 +2,8 @@ package PMIndex;
 
 import search.Pattern;
 import tree.ssws.SuffixTree;
-import utilities.HashedStringMapper;
 import utilities.PatternResult;
+import utilities.TokenHasher;
 
 import java.util.*;
 
@@ -26,7 +26,6 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     private final int windowSize;
     private final int delta; // delay parameter
     private final int minSegLen; // == delta/2 (rounded)
-    private final HashedStringMapper tokenMapper;
 
     private Segment head;
     private Segment tail;
@@ -44,7 +43,6 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         this.windowSize = windowSize;
         this.delta = delta;
         this.minSegLen = Math.max(1, delta / 2);
-        this.tokenMapper = new HashedStringMapper(Math.max(expectedAlphabetSize, 16));
         this.bufferedMode = bufferedMode;
     }
 
@@ -55,7 +53,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     @Override
     public void insert(String key) {
         if (key == null) return;
-        int token = tokenMapper.getId(key);
+        long token = TokenHasher.hashToPositiveLong(key);
         Segment singleton = createSingletonSegment(token, nextTokenPosition);
         appendSegment(singleton);
         nextTokenPosition++;
@@ -75,7 +73,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
 
     @Override
     public ArrayList<Integer> report(Pattern pattern) {
-        int[] pat = toPatternTokens(pattern);
+        long[] pat = toPatternTokens(pattern);
         ArrayList<Integer> out = new ArrayList<>();
         if (pat.length == 0) return out;
 
@@ -101,17 +99,17 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         }
     }
 
-    private List<Integer> reportLongImmediate(int[] pat) {
+    private List<Integer> reportLongImmediate(long[] pat) {
         LinkedHashSet<Integer> hits = new LinkedHashSet<>();
         // 1) occurrences fully in s (segments >= minSegLen) and across a single boundary
         findInSegmentsAndBoundaries(pat, hits);
         // 2) R = last (m-1) of s + t (uncovered suffix)
         int m = pat.length;
-        int[] leftTail = tailFromSegments(Math.max(0, m - 1));
-        int[] t = uncoveredSuffixTokens();
-        int[] R = concat(leftTail, t);
+        long[] leftTail = tailFromSegments(Math.max(0, m - 1));
+        long[] t = uncoveredSuffixTokens();
+        long[] R = concat(leftTail, t);
         if (R.length > 0) {
-            SuffixTree rTree = SuffixTree.build(R);
+            SuffixTree rTree = SuffixTree.build(R, windowSize);
             List<Integer> local = rTree.findOccurrences(pat);
             int globalStart = currentRightBoundary() - R.length;
             for (int pos : local) {
@@ -121,23 +119,23 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         return new ArrayList<>(hits);
     }
 
-    private List<Integer> reportShortImmediate(int[] pat) {
+    private List<Integer> reportShortImmediate(long[] pat) {
         LinkedHashSet<Integer> hits = new LinkedHashSet<>();
         // 1) in s and across boundaries
         findInSegmentsAndBoundaries(pat, hits);
         // 2) across boundary (s,t) via KMP on window of size 2*(m-1)+1 centered at boundary
         int m = pat.length;
-        int[] left = tailFromSegments(Math.max(0, m - 1));
-        int[] right = prefix(uncoveredSuffixTokens(), Math.max(0, m - 1));
-        int[] around = concat(left, right);
+        long[] left = tailFromSegments(Math.max(0, m - 1));
+        long[] right = prefix(uncoveredSuffixTokens(), Math.max(0, m - 1));
+        long[] around = concat(left, right);
         int base = currentRightBoundary() - right.length - Math.max(0, m - 1);
         for (int pos : kmpAll(pat, around)) {
             hits.add(base + pos);
         }
         // 3) fully in t
-        int[] t = uncoveredSuffixTokens();
+        long[] t = uncoveredSuffixTokens();
         if (t.length > 0) {
-            SuffixTree tree = SuffixTree.build(t);
+            SuffixTree tree = SuffixTree.build(t, windowSize);
             for (int pos : tree.findOccurrences(pat)) {
                 hits.add(currentRightBoundary() - t.length + pos);
             }
@@ -148,20 +146,20 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     private void flushBuffers() {
         if (queryBuffer.isEmpty()) { opsSinceLastFlush = 0; return; }
         // Build suffix tree over t once
-        int[] t = uncoveredSuffixTokens();
-        SuffixTree tTree = (t.length > 0) ? SuffixTree.build(t) : null;
+        long[] t = uncoveredSuffixTokens();
+        SuffixTree tTree = (t.length > 0) ? SuffixTree.build(t, windowSize) : null;
         int rightBoundaryAtFlush = currentRightBoundary();
         while (!queryBuffer.isEmpty()) {
             PendingQuery q = queryBuffer.removeFirst();
             LinkedHashSet<Integer> hits = new LinkedHashSet<>();
-            int[] pat = q.pattern;
+            long[] pat = q.pattern;
             // in s and boundaries
             findInSegmentsAndBoundaries(pat, hits);
             // across boundary with KMP
             int m = pat.length;
-            int[] left = tailFromSegments(Math.max(0, m - 1));
-            int[] right = prefix(uncoveredSuffixTokens(), Math.max(0, m - 1));
-            int[] around = concat(left, right);
+            long[] left = tailFromSegments(Math.max(0, m - 1));
+            long[] right = prefix(uncoveredSuffixTokens(), Math.max(0, m - 1));
+            long[] around = concat(left, right);
             int base = rightBoundaryAtFlush - right.length - Math.max(0, m - 1);
             for (int pos : kmpAll(pat, around)) hits.add(base + pos);
             // fully in t at the time of flush
@@ -176,7 +174,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         opsSinceLastFlush = 0;
     }
 
-    private void findInSegmentsAndBoundaries(int[] pat, Set<Integer> out) {
+    private void findInSegmentsAndBoundaries(long[] pat, Set<Integer> out) {
         // segments
         for (Segment s = head; s != null; s = s.next) {
             if (s.suffixTree != null) {
@@ -204,9 +202,9 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
 
     // ===== Segment maintenance (power-of-two merges), only materialize trees for len >= minSegLen =====
 
-    private Segment createSingletonSegment(int token, int position) {
-        int[] tokens = new int[]{token};
-        SuffixTree tree = (tokens.length >= minSegLen) ? SuffixTree.build(tokens) : null;
+    private Segment createSingletonSegment(long token, int position) {
+        long[] tokens = new long[]{token};
+        SuffixTree tree = (tokens.length >= minSegLen) ? SuffixTree.build(tokens, windowSize) : null;
         return new Segment(position, 0, tokens, tree);
     }
 
@@ -234,10 +232,10 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
 
     private Segment mergeSegments(Segment left, Segment right) {
         int newLength = left.length + right.length;
-        int[] tokens = new int[newLength];
+        long[] tokens = new long[newLength];
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
-        SuffixTree tree = (newLength >= minSegLen) ? SuffixTree.build(tokens) : null;
+        SuffixTree tree = (newLength >= minSegLen) ? SuffixTree.build(tokens, windowSize) : null;
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
     }
 
@@ -280,10 +278,10 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         if (left.suffixTree == null || right.suffixTree == null) return;
         int span = right.length;
         int leftSpan = Math.min(left.length, span);
-        int[] tokens = new int[leftSpan + right.length];
+        long[] tokens = new long[leftSpan + right.length];
         System.arraycopy(left.tokens, left.length - leftSpan, tokens, 0, leftSpan);
         System.arraycopy(right.tokens, 0, tokens, leftSpan, right.length);
-        SuffixTree tree = SuffixTree.build(tokens);
+        SuffixTree tree = SuffixTree.build(tokens, windowSize);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
         Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);
@@ -319,17 +317,23 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         segmentCount--;
     }
 
-    private int[] toPatternTokens(Pattern pattern) {
+    private long[] toPatternTokens(Pattern pattern) {
         String[] grams = pattern.nGramArr;
-        if (grams == null) return new int[0];
-        int[] tokens = new int[grams.length];
-        for (int i = 0; i < grams.length; i++) tokens[i] = tokenMapper.getId(grams[i]);
+        if (grams == null) return new long[0];
+        long[] tokens = new long[grams.length];
+        for (int i = 0; i < grams.length; i++) {
+            long hashed = TokenHasher.hashToPositiveLong(grams[i]);
+            tokens[i] = hashed;
+            if (pattern.nGramToLong != null && i < pattern.nGramToLong.length) {
+                pattern.nGramToLong[i] = hashed;
+            }
+        }
         return tokens;
     }
 
-    private int[] uncoveredSuffixTokens() {
+    private long[] uncoveredSuffixTokens() {
         // Concatenate tokens from the tail made of segments < minSegLen
-        ArrayDeque<int[]> parts = new ArrayDeque<>();
+        ArrayDeque<long[]> parts = new ArrayDeque<>();
         int total = 0;
         for (Segment s = tail; s != null; s = s.prev) {
             if (s.length >= minSegLen) break;
@@ -337,16 +341,16 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
             total += s.length;
             if (total >= delta) break; // cap at delta for safety
         }
-        int[] out = new int[total];
+        long[] out = new long[total];
         int w = 0;
-        for (int[] arr : parts) { System.arraycopy(arr, 0, out, w, arr.length); w += arr.length; }
+        for (long[] arr : parts) { System.arraycopy(arr, 0, out, w, arr.length); w += arr.length; }
         return out;
     }
 
-    private int[] tailFromSegments(int need) {
-        if (need <= 0) return new int[0];
+    private long[] tailFromSegments(int need) {
+        if (need <= 0) return new long[0];
         int have = 0;
-        ArrayDeque<int[]> parts = new ArrayDeque<>();
+        ArrayDeque<long[]> parts = new ArrayDeque<>();
         for (Segment s = tail; s != null && have < need; s = s.prev) {
             if (s.length < minSegLen || s.suffixTree == null) continue;
             int take = Math.min(s.length, need - have);
@@ -354,35 +358,35 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
                 parts.addFirst(s.tokens);
                 have += take;
             } else {
-                int[] slice = new int[take];
+                long[] slice = new long[take];
                 System.arraycopy(s.tokens, s.length - take, slice, 0, take);
                 parts.addFirst(slice);
                 have += take;
             }
         }
-        int[] out = new int[have];
+        long[] out = new long[have];
         int w = 0;
-        for (int[] p : parts) { System.arraycopy(p, 0, out, w, p.length); w += p.length; }
+        for (long[] p : parts) { System.arraycopy(p, 0, out, w, p.length); w += p.length; }
         return out;
     }
 
-    private static int[] concat(int[] a, int[] b) {
+    private static long[] concat(long[] a, long[] b) {
         if (a.length == 0) return b.clone();
         if (b.length == 0) return a.clone();
-        int[] out = new int[a.length + b.length];
+        long[] out = new long[a.length + b.length];
         System.arraycopy(a, 0, out, 0, a.length);
         System.arraycopy(b, 0, out, a.length, b.length);
         return out;
     }
 
-    private static int[] prefix(int[] a, int len) {
+    private static long[] prefix(long[] a, int len) {
         int k = Math.min(len, a.length);
-        int[] out = new int[k];
+        long[] out = new long[k];
         System.arraycopy(a, 0, out, 0, k);
         return out;
     }
 
-    private static List<Integer> kmpAll(int[] pat, int[] text) {
+    private static List<Integer> kmpAll(long[] pat, long[] text) {
         ArrayList<Integer> out = new ArrayList<>();
         if (pat.length == 0 || text.length == 0) return out;
         int[] pi = new int[pat.length];
@@ -414,21 +418,21 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     public PatternResult getLatestStats() { return new PatternResult(0.0, 0, 0, null, 0, 0.0, 0, 0); }
 
     @Override
-    public int getTokenId(String key) { return tokenMapper.getId(key); }
+    public int getTokenId(String key) { return TokenHasher.hashToPositiveInt(key); }
 
     // ===== data holders =====
     private static final class Segment {
         private final int startPosition;
         private final int level;
         private final int length;
-        private final int[] tokens;
+        private final long[] tokens;
         private final SuffixTree suffixTree; // null if not materialized (< minSegLen)
         private Segment prev;
         private Segment next;
         private Boundary leftBoundary;
         private Boundary rightBoundary;
 
-        private Segment(int startPosition, int level, int[] tokens, SuffixTree tree) {
+        private Segment(int startPosition, int level, long[] tokens, SuffixTree tree) {
             this.startPosition = startPosition;
             this.level = level;
             this.tokens = tokens;
@@ -455,9 +459,9 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     private static final class PendingQuery {
-        final int[] pattern;
+        final long[] pattern;
         final int rightBoundaryAtArrival;
-        PendingQuery(int[] pattern, int rightBoundaryAtArrival) {
+        PendingQuery(long[] pattern, int rightBoundaryAtArrival) {
             this.pattern = pattern;
             this.rightBoundaryAtArrival = rightBoundaryAtArrival;
         }
