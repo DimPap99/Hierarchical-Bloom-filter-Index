@@ -58,6 +58,9 @@ public final class BenchmarkOrchestrator {
             for (int ng : options.ngrams()) {
                 System.out.printf(Locale.ROOT, "---- ngram = %d ----%n", ng);
 
+                int suffixNgForLoop = options.resolveSuffixNgram(ngIndex, ng);
+                IndexFactory.setSuffixNgram(suffixNgForLoop);
+
                 for (Path datasetDir : datasetDirs) {
                     Path datasetFile = BenchmarkIO.findSingleDatasetFile(datasetDir);
                     Path queryDir = options.queryRoot().resolve(datasetDir.getFileName());
@@ -73,9 +76,9 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b%n",
                             options.windowLength(), options.treeLength(), ng,
-                            options.alphabetBase(), effAlphabet, currentFp,
+                            options.alphabetBase(), effAlphabet, suffixNgForLoop, currentFp,
                             options.runs(), options.algorithm(), options.mode(), options.memPolicy(), options.reinsertPerWorkload());
 
                     Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);

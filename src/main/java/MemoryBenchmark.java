@@ -109,6 +109,8 @@ public final class MemoryBenchmark {
                 "tree_length",
                 "ngram",
                 "fp_rate",
+                "policy",
+                "policy_buckets",
                 "hbi_mem_mib",
                 "suffix_core_mem_mib",
                 "suffix_total_mem_mib",
@@ -158,6 +160,8 @@ public final class MemoryBenchmark {
                             treeSetting.length(),
                             ngram,
                             fpRate,
+                            options.memPolicy().name(),
+                            options.policyBuckets(),
                             hbiStats.mib(),
                             suffixStats.coreMiB(),
                             suffixStats.totalMiB(),
@@ -206,6 +210,7 @@ public final class MemoryBenchmark {
                 .experimentMode(false)
                 .collectStats(false)
                 .activateEstim(options.shouldActivateEstimators())
+                .buckets(options.policyBuckets())
                 .nGram(nGram)
                 .build();
 
@@ -250,7 +255,7 @@ public final class MemoryBenchmark {
                                                            MemoryOptions options,
                                                            int ngram) throws IOException {
         StreamingSlidingWindowIndex suffix = newSuffixIndex(options, ngram);
-        MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ngram);
+        MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, 1);
 
         GraphLayout layout = GraphLayout.parseInstance(suffix);
         long layoutBytes = layout.totalSize();
@@ -392,7 +397,8 @@ public final class MemoryBenchmark {
                                  List<Double> fpRates,
                                  double runConfidence,
                                  boolean reuseSuffix,
-                                 Utils.MemPolicy memPolicy) {
+                                 Utils.MemPolicy memPolicy,
+                                 int policyBuckets) {
 
         static MemoryOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -416,6 +422,7 @@ public final class MemoryBenchmark {
             double runConfidence = 0.99;
             boolean reuseSuffix = true;
             Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
+            Integer policyBuckets = null;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -467,6 +474,7 @@ public final class MemoryBenchmark {
                     case "confidence" -> runConfidence = Double.parseDouble(value);
                     case "reuse-suffix", "reuse-suffix-results" -> reuseSuffix = Boolean.parseBoolean(value);
                     case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
+                    case "policy-buckets", "mem-policy-buckets" -> policyBuckets = Integer.parseInt(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -556,7 +564,8 @@ public final class MemoryBenchmark {
                     fpRates,
                     runConfidence,
                     reuseSuffix,
-                    memPolicy);
+                    memPolicy,
+                    policyBuckets != null ? Math.max(0, policyBuckets) : 0);
         }
 
         int alphabetSizeFor(int ngram) {
@@ -586,6 +595,10 @@ public final class MemoryBenchmark {
             return memPolicy != Utils.MemPolicy.NONE;
         }
 
+        public int policyBuckets() {
+            return policyBuckets;
+        }
+
         int ngram() {
             return ngrams.get(0);
         }
@@ -608,10 +621,11 @@ public final class MemoryBenchmark {
 
         Path csvOutputFile() {
             boolean multiCombos = (ngrams.size() > 1) || (fpRates.size() > 1) || (treeSettings.size() > 1);
+            String policyToken = memPolicy.name().toLowerCase(Locale.ROOT);
             if (multiCombos) {
-                return Path.of("memory_%s_multi.csv".formatted(window));
+                return Path.of("memory_%s_%s_multi.csv".formatted(window, policyToken));
             }
-            return Path.of("memory_%s_%d.csv".formatted(window, ngram()));
+            return Path.of("memory_%s_%d_%s.csv".formatted(window, ngram(), policyToken));
         }
 
         static int deriveWindowLength(String window, int defaultValue) {
@@ -674,3 +688,4 @@ public final class MemoryBenchmark {
         }
     }
 }
+//can

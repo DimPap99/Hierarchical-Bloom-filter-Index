@@ -32,6 +32,9 @@ public record MultiBenchmarkOptions(
         boolean runRegexBaseline,
         boolean runHbi,
         boolean runSuffix,
+        int suffixNgram,
+        List<Integer> suffixNgramList,
+        boolean suffixNgramFollowsPrimary,
         Utils.MemPolicy memPolicy,
         int suffixDelta,
         boolean reuseSuffixResults,
@@ -63,6 +66,9 @@ public record MultiBenchmarkOptions(
         boolean runRegexBaseline = false;
         boolean runHbi = true;
         boolean runSuffix = true;
+        int suffixNgram = 1;
+        List<Integer> suffixNgramList = null;
+        boolean suffixNgramFollowsPrimary = false;
         Utils.MemPolicy policy = Utils.MemPolicy.NONE;
         int suffixDelta = 160; // default delta for delayed suffix when not reinserting per-workload
         boolean reuseSuffixResults = true; // default: reuse suffix results across FPR/ng loops
@@ -111,6 +117,22 @@ public record MultiBenchmarkOptions(
                 case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
                 case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                 case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
+                case "suffix-ngram" -> {
+                    if ("match".equalsIgnoreCase(value) || "reuse".equalsIgnoreCase(value)) {
+                        suffixNgramFollowsPrimary = true;
+                        suffixNgramList = null;
+                    } else if (value.contains(",")) {
+                        suffixNgramList = parseIntCsv(value);
+                        if (suffixNgramList.isEmpty()) {
+                            throw new IllegalArgumentException("Empty --suffix-ngram list");
+                        }
+                        suffixNgramFollowsPrimary = false;
+                    } else {
+                        suffixNgram = Integer.parseInt(value);
+                        suffixNgramList = null;
+                        suffixNgramFollowsPrimary = false;
+                    }
+                }
                 case "reinsert-per-workload" -> reinsertPerWorkload = Boolean.parseBoolean(value);
                 case "suffix-delta" -> suffixDelta = Integer.parseInt(value);
                 case "reuse-suffix", "reuse-suffix-results" -> reuseSuffixResults = Boolean.parseBoolean(value);
@@ -170,6 +192,14 @@ public record MultiBenchmarkOptions(
         }
 
         fpRate = fpRates.get(0);
+        suffixNgram = Math.max(1, suffixNgram);
+        if (suffixNgramList != null) {
+            suffixNgramList = suffixNgramList.stream()
+                    .map(n -> Math.max(1, n))
+                    .collect(Collectors.toUnmodifiableList());
+        } else {
+            suffixNgramList = List.of();
+        }
 
         // normalize algorithm token
         algorithm = (algorithm == null) ? "bs" : algorithm.toLowerCase(Locale.ROOT).trim();
@@ -196,11 +226,25 @@ public record MultiBenchmarkOptions(
                 runRegexBaseline,
                 runHbi,
                 runSuffix,
+                suffixNgram,
+                suffixNgramList,
+                suffixNgramFollowsPrimary,
                 policy,
                 suffixDelta,
                 reuseSuffixResults,
                 reinsertPerWorkload
         );
+    }
+
+    public int resolveSuffixNgram(int primaryNgramIndex, int primaryNgram) {
+        if (suffixNgramFollowsPrimary) {
+            return Math.max(1, primaryNgram);
+        }
+        if (!suffixNgramList.isEmpty()) {
+            int idx = Math.min(Math.max(primaryNgramIndex, 0), suffixNgramList.size() - 1);
+            return suffixNgramList.get(idx);
+        }
+        return suffixNgram;
     }
 
     public int alphabetSizeFor(int ngram) {
