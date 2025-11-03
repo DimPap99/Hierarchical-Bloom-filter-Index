@@ -3,6 +3,7 @@ import PMIndex.HbiConfiguration;
 import PMIndex.RegexIndex;
 import PMIndex.StreamingSlidingWindowIndex;
 
+import estimators.CSEstimator;
 import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
@@ -20,6 +21,7 @@ import search.VerifierLinearLeafProbe;
 
 import utilities.CsvUtil;
 import utilities.MultiQueryExperiment;
+import utilities.Utils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -56,9 +58,12 @@ import java.util.stream.Stream;
  *
  * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
  *
- * suffix_mem_mib is the retained size of the StreamingSlidingWindowIndex after subtracting
- * its token dictionary (string hash mapper), so you measure just the rolling suffix segment hierarchy
- * and not the global token identifier structure.
+ * suffix_total_mem_mib counts the StreamingSlidingWindowIndex while excluding only the per-tree
+ * dense remap maps (Int2IntOpenHashMap instances inside each suffix tree). This keeps the token
+ * dictionary in the total so the figure matches the memory that needs to be resident at runtime.
+ *
+ * suffix_core_mem_mib further removes the token dictionary, isolating the rolling suffix
+ * segment hierarchy for comparisons with prior runs that reported dictionary-free numbers.
  *
  * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
  *
@@ -70,6 +75,8 @@ import java.util.stream.Stream;
  * will see only ordinary classes and it can compute the total size.
  */
 public final class MemoryBenchmark {
+
+    private record TreeSetting(int power, int length) {}
 
     private static final boolean USE_STRIDES = true;
 
@@ -114,19 +121,17 @@ public final class MemoryBenchmark {
             for (int ngram : options.ngrams()) {
                 System.out.printf(Locale.ROOT, "---- ngram = %d ----%n", ngram);
 
-                HbiMeasurement hbiStats = buildAndMeasureHbi(datasetFile, options, ngram, fpRate);
-
                 SuffixMeasurement suffixStats;
                 if (options.reuseSuffixResults() && suffixCache.containsKey(ngram)) {
                     suffixStats = suffixCache.get(ngram);
                     System.out.printf(Locale.ROOT, "Reusing suffix measurement for ngram %d%n", ngram);
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex total (reuse): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex total (reuse, excluding token remaps): %d B (%.3f MiB) [ngram=%d]%n",
                             suffixStats.totalBytes(),
                             suffixStats.totalMiB(),
                             ngram);
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex core (reuse): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex core (reuse, excluding token dictionary & remaps): %d B (%.3f MiB) [ngram=%d]%n",
                             suffixStats.coreBytes(),
                             suffixStats.coreMiB(),
                             ngram);
@@ -141,18 +146,22 @@ public final class MemoryBenchmark {
                     regexCache = buildAndMeasureRegex(datasetFile);
                 }
 
-                csvRows.add(List.of(
-                        options.window(),
-                        options.windowPower(),
-                        options.windowLength(),
-                        options.treePower(),
-                        options.treeLength(),
-                        ngram,
-                        fpRate,
-                        hbiStats.mib(),
-                        suffixStats.coreMiB(),
-                        suffixStats.totalMiB(),
-                        regexCache.mib()));
+                for (TreeSetting treeSetting : options.treeSettings()) {
+                    HbiMeasurement hbiStats = buildAndMeasureHbi(datasetFile, options, treeSetting, ngram, fpRate);
+
+                    csvRows.add(List.of(
+                            options.window(),
+                            options.windowPower(),
+                            options.windowLength(),
+                            treeSetting.power(),
+                            treeSetting.length(),
+                            ngram,
+                            fpRate,
+                            hbiStats.mib(),
+                            suffixStats.coreMiB(),
+                            suffixStats.totalMiB(),
+                            regexCache.mib()));
+                }
             }
         }
 
@@ -165,10 +174,10 @@ public final class MemoryBenchmark {
      * Build an HBI for the requested (ngram, fpRate) combination using named Supplier classes,
      * so Java Object Layout never encounters hidden lambda implementations.
      */
-    private static HBI newHbi(MemoryOptions options, int nGram, double fpRate) {
+    private static HBI newHbi(MemoryOptions options, TreeSetting treeSetting, int nGram, double fpRate) {
         final int windowLen  = options.windowLength();
         final int sigma      = options.alphabetSizeFor(nGram);
-        final int treeLen    = options.treeLength();
+        final int treeLen    = treeSetting.length();
         final double runConf = options.runConfidence();
 
         Supplier<Estimator> estFactory =
@@ -186,6 +195,7 @@ public final class MemoryBenchmark {
                 .fpRate(fpRate)
                 .alphabetSize(sigma)
                 .treeLength(treeLen)
+                .memPolicy(options.memPolicy())
                 .estimatorSupplier(estFactory)
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
@@ -194,6 +204,7 @@ public final class MemoryBenchmark {
                 .confidence(runConf)
                 .experimentMode(false)
                 .collectStats(false)
+                .activateEstim(options.shouldActivateEstimators())
                 .nGram(nGram)
                 .build();
 
@@ -211,9 +222,10 @@ public final class MemoryBenchmark {
 
     private static HbiMeasurement buildAndMeasureHbi(Path datasetFile,
                                                      MemoryOptions options,
+                                                     TreeSetting treeSetting,
                                                      int ngram,
                                                      double fpRate) throws IOException {
-        HBI hbi = newHbi(options, ngram, fpRate);
+        HBI hbi = newHbi(options, treeSetting, ngram, fpRate);
         hbi.strides = USE_STRIDES;
         MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ngram);
 
@@ -240,21 +252,23 @@ public final class MemoryBenchmark {
         MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, ngram);
 
         GraphLayout layout = GraphLayout.parseInstance(suffix);
+        long layoutBytes = layout.totalSize();
         long dictBytes = suffix.estimateTokenDictionaryBytes();
-        long totalBytes = layout.totalSize() - dictBytes;
-        long coreBytes = suffix.estimateRetainedBytesWithoutAlphabet();
+        long remapBytes = suffix.estimateSuffixTreeRemapBytes();
+        long totalBytes = Math.max(0L, layoutBytes - remapBytes);
+        long coreBytes = Math.max(0L, layoutBytes - dictBytes - remapBytes);
         double coreMiB = coreBytes / 1_048_576d;
         double totalMiB = totalBytes / 1_048_576d;
 
         System.out.println("\n=== StreamingSlidingWindowIndex JOL footprint ===");
         System.out.println(layout.toFootprint());
         System.out.printf(Locale.ROOT,
-                "SuffixIndex total (excluding token dictionary): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex total (excluding token remaps): %d B (%.3f MiB) [ngram=%d]%n",
                 totalBytes,
                 totalMiB,
                 ngram);
         System.out.printf(Locale.ROOT,
-                "SuffixIndex core (excluding AlphabetMapper): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex core (excluding token dictionary & remaps): %d B (%.3f MiB) [ngram=%d]%n",
                 coreBytes,
                 coreMiB,
                 ngram);
@@ -328,7 +342,7 @@ public final class MemoryBenchmark {
 
         @Override
         public Estimator get() {
-            return new HashMapEstimator(treeLen);
+            return new CSEstimator(2048, 8, 1);//HashMapEstimator(treeLen);
         }
     }
 
@@ -370,14 +384,14 @@ public final class MemoryBenchmark {
     private record MemoryOptions(Path dataRoot,
                                  String window,
                                  int windowPower,
-                                 int treePower,
+                                 List<TreeSetting> treeSettings,
                                  int windowLength,
-                                 int treeLength,
                                  int alphabetBase,
                                  List<Integer> ngrams,
                                  List<Double> fpRates,
                                  double runConfidence,
-                                 boolean reuseSuffix) {
+                                 boolean reuseSuffix,
+                                 Utils.MemPolicy memPolicy) {
 
         static MemoryOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -387,6 +401,7 @@ public final class MemoryBenchmark {
             Integer treeLength = null;
             Integer windowPower = 21;
             Integer treePower = 21;
+            List<Integer> treePowerList = null;
             Integer alphabetBase = 150;
 
             Integer defaultNgram = 8;
@@ -399,6 +414,7 @@ public final class MemoryBenchmark {
 
             double runConfidence = 0.99;
             boolean reuseSuffix = true;
+            Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -429,7 +445,14 @@ public final class MemoryBenchmark {
                     case "window-length" -> windowLength = Integer.parseInt(value);
                     case "tree-length" -> treeLength = Integer.parseInt(value);
                     case "window-power", "wpow", "wpower" -> windowPower = Integer.parseInt(value);
-                    case "tree-power", "tpow", "tpower" -> treePower = Integer.parseInt(value);
+                    case "tree-power", "tpow", "tpower" -> {
+                        if (value.contains(",")) {
+                            treePowerList = parseIntCsv(value);
+                        } else {
+                            treePower = Integer.parseInt(value);
+                        }
+                    }
+                    case "tree-powers" -> treePowerList = parseIntCsv(value);
                     case "alphabet-base", "alphabet" -> alphabetBase = Integer.parseInt(value);
                     case "fp" -> {
                         if (value.contains(",")) {
@@ -442,6 +465,7 @@ public final class MemoryBenchmark {
                     case "fp-grid" -> fpGridArg = value;
                     case "confidence" -> runConfidence = Double.parseDouble(value);
                     case "reuse-suffix", "reuse-suffix-results" -> reuseSuffix = Boolean.parseBoolean(value);
+                    case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -470,17 +494,49 @@ public final class MemoryBenchmark {
                 windowPower = 31 - Integer.numberOfLeadingZeros(windowLength);
             }
 
-            if (treeLength == null) {
-                treeLength = (treePower != null) ? 1 << treePower : windowLength;
-            } else if (treePower == null) {
-                treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
-            }
+            List<TreeSetting> treeSettings;
+            if (treePowerList != null) {
+                treePowerList = treePowerList.stream().distinct().sorted().collect(Collectors.toList());
+                if (treePowerList.isEmpty()) {
+                    throw new IllegalArgumentException("Empty --tree-power list after parsing");
+                }
+                if (treeLength != null && treePowerList.size() > 1) {
+                    throw new IllegalArgumentException("Cannot specify --tree-length when multiple tree powers are provided");
+                }
+                treeSettings = new ArrayList<>(treePowerList.size());
+                for (int tp : treePowerList) {
+                    if (tp < 0) {
+                        throw new IllegalArgumentException("Tree power must be non-negative: " + tp);
+                    }
+                    if (tp >= 31) {
+                        throw new IllegalArgumentException("Tree power too large: " + tp);
+                    }
+                    int derivedLength = (treeLength != null) ? treeLength : 1 << tp;
+                    if (windowLength < derivedLength) {
+                        throw new IllegalArgumentException(
+                                "Window length must be >= tree length for tree power " + tp);
+                    }
+                    if (windowPower != null && windowPower < tp) {
+                        throw new IllegalArgumentException("Window power must be >= tree power (" + tp + ")");
+                    }
+                    treeSettings.add(new TreeSetting(tp, derivedLength));
+                }
+            } else {
+                if (treeLength == null) {
+                    treeLength = (treePower != null) ? 1 << treePower : windowLength;
+                } else if (treePower == null) {
+                    treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
+                }
 
-            if (windowLength < treeLength) {
-                throw new IllegalArgumentException("Window length must be >= tree length");
-            }
-            if (windowPower != null && treePower != null && windowPower < treePower) {
-                throw new IllegalArgumentException("Window power must be >= tree power");
+                if (windowLength < treeLength) {
+                    throw new IllegalArgumentException("Window length must be >= tree length");
+                }
+                if (windowPower != null && treePower != null && windowPower < treePower) {
+                    throw new IllegalArgumentException("Window power must be >= tree power");
+                }
+
+                int resolvedPower = (treePower != null) ? treePower : 21;
+                treeSettings = List.of(new TreeSetting(resolvedPower, treeLength));
             }
 
             Path resolvedDataRoot = dataRoot.resolve(window);
@@ -492,14 +548,14 @@ public final class MemoryBenchmark {
                     resolvedDataRoot,
                     window,
                     windowPower != null ? windowPower : 21,
-                    treePower != null ? treePower : 21,
+                    List.copyOf(treeSettings),
                     windowLength,
-                    treeLength,
                     alphabetBase,
                     ngramList,
                     fpRates,
                     runConfidence,
-                    reuseSuffix);
+                    reuseSuffix,
+                    memPolicy);
         }
 
         int alphabetSizeFor(int ngram) {
@@ -511,6 +567,22 @@ public final class MemoryBenchmark {
 
         int alphabetSize() {
             return alphabetSizeFor(ngram());
+        }
+
+        private TreeSetting primaryTree() {
+            return treeSettings.get(0);
+        }
+
+        int treePower() {
+            return primaryTree().power();
+        }
+
+        int treeLength() {
+            return primaryTree().length();
+        }
+
+        boolean shouldActivateEstimators() {
+            return memPolicy != Utils.MemPolicy.NONE;
         }
 
         int ngram() {
@@ -534,7 +606,7 @@ public final class MemoryBenchmark {
         }
 
         Path csvOutputFile() {
-            boolean multiCombos = (ngrams.size() > 1) || (fpRates.size() > 1);
+            boolean multiCombos = (ngrams.size() > 1) || (fpRates.size() > 1) || (treeSettings.size() > 1);
             if (multiCombos) {
                 return Path.of("memory_%s_multi.csv".formatted(window));
             }
@@ -588,6 +660,16 @@ public final class MemoryBenchmark {
                 out.add(val);
             }
             return out;
+        }
+
+        private static Utils.MemPolicy parseMemPolicy(String token) {
+            if (token == null || token.isBlank()) return Utils.MemPolicy.NONE;
+            return switch (token.toUpperCase(Locale.ROOT)) {
+                case "NONE" -> Utils.MemPolicy.NONE;
+                case "REACTIVE" -> Utils.MemPolicy.REACTIVE;
+                case "PREDICTIVE" -> Utils.MemPolicy.PREDICTIVE;
+                default -> throw new IllegalArgumentException("Unknown memory policy: " + token);
+            };
         }
     }
 }

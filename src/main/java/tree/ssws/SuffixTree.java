@@ -2,6 +2,7 @@ package tree.ssws;
 
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.openjdk.jol.info.GraphLayout;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -146,6 +147,13 @@ public final class SuffixTree {
      */
     public int getOriginalLength() {
         return originalLength;
+    }
+
+    public long estimateTokenRemapBytes() {
+        if (tokenRemap == null) {
+            return 0L;
+        }
+        return GraphLayout.parseInstance(tokenRemap).totalSize();
     }
 
     /**

@@ -9,6 +9,7 @@ import utilities.PatternResult;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -54,6 +55,22 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
     public long estimateTokenDictionaryBytes() {
         return GraphLayout.parseInstance(this.tokenMapper).totalSize();
     }
+
+    public long estimateSuffixTreeRemapBytes() {
+        long total = 0L;
+        HashSet<Boundary> visited = new HashSet<>();
+        Segment current = head;
+        while (current != null) {
+            total += current.suffixTree.estimateTokenRemapBytes();
+            Boundary boundary = current.rightBoundary;
+            if (boundary != null && visited.add(boundary)) {
+                total += boundary.tree.estimateTokenRemapBytes();
+            }
+            current = current.next;
+        }
+        return total;
+    }
+
     @Override
     public void insert(String key) {
         if (key == null) {
