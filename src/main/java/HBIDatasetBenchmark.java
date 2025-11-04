@@ -42,10 +42,10 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static final String DEFAULT_DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/3/3_W21.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/3/10.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/10.txt";
 
     private static final int WINDOW_LEN       = 1 << 21;
     private static final int TREE_LEN         = 1 << 21;
@@ -53,7 +53,7 @@ public class HBIDatasetBenchmark {
     private static final double DEFAULT_FP_RATE = 0.3;
     private static final int DEFAULT_RUNS     = 1;
     private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 4;
+    private static int NGRAMS                 = 1;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -69,7 +69,7 @@ public class HBIDatasetBenchmark {
             String dataFile = DEFAULT_DATA_FILE;
             String queryFile = DEFAULT_QUERY_FILE;
             double fpRate = DEFAULT_FP_RATE;
-            boolean runSuffix = true;
+            boolean runSuffix = false;
             boolean skipQueries = false;
             int warmupRuns = 0;
             int runs = DEFAULT_RUNS;
@@ -335,7 +335,7 @@ public class HBIDatasetBenchmark {
      */
     private static HBI newHbi(double conf, int alphabet, double fpRate) {
         //ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
-        Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(TREE_LEN);
+        Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier v = new VerifierLinearLeafProbe();

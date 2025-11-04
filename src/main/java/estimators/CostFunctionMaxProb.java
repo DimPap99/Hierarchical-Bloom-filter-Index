@@ -176,7 +176,7 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         final int r = keySeq.length;
 
         double minProb = Arrays.stream(probs).min().orElse(0.0);
-        int minCandidate = MathUtils.pruningLevel(tree, 0.99, minProb);
+        int minCandidate = 0;
         int maxCandidate = MathUtils.pruningLevel(tree, 0.05, minProb);
 
         // Convert to level indices and clamp to valid range

@@ -25,10 +25,12 @@ public final class HOPS {
     private final boolean bucketsIsPow2;
     private final int bucketsMask; // valid only if power of two
 
+    /** Sentinel stored in repKey when a bucket has no representative (requires keys ≥ 0). */
+    private static final long EMPTY_KEY = -1L;
+
     /** Per-bucket state: representative key and its priority. */
     private final long[] repKey;    // representative key per bucket
     private final long[] repPrio;    // representative priority per bucket (lower is better)
-    private final boolean[] filled;  // whether a bucket has any representative
 
     /** Count of non-empty buckets (sample size). */
     private int nonEmpty;
@@ -64,7 +66,7 @@ public final class HOPS {
 
         this.repKey = new long[bucketNum];
         this.repPrio = new long[bucketNum];
-        this.filled = new boolean[bucketNum];
+        Arrays.fill(this.repKey, EMPTY_KEY);
         Arrays.fill(this.repPrio, Long.MAX_VALUE);
         this.nonEmpty = 0;
     }
@@ -78,8 +80,7 @@ public final class HOPS {
     public void insert(long key) {
         final int b = bucketIndex(key);
         final long pr = priorityOf(key);
-        if (!filled[b]) {
-            filled[b] = true;
+        if (isBucketEmpty(b)) {
             repKey[b] = key;
             repPrio[b] = pr;
             nonEmpty++;
@@ -111,7 +112,7 @@ public final class HOPS {
         long[] out = new long[nonEmpty];
         int j = 0;
         for (int i = 0; i < bucketNum; i++) {
-            if (filled[i]) {
+            if (!isBucketEmpty(i)) {
                 out[j++] = repKey[i];
             }
         }
@@ -150,6 +151,20 @@ public final class HOPS {
         return new QuantileEstimate(chosen.key, chosen.frequency);
     }
 
+    /** Convenience overload that wraps an {@link Map} of exact counts. */
+    public int estimateQuantile(Map<Long, Integer> frequencyMap, double quantile) {
+        return estimateQuantileWithKey(frequencyMap, quantile).frequency;
+    }
+
+    /** Convenience overload that also returns the representative key. */
+    public QuantileEstimate estimateQuantileWithKey(Map<Long, Integer> frequencyMap, double quantile) {
+        Objects.requireNonNull(frequencyMap, "frequencyMap");
+        return estimateQuantileWithKey(key -> {
+            Integer count = frequencyMap.get(key);
+            return (count != null) ? count : 0;
+        }, quantile);
+    }
+
 
 
     /**
@@ -159,7 +174,7 @@ public final class HOPS {
     public List<Rep> getRepresentativesWithPriorities() {
         List<Rep> res = new ArrayList<>(nonEmpty);
         for (int i = 0; i < bucketNum; i++) {
-            if (filled[i]) {
+            if (!isBucketEmpty(i)) {
                 res.add(new Rep(repKey[i], repPrio[i], i));
             }
         }
@@ -168,9 +183,9 @@ public final class HOPS {
 
     /** Clear the sample (keep same seeds and bucket count). */
     public void clear() {
-        Arrays.fill(filled, false);
+        Arrays.fill(repKey, EMPTY_KEY);
         Arrays.fill(repPrio, Long.MAX_VALUE);
-        // repKey can be left as-is; 'filled' gates visibility
+        // repKey sentinel marks empty buckets
         nonEmpty = 0;
     }
 
@@ -190,18 +205,23 @@ public final class HOPS {
             throw new IllegalArgumentException("seed mismatch; cannot merge");
         }
         for (int i = 0; i < bucketNum; i++) {
-            if (!this.filled[i]) {
-                if (other.filled[i]) {
-                    this.filled[i] = true;
+            boolean thisEmpty = isBucketEmpty(i);
+            boolean otherEmpty = other.isBucketEmpty(i);
+            if (thisEmpty) {
+                if (!otherEmpty) {
                     this.repKey[i] = other.repKey[i];
                     this.repPrio[i] = other.repPrio[i];
                     this.nonEmpty++;
                 }
-            } else if (other.filled[i] && unsignedLessThan(other.repPrio[i], this.repPrio[i])) {
+            } else if (!otherEmpty && unsignedLessThan(other.repPrio[i], this.repPrio[i])) {
                 this.repKey[i] = other.repKey[i];
                 this.repPrio[i] = other.repPrio[i];
             }
         }
+    }
+
+    private boolean isBucketEmpty(int bucketIndex) {
+        return repKey[bucketIndex] == EMPTY_KEY;
     }
 
     //  hashing and comparisons

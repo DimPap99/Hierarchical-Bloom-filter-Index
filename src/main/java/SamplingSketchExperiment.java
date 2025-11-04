@@ -99,7 +99,7 @@ import static estimators.HOPS.mix64;
         private static List<?> suiteACsvHeader() {
             return List.of(
                     "dataset","dataset_mode","stream_len","alphabet","buckets_configured",
-                    "source_dist","zipf_exponent","quantile_target",
+                    "source_dist","zipf_exponent","quantile_target","dataset_ngram",
                     "eps_target","delta_q","delta_samp","delta_tot","Dhat",
                     "B_suggested","n_req","E_nb","Var_nb","LB_nb",
                     "Sactive","Bused","nb_MPQ","eps_DKW_MPQ",
@@ -115,48 +115,188 @@ import static estimators.HOPS.mix64;
             );
         }
 
-        // --- replace suiteACsvRow(...) with this ---
-        private static List<?> suiteACsvRow(TrialResult r, double exponent) {
-            // design fields (when auto-design is ON)
-            int    B_suggested = (r.design != null) ? r.design.suggestedBuckets    : r.Bused;
-            int    n_req       = (r.design != null) ? r.design.requiredSampleSize : -1;
-            double E_nb        = (r.design != null) ? r.design.expectedNonEmpty    : Double.NaN;
-            double Var_nb      = (r.design != null) ? r.design.variance           : Double.NaN;
-            int    LB_nb       = (r.design != null) ? r.design.occupancyLowerBound : -1;
+        private static List<?> buildAggregatedCsvRow(List<TrialResult> rs) {
+            TrialResult base = rs.get(0);
+            int n = rs.size();
+            double invN = 1.0 / n;
 
-            boolean unionSuccess = r.mpqInDKWValueBand && r.occLBMet;
-            double  deltaTot     = r.delta + r.deltaSampUsed;
-            double  pBandWidth   = r.pHiMPQ - r.pLoMPQ;
-            int     xBandWidth   = r.xHiMPQ - r.xLoMPQ;
+            double sumSactive = 0.0, sumBused = 0.0, sumNbMPQ = 0.0, sumEpsMPQ = 0.0;
+            double sumPLoMPQ = 0.0, sumPHiMPQ = 0.0, sumPBand = 0.0;
+            double sumXLoMPQ = 0.0, sumXHiMPQ = 0.0, sumXBand = 0.0;
+            double sumXMPQ = 0.0, sumPctErrMPQ = 0.0, sumPAchMPQ = 0.0, sumRankErrMPQ = 0.0;
+            double sumNsInsMPQ = 0.0, sumNsCloseMPQ = 0.0;
+
+            double sumNbBK = 0.0, sumEpsBK = 0.0, sumXLoBK = 0.0, sumXHiBK = 0.0;
+            double sumXBK = 0.0, sumPctErrBK = 0.0, sumPAchBK = 0.0, sumRankErrBK = 0.0;
+            double sumNsInsBK = 0.0, sumNsCloseBK = 0.0;
+
+            double sumTruth = 0.0, sumMPQMs = 0.0, sumBKMs = 0.0;
+            double sumEpsTarget = 0.0, sumDeltaSamp = 0.0, sumDeltaTot = 0.0, sumDhat = 0.0;
+
+            double sumBSuggested = 0.0, sumNReq = 0.0, sumENb = 0.0, sumVarNb = 0.0, sumLB = 0.0;
+
+            int insideCount = 0;
+            int occSuccess = 0;
+            int unionSuccess = 0;
+            int designCount = 0;
+
+            for (TrialResult r : rs) {
+                sumSactive += r.Sactive;
+                sumBused += r.Bused;
+                sumNbMPQ += r.nbMPQ;
+                sumEpsMPQ += r.epsMPQ;
+                sumPLoMPQ += r.pLoMPQ;
+                sumPHiMPQ += r.pHiMPQ;
+                sumPBand += (r.pHiMPQ - r.pLoMPQ);
+                sumXLoMPQ += r.xLoMPQ;
+                sumXHiMPQ += r.xHiMPQ;
+                sumXBand += (r.xHiMPQ - r.xLoMPQ);
+                sumXMPQ += r.xMPQ;
+                sumPctErrMPQ += r.pctErrMPQ;
+                sumPAchMPQ += r.pAchMPQ;
+                sumRankErrMPQ += r.rankErrMPQ;
+                sumNsInsMPQ += r.nsPerInsertMPQ;
+                sumNsCloseMPQ += r.closeNsPerItemMPQ;
+
+                sumNbBK += r.nbBK;
+                sumEpsBK += r.epsBK;
+                sumXLoBK += r.xLoBK;
+                sumXHiBK += r.xHiBK;
+                sumXBK += r.xBK;
+                sumPctErrBK += r.pctErrBK;
+                sumPAchBK += r.pAchBK;
+                sumRankErrBK += r.rankErrBK;
+                sumNsInsBK += r.nsPerInsertBK;
+                sumNsCloseBK += r.closeNsPerItemBK;
+
+                sumTruth += r.xTrue;
+                sumMPQMs += r.tMPQMs;
+                sumBKMs += r.tBKMs;
+
+                sumEpsTarget += r.epsTargetUsed;
+                sumDeltaSamp += r.deltaSampUsed;
+                sumDeltaTot += r.delta + r.deltaSampUsed;
+                sumDhat += r.DhatUsed;
+
+                int suggested = (r.design != null) ? r.design.suggestedBuckets : r.Bused;
+                sumBSuggested += suggested;
+                int nReq = (r.design != null) ? r.design.requiredSampleSize : r.Bused;
+                sumNReq += nReq;
+
+                if (r.design != null) {
+                    designCount++;
+                    sumENb += r.design.expectedNonEmpty;
+                    sumVarNb += r.design.variance;
+                    sumLB += r.design.occupancyLowerBound;
+                }
+
+                if (r.mpqInDKWValueBand) insideCount++;
+                if (r.design != null && r.occLBMet) occSuccess++;
+                if (r.design != null && r.occLBMet && r.mpqInDKWValueBand) unionSuccess++;
+            }
+
+            double avgSactive = sumSactive * invN;
+            double avgBused = sumBused * invN;
+            double avgNbMPQ = sumNbMPQ * invN;
+            double avgEpsMPQ = sumEpsMPQ * invN;
+            double avgPLoMPQ = sumPLoMPQ * invN;
+            double avgPHiMPQ = sumPHiMPQ * invN;
+            double avgPBand = sumPBand * invN;
+            double avgXLoMPQ = sumXLoMPQ * invN;
+            double avgXHiMPQ = sumXHiMPQ * invN;
+            double avgXBand = sumXBand * invN;
+            double avgXMPQ = sumXMPQ * invN;
+            double avgPctErrMPQ = sumPctErrMPQ * invN;
+            double avgPAchMPQ = sumPAchMPQ * invN;
+            double avgRankErrMPQ = sumRankErrMPQ * invN;
+            double avgNsInsMPQ = sumNsInsMPQ * invN;
+            double avgNsCloseMPQ = sumNsCloseMPQ * invN;
+
+            double avgNbBK = sumNbBK * invN;
+            double avgEpsBK = sumEpsBK * invN;
+            double avgXLoBK = sumXLoBK * invN;
+            double avgXHiBK = sumXHiBK * invN;
+            double avgXBK = sumXBK * invN;
+            double avgPctErrBK = sumPctErrBK * invN;
+            double avgPAchBK = sumPAchBK * invN;
+            double avgRankErrBK = sumRankErrBK * invN;
+            double avgNsInsBK = sumNsInsBK * invN;
+            double avgNsCloseBK = sumNsCloseBK * invN;
+
+            double avgTruth = sumTruth * invN;
+            double avgMPQMs = sumMPQMs * invN;
+            double avgBKMs = sumBKMs * invN;
+
+            double avgEpsTarget = sumEpsTarget * invN;
+            double avgDeltaSamp = sumDeltaSamp * invN;
+            double avgDeltaTot = sumDeltaTot * invN;
+            double avgDhat = sumDhat * invN;
+
+            double avgBSuggested = sumBSuggested * invN;
+            double avgNReq = sumNReq * invN;
+            double avgENb = (designCount > 0) ? sumENb / designCount : Double.NaN;
+            double avgVarNb = (designCount > 0) ? sumVarNb / designCount : Double.NaN;
+            double avgLB = (designCount > 0) ? sumLB / designCount : Double.NaN;
+
+            double insideRate = insideCount * invN;
+            double occRate = (designCount > 0) ? occSuccess / (double) designCount : Double.NaN;
+            double unionRate = (designCount > 0) ? unionSuccess / (double) designCount : Double.NaN;
 
             return List.of(
-                    r.datasetLabel, r.datasetMode, r.streamLength, r.alphabetConfigured, r.bucketsConfigured,
-                    r.distributionLabel, r.zipfExponent, r.pTarget,
-                    // knobs
-                    r.epsTargetUsed, r.delta, r.deltaSampUsed, deltaTot, r.DhatUsed,
-                    // design
-                    B_suggested, n_req, E_nb, Var_nb, LB_nb,
-                    // sizes
-                    r.Sactive, r.Bused, r.nbMPQ, r.epsMPQ,
-                    // bands (MPQ)
-                    r.pLoMPQ, r.pHiMPQ, pBandWidth,
-                    r.xLoMPQ, r.xHiMPQ, xBandWidth,
-                    // MPQ estimate & checks
-                    r.xMPQ, r.pctErrMPQ, r.pAchMPQ, r.rankErrMPQ,
-                    r.mpqInDKWValueBand ? "TRUE" : "FALSE",
-                    r.occLBMet ? "TRUE" : "FALSE",
-                    unionSuccess ? "TRUE" : "FALSE",
-                    // costs (MPQ)
-                    r.nsPerInsertMPQ, r.closeNsPerItemMPQ,
-                    // BK side
-                    r.nbBK, r.epsBK, r.xLoBK, r.xHiBK,
-                    r.xBK, r.pctErrBK, r.pAchBK, r.rankErrBK,
-                    r.nsPerInsertBK, r.closeNsPerItemBK,
-                    // truth + times
-                    r.xTrue, (int) r.tMPQMs, (int) r.tBKMs, exponent
+                    base.datasetLabel,
+                    base.datasetMode,
+                    base.streamLength,
+                    base.alphabetConfigured,
+                    base.bucketsConfigured,
+                    base.distributionLabel,
+                    base.zipfExponent,
+                    base.pTarget,
+                    base.datasetNgram,
+                    avgEpsTarget,
+                    base.delta,
+                    avgDeltaSamp,
+                    avgDeltaTot,
+                    avgDhat,
+                    avgBSuggested,
+                    avgNReq,
+                    avgENb,
+                    avgVarNb,
+                    avgLB,
+                    avgSactive,
+                    avgBused,
+                    avgNbMPQ,
+                    avgEpsMPQ,
+                    avgPLoMPQ,
+                    avgPHiMPQ,
+                    avgPBand,
+                    avgXLoMPQ,
+                    avgXHiMPQ,
+                    avgXBand,
+                    avgXMPQ,
+                    avgPctErrMPQ,
+                    avgPAchMPQ,
+                    avgRankErrMPQ,
+                    insideRate,
+                    occRate,
+                    unionRate,
+                    avgNsInsMPQ,
+                    avgNsCloseMPQ,
+                    avgNbBK,
+                    avgEpsBK,
+                    avgXLoBK,
+                    avgXHiBK,
+                    avgXBK,
+                    avgPctErrBK,
+                    avgPAchBK,
+                    avgRankErrBK,
+                    avgNsInsBK,
+                    avgNsCloseBK,
+                    avgTruth,
+                    avgMPQMs,
+                    avgBKMs,
+                    EXPONENT
             );
         }
-
         private static Options parseArgs(String[] args) {
             if (args.length > 0 && !args[0].startsWith("--")) {
                 return parseLegacyArgs(args);
@@ -412,14 +552,14 @@ import static estimators.HOPS.mix64;
                 needHeader = false;
             }
 
-            List<List<?>> rows = new ArrayList<>(rs.size() + 1);
+            List<List<?>> rows = new ArrayList<>(needHeader ? 2 : 1);
             if (needHeader) rows.add(suiteACsvHeader());
-            for (TrialResult r : rs) rows.add(suiteACsvRow(r, EXPONENT));
+            rows.add(buildAggregatedCsvRow(rs));
 
             try (OutputStream os = Files.newOutputStream(out, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
                 CsvUtil.writeRows(os, rows, CsvUtil.Config.defaults());
             }
-            System.out.printf("CSV: wrote %d trial row(s) to %s (append)\n", rs.size(), out.toAbsolutePath());
+            System.out.printf("CSV: wrote aggregate row (based on %d trials) to %s (append)\n", rs.size(), out.toAbsolutePath());
         }
 
         private static DatasetStream loadDataset(Options opts) throws IOException {
@@ -754,7 +894,7 @@ import static estimators.HOPS.mix64;
 
             long tMPQ0 = System.currentTimeMillis();
             for (long key : stream) mpq.insert(key);
-            int xMPQ = mpq.estimateQuantile(k -> freq.getOrDefault(k, 0), p);
+            int xMPQ = mpq.estimateQuantile(freq, p);
             long tMPQMs = System.currentTimeMillis() - tMPQ0;
             int nbMPQ = mpq.sampleSize();
             double epsMPQ = dkwRankEpsilon(nbMPQ, delta);
@@ -1187,33 +1327,22 @@ import static estimators.HOPS.mix64;
         /**
          * Print one Suite-A CSV row for a single trial result.
          */
-        private static void printSuiteACsvRow(TrialResult r) {
-            String inside = r.mpqInDKWValueBand ? "TRUE" : "FALSE";
-            String occOK = r.occLBMet ? "TRUE" : "FALSE";
-
-            // Design fields (present when auto-design is enabled)
-            int B_suggested = (r.design != null) ? r.design.suggestedBuckets : r.Bused;
-            int n_req = (r.design != null) ? r.design.requiredSampleSize : -1;
-            double E_nb = (r.design != null) ? r.design.expectedNonEmpty : Double.NaN;
-            double Var_nb = (r.design != null) ? r.design.variance : Double.NaN;
-            int LB_nb = (r.design != null) ? r.design.occupancyLowerBound : -1;
-
-            System.out.printf(
-                    Locale.US,
-                    "%s,%s,%d,%d,%d,%s,%.4f,%.5f,%d," +         // dataset metadata
-                            "%.3f,%.2f,%.3f,%d,%d,%d,%.2f,%.2f,%d," +   // eps_target, delta_q, delta_samp, Dhat, B_suggested, n_req, E_nb, Var_nb, LB_nb
-                            "%d,%d,%d,%.5f,%.5f,%.5f,%d,%d," +          // Sactive, Bused, nb_MPQ, eps_DKW_MPQ, p_lo_MPQ, p_hi_MPQ, x_lo_MPQ, x_hi_MPQ
-                            "%d,%.3f,%.5f,%.5f,%s,%s,%.3f,%.3f," +      // MPQ_xhat, MPQ_value_error_pct, MPQ_achieved_percentile, MPQ_rank_error, inside_band_MPQ, occupancy_ok, ns_per_insert_MPQ, ns_close_MPQ
-                            "%d,%.5f,%d,%d,%d,%.3f,%.5f,%.5f,%.3f,%.3f," + // nb_BK, eps_DKW_BK, x_lo_BK, x_hi_BK, BK_xhat, BK_value_error_pct, BK_achieved_percentile, BK_rank_error, ns_per_insert_BK, ns_close_BK
-                            "%d,%d,%d%n",                                // truth_x_p, mpq_time_ms, bk_time_ms
-                    r.datasetLabel, r.datasetMode, r.streamLength, r.alphabetConfigured, r.bucketsConfigured, r.distributionLabel,
-                    r.zipfExponent, r.pTarget, r.datasetNgram,
-                    r.epsTargetUsed, r.delta, r.deltaSampUsed, r.DhatUsed, B_suggested, n_req, E_nb, Var_nb, LB_nb,
-                    r.Sactive, r.Bused, r.nbMPQ, r.epsMPQ, r.pLoMPQ, r.pHiMPQ, r.xLoMPQ, r.xHiMPQ,
-                    r.xMPQ, r.pctErrMPQ, r.pAchMPQ, r.rankErrMPQ, inside, occOK, r.nsPerInsertMPQ, r.closeNsPerItemMPQ,
-                    r.nbBK, r.epsBK, r.xLoBK, r.xHiBK, r.xBK, r.pctErrBK, r.pAchBK, r.rankErrBK, r.nsPerInsertBK, r.closeNsPerItemBK,
-                    r.xTrue, r.tMPQMs, r.tBKMs
-            );
+        private static void printSuiteACsvRow(List<?> row) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < row.size(); i++) {
+                if (i > 0) sb.append(',');
+                Object value = row.get(i);
+                if (value instanceof Double d) {
+                    if (Double.isNaN(d)) {
+                        sb.append("NaN");
+                    } else {
+                        sb.append(String.format(Locale.US, "%.6f", d));
+                    }
+                } else {
+                    sb.append(value);
+                }
+            }
+            System.out.println(sb);
         }
 
 
@@ -1308,6 +1437,10 @@ import static estimators.HOPS.mix64;
 
             List<TrialResult> allResults = new ArrayList<>(opts.trials * opts.deltaQs.size() * opts.quantiles.size());
 
+            if (opts.csvPath != null && !opts.csvAppend) {
+                Files.deleteIfExists(opts.csvPath);
+            }
+
             for (int qIdx = 0; qIdx < opts.quantiles.size(); qIdx++) {
                 double quantile = opts.quantiles.get(qIdx);
                 double epsTarget = opts.rankEpsTargets.size() == 1
@@ -1365,17 +1498,16 @@ import static estimators.HOPS.mix64;
                     }
 
                     summarize(comboResults, quantile, deltaQ);
+
+                    if (opts.csvPath != null) {
+                        writeSuiteACsv(opts.csvPath, comboResults);
+                    }
                 }
             }
 
-            if (opts.csvPath != null) {
-                if (!opts.csvAppend) {
-                    Files.deleteIfExists(opts.csvPath);
-                }
-                writeSuiteACsv(opts.csvPath, allResults);
-            } else if (allResults.size() == 1) {
+            if (opts.csvPath == null && allResults.size() == 1) {
                 printSuiteACsvHeader();
-                printSuiteACsvRow(allResults.get(0));
+                printSuiteACsvRow(buildAggregatedCsvRow(allResults));
             }
         }
     }

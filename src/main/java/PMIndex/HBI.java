@@ -171,6 +171,7 @@ public final class HBI implements IPMIndexing {
                 .costFunction(cf)
                 .confidence(conf)
                 .nGram(nGram)
+                .memPolicy(Utils.MemPolicy.REACTIVE)
                 .build());
     }
 
