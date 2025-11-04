@@ -118,11 +118,11 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         }
 
         if (lpCache == null
-            || lpCache.width != tree.baseIntervalSize()
-            || lpCache.r != keySeq.length
-            || lpCache.keySeqRef != keySeq
-            || lpCache.probsRef != probs
-            || !lpCache.covers(Lp)) {
+                || lpCache.width != tree.baseIntervalSize()
+                || lpCache.r != keySeq.length
+                || lpCache.keySeqRef != keySeq
+                || lpCache.probsRef != probs
+                || !lpCache.covers(Lp)) {
             buildLpCache(tree, probs, keySeq, Lp);
         }
 
@@ -231,10 +231,10 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
 
             if (level >= 1) {
                 final double[] qCond = MathUtils.qCondChildGivenParent(probs,
-                                                                       width,
-                                                                       level,
-                                                                       beta[level - 1],
-                                                                       beta[level]);
+                        width,
+                        level,
+                        beta[level - 1],
+                        beta[level]);
                 HF hfCond = HF_from_q_preindexed(ell, first, mult, qCond);
                 H_cond[idx] = hfCond.H;
                 F_cond[idx] = hfCond.F;
@@ -245,21 +245,21 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         }
 
         this.lpCache = new LpCostCache(width,
-                                       r,
-                                       maxLevel,
-                                       Ldesc,
-                                       minLevel,
-                                       upperLevel,
-                                       keySeq,
-                                       probs,
-                                       beta,
-                                       H_uncond,
-                                       F_uncond,
-                                       H_cond,
-                                       F_cond,
-                                       childCanHostFrom,
-                                       firstIdx,
-                                       segMult);
+                r,
+                maxLevel,
+                Ldesc,
+                minLevel,
+                upperLevel,
+                keySeq,
+                probs,
+                beta,
+                H_uncond,
+                F_uncond,
+                H_cond,
+                F_cond,
+                childCanHostFrom,
+                firstIdx,
+                segMult);
     }
 
     private static int clampLevel(int level, int maxLevel) {
