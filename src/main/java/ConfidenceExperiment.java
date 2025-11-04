@@ -45,8 +45,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/zipf_21_1.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/zipf21_1/unique_substrings_zipf21_1_10.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/20.uniform.txt";
 
     private static final int TextSize = 21;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -58,10 +58,10 @@ public class ConfidenceExperiment {
     private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
     // n-grams for this experiment
-    private static int NGRAMS = 1;
+    private static int NGRAMS = 4;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
-    private static int ALPHABET = 74;
+    private static int ALPHABET = 89;
 
     /** ---------------------------------------
      *  Data structures for accuracy reporting
@@ -211,6 +211,13 @@ public class ConfidenceExperiment {
                 sumQueryLoadMs += qMs;
                 nextQueryAt += windowLen;
             }
+        }
+
+        // If the stream was shorter than the window threshold, make sure we still run the queries once
+        if (tokensSeen > 0 && queryLoads == 0) {
+            long qMs = runQueryLoadSegments(index, queries, ngram, verbose, collectResults, patternResultsList);
+            queryLoads++;
+            sumQueryLoadMs += qMs;
         }
 
         double totalInsertMs = totalInsertNanos / 1_000_000.0;

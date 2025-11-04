@@ -39,10 +39,10 @@ public class Pattern{
     }
 
     public Pattern(String[] s, int nGram) {
-//        this.text = s.toCharArray();
+        this.patternTxt = String.join(" ", s);
+        this.text = this.patternTxt.toCharArray();
         size = s.length;
         this.originalSz = s.length;
-//        this.patternTxt = s;
         this.nGram = nGram;
 
         int len = size - nGram + 1;
