@@ -40,8 +40,7 @@ public final class IndexFactory {
                                 double confidence,
                                 Utils.MemPolicy memPolicy,
                                 int ngram) {
-        // Backward-compatible default: bs
-        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, "bs");
+        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, "bs", 0.05, 0);
     }
 
     public static HBI createHbi(int windowLength,
@@ -52,6 +51,19 @@ public final class IndexFactory {
                                 Utils.MemPolicy memPolicy,
                                 int ngram,
                                 String algorithm) {
+        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, algorithm, 0.05, 0);
+    }
+
+    public static HBI createHbi(int windowLength,
+                                int treeLength,
+                                int alphabetSize,
+                                double fpRate,
+                                double confidence,
+                                Utils.MemPolicy memPolicy,
+                                int ngram,
+                                String algorithm,
+                                double quantile,
+                                int policyBuckets) {
         //Countsketch: ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
         Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
@@ -86,6 +98,8 @@ public final class IndexFactory {
             }
         }
 
+        boolean activateEstimators = memPolicy != Utils.MemPolicy.NONE && costFn instanceof CostFunctionDefaultRoot;
+
         HbiConfiguration configuration = HbiConfiguration.builder()
                 .searchAlgorithm(search)
                 .windowLength(windowLength)
@@ -102,9 +116,13 @@ public final class IndexFactory {
                 .collectStats(false)
                 .nGram(ngram)
                 .memPolicy(memPolicy)
+                .activateEstim(activateEstimators)
+                .buckets(Math.max(0, policyBuckets))
                 .build();
 
-        return new HBI(configuration);
+        HBI hbi = new HBI(configuration);
+        hbi.QUANTILE = Math.max(0.0, Math.min(1.0, quantile));
+        return hbi;
     }
 
     public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength) {

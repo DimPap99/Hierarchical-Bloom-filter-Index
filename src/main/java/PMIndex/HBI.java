@@ -312,6 +312,24 @@ public final class HBI implements IPMIndexing {
         // Additional policies (e.g., PREDICTIVE) can consume lastPolicyQuantileKey as needed.
     }
 
+    /**
+     * Force memory policy evaluation on the most recent tree even if no new
+     * insert arrives to trigger it naturally. Safe to call after finishing a
+     * bulk load so the last tree prunes according to the configured policy.
+     */
+    public void forceApplyMemoryPolicy() {
+        if (!memoryPolicyActive() || this.trees.isEmpty()) {
+            return;
+        }
+
+        ImplicitTree<Membership> latestTree = this.trees.getLast();
+        if (latestTree.indexedItemsCounter < 0 || latestTree.estimator == null) {
+            return; // No data or estimator available yet.
+        }
+
+        applyMemoryPolicy();
+    }
+
 
     public long getLastPolicyQuantileKey() {
         return lastPolicyQuantileKey;

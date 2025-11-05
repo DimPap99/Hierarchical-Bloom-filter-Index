@@ -75,6 +75,14 @@ public final class BenchmarkReporter {
         header.add("delta");
         header.add("window_power");
         header.add("tree_power");
+        header.add("rank_eps");
+        header.add("delta_q");
+        header.add("delta_samp");
+        header.add("quantile");
+        header.add("policy_buckets");
+        header.add("policy_n_req");
+        header.add("policy_lb");
+        header.add("policy_impossible");
 
         List<List<Object>> csvRows = new ArrayList<>();
         csvRows.add(header);
@@ -116,6 +124,22 @@ public final class BenchmarkReporter {
                 row.add(deltaVal);
                 row.add(options.windowPower());
                 row.add(options.treePower());
+                row.add(options.rankEpsTarget());
+                row.add(options.deltaQ());
+                row.add(options.deltaSamp());
+                row.add(options.quantile());
+                if (options.memPolicy() != Utils.MemPolicy.NONE) {
+                    Utils.HopsDesignResult design = options.policyDesignFor(ng);
+                    row.add(design.suggestedBuckets);
+                    row.add(design.requiredSampleSize);
+                    row.add(design.occupancyLowerBound);
+                    row.add(design.impossible);
+                } else {
+                    row.add(null);
+                    row.add(null);
+                    row.add(null);
+                    row.add(null);
+                }
                 csvRows.add(row);
             }
         }

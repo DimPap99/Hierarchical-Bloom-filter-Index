@@ -153,6 +153,7 @@ public final class  MathUtils {
             final int L        = (int) Math.ceil(val);
 
             lp = Math.min(L, Lmax);
+
         }
         return (int) Math.max(0, lp);
     }

@@ -38,7 +38,11 @@ public record MultiBenchmarkOptions(
         Utils.MemPolicy memPolicy,
         int suffixDelta,
         boolean reuseSuffixResults,
-        boolean reinsertPerWorkload) {
+        boolean reinsertPerWorkload,
+        double rankEpsTarget,
+        double deltaQ,
+        double deltaSamp,
+        double quantile) {
 
     public static MultiBenchmarkOptions parse(String[] args) {
         Path dataRoot = Path.of("data");
@@ -61,6 +65,10 @@ public record MultiBenchmarkOptions(
         String fpGridArg = null;
 
         double runConfidence = 0.99;
+        double rankEpsTarget = 0.025;
+        double deltaQ = 0.05;
+        double deltaSamp = 0.05;
+        double quantile = 0.05;
         int warmupRuns = 0;
         int runs = 1;
         boolean runRegexBaseline = false;
@@ -136,8 +144,25 @@ public record MultiBenchmarkOptions(
                 case "reinsert-per-workload" -> reinsertPerWorkload = Boolean.parseBoolean(value);
                 case "suffix-delta" -> suffixDelta = Integer.parseInt(value);
                 case "reuse-suffix", "reuse-suffix-results" -> reuseSuffixResults = Boolean.parseBoolean(value);
+                case "epsilon", "eps", "rank-eps", "eps-target" -> rankEpsTarget = Double.parseDouble(value);
+                case "delta-q" -> deltaQ = Double.parseDouble(value);
+                case "delta-samp", "delta-sample" -> deltaSamp = Double.parseDouble(value);
+                case "p", "quantile" -> quantile = Double.parseDouble(value);
                 default -> throw new IllegalArgumentException("Unknown option --" + key);
             }
+        }
+
+        if (!(rankEpsTarget > 0.0 && rankEpsTarget < 1.0)) {
+            throw new IllegalArgumentException("--epsilon must be in (0,1)");
+        }
+        if (!(deltaQ > 0.0 && deltaQ < 1.0)) {
+            throw new IllegalArgumentException("--delta-q must be in (0,1)");
+        }
+        if (!(deltaSamp > 0.0 && deltaSamp < 1.0)) {
+            throw new IllegalArgumentException("--delta-samp must be in (0,1)");
+        }
+        if (!(quantile > 0.0 && quantile <= 1.0)) {
+            throw new IllegalArgumentException("--p must be in (0,1]");
         }
 
         if (window == null) throw new IllegalArgumentException("--window is required");
@@ -232,7 +257,11 @@ public record MultiBenchmarkOptions(
                 policy,
                 suffixDelta,
                 reuseSuffixResults,
-                reinsertPerWorkload
+                reinsertPerWorkload,
+                rankEpsTarget,
+                deltaQ,
+                deltaSamp,
+                quantile
         );
     }
 
@@ -251,6 +280,11 @@ public record MultiBenchmarkOptions(
         double pow = Math.pow(alphabetBase, ngram);
         double sigma = Math.min(pow, windowLength);
         return (sigma >= Integer.MAX_VALUE) ? Integer.MAX_VALUE : (int) sigma;
+    }
+
+    public Utils.HopsDesignResult policyDesignFor(int ngram) {
+        int distinctEstimate = Math.max(1, alphabetSizeFor(ngram));
+        return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, deltaQ, deltaSamp);
     }
 
     public String queryTypeLabel() { return queryType != null ? queryType.fileToken() : "all"; }

@@ -234,6 +234,9 @@ public final class MemoryBenchmark {
         HBI hbi = newHbi(options, treeSetting, ngram, fpRate);
         hbi.strides = USE_STRIDES;
         MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ngram);
+        if (options.memPolicy() != Utils.MemPolicy.NONE) {
+            hbi.forceApplyMemoryPolicy();
+        }
 
         GraphLayout layout = GraphLayout.parseInstance(hbi);
         long bytes = layout.totalSize();
