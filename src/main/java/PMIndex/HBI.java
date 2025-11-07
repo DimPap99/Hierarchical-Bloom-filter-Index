@@ -516,7 +516,7 @@ public final class HBI implements IPMIndexing {
             }
 //            int lp2 = alignedSeedLevel(tree, this.windowLength, this.trees.size(), pat, 1 << lp);
 
-            scn.seedLevel(0);
+            scn.seedLevel(Math.max(0, lp));
 
             // Walk candidate intervals from this tree
             while (scn.hasNext()) {
