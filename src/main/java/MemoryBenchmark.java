@@ -22,6 +22,7 @@ import search.VerifierLinearLeafProbe;
 import utilities.CsvUtil;
 import utilities.MultiQueryExperiment;
 import utilities.Utils;
+import utilities.SegmentModeRunner;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -58,13 +59,11 @@ import java.util.stream.Stream;
  *
  * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
  *
- * suffix_total_mem_mib counts the StreamingSlidingWindowIndex while excluding only the per-tree
- * dense remap maps (Int2IntOpenHashMap instances inside each suffix tree). This keeps the token
- * dictionary in the total so the figure matches the memory that needs to be resident at runtime.
+ * suffix_total_mem_mib now keeps every byte reported by JOL, including the per-tree token remap
+ * structures. This aligns the footprint with the actual implementation used in benchmarks.
  *
- * suffix_core_mem_mib additionally subtracts the (now-empty) token dictionary so the
- * column remains comparable with historical runs. With the stateless token hasher, this
- * value currently matches suffix_total_mem_mib.
+ * suffix_core_mem_mib subtracts the dictionary portion only (should be near-zero today) so legacy
+ * comparisons that tracked “core” structures remain available.
  *
  * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
  *
@@ -85,8 +84,8 @@ public final class MemoryBenchmark {
         MemoryOptions options = MemoryOptions.parse(args);
 
         System.out.printf(Locale.ROOT,
-                "Running memory benchmark on window %s under %s%n",
-                options.window(), options.dataRoot());
+                "Running memory benchmark on window %s under %s (mode=%s)%n",
+                options.window(), options.dataRoot(), options.mode());
 
         List<Path> datasetDirs = listDatasetDirectories(options.dataRoot());
         if (datasetDirs.isEmpty()) {
@@ -127,17 +126,22 @@ public final class MemoryBenchmark {
                 SuffixMeasurement suffixStats;
                 if (options.reuseSuffixResults() && suffixCache.containsKey(ngram)) {
                     suffixStats = suffixCache.get(ngram);
-                    System.out.printf(Locale.ROOT, "Reusing suffix measurement for ngram %d%n", ngram);
+                    System.out.printf(Locale.ROOT, "Reusing suffix measurement for suffix ngram %d%n", suffixStats.ngram());
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex total (reuse, excluding token remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex total (reuse, including token remaps): %d B (%.3f MiB) [ngram=%d]%n",
                             suffixStats.totalBytes(),
                             suffixStats.totalMiB(),
-                            ngram);
+                            suffixStats.ngram());
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex core (reuse, excluding token dictionary (if any) & remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex core (reuse, excluding token dictionary only): %d B (%.3f MiB) [ngram=%d]%n",
                             suffixStats.coreBytes(),
                             suffixStats.coreMiB(),
-                            ngram);
+                            suffixStats.ngram());
+                    System.out.printf(Locale.ROOT,
+                            "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
+                            suffixStats.remapBytes(),
+                            suffixStats.remapMiB(),
+                            suffixStats.ngram());
                 } else {
                     suffixStats = buildAndMeasureSuffix(datasetFile, options, ngram);
                     if (options.reuseSuffixResults()) {
@@ -146,7 +150,7 @@ public final class MemoryBenchmark {
                 }
 
                 if (regexCache == null) {
-                    regexCache = buildAndMeasureRegex(datasetFile);
+                    regexCache = buildAndMeasureRegex(datasetFile, options);
                 }
 
                 for (TreeSetting treeSetting : options.treeSettings()) {
@@ -194,6 +198,25 @@ public final class MemoryBenchmark {
 
         Verifier verifier = new VerifierLinearLeafProbe();
 
+        int derivedBuckets = 0;
+        if (options.memPolicy() != Utils.MemPolicy.NONE) {
+            if (options.hasExplicitPolicyBuckets()) {
+                derivedBuckets = options.policyBuckets();
+            } else {
+                Utils.HopsDesignResult design = options.policyDesignFor(nGram);
+                if (design != null) {
+                    derivedBuckets = Math.max(1, design.suggestedBuckets);
+                    System.out.printf(Locale.ROOT,
+                            "  Policy auto-design -> Dhat=%d, buckets=%d, n_req=%d, LB=%d%s%n",
+                            Math.max(1, options.alphabetSizeFor(nGram)),
+                            design.suggestedBuckets,
+                            design.requiredSampleSize,
+                            design.occupancyLowerBound,
+                            design.impossible ? " (target unattainable with Dhat)" : "");
+                }
+            }
+        }
+
         HbiConfiguration configuration = HbiConfiguration.builder()
                 .searchAlgorithm(new BlockSearch())
                 .windowLength(windowLen)
@@ -210,11 +233,13 @@ public final class MemoryBenchmark {
                 .experimentMode(false)
                 .collectStats(false)
                 .activateEstim(options.shouldActivateEstimators())
-                .buckets(options.policyBuckets())
+                .buckets(derivedBuckets)
                 .nGram(nGram)
                 .build();
 
-        return new HBI(configuration);
+        HBI hbi = new HBI(configuration);
+        hbi.QUANTILE = options.quantile();
+        return hbi;
     }
 
     /**
@@ -222,7 +247,8 @@ public final class MemoryBenchmark {
      */
     private static StreamingSlidingWindowIndex newSuffixIndex(MemoryOptions options, int nGram) {
         int windowSize = options.windowLength();
-        int expectedAlphabetSize = options.alphabetSizeFor(nGram);
+        // Suffix index always operates on unigrams regardless of benchmarked n-gram setting.
+        int expectedAlphabetSize = options.alphabetSizeFor(1);
         return new StreamingSlidingWindowIndex(windowSize, expectedAlphabetSize);
     }
 
@@ -233,7 +259,15 @@ public final class MemoryBenchmark {
                                                      double fpRate) throws IOException {
         HBI hbi = newHbi(options, treeSetting, ngram, fpRate);
         hbi.strides = USE_STRIDES;
-        MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ngram);
+        if (options.isSegmentsMode()) {
+            try {
+                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbi, ngram);
+            } catch (Exception e) {
+                throw new IOException("Failed to populate HBI in segments mode", e);
+            }
+        } else {
+            MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ngram);
+        }
         if (options.memPolicy() != Utils.MemPolicy.NONE) {
             hbi.forceApplyMemoryPolicy();
         }
@@ -257,37 +291,60 @@ public final class MemoryBenchmark {
     private static SuffixMeasurement buildAndMeasureSuffix(Path datasetFile,
                                                            MemoryOptions options,
                                                            int ngram) throws IOException {
+        int suffixNgram = 1;
         StreamingSlidingWindowIndex suffix = newSuffixIndex(options, ngram);
-        MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, 1);
+        if (options.isSegmentsMode()) {
+            try {
+                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNgram);
+            } catch (Exception e) {
+                throw new IOException("Failed to populate suffix index in segments mode", e);
+            }
+        } else {
+            MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNgram);
+        }
 
         GraphLayout layout = GraphLayout.parseInstance(suffix);
         long layoutBytes = layout.totalSize();
         long dictBytes = suffix.estimateTokenDictionaryBytes();
         long remapBytes = suffix.estimateSuffixTreeRemapBytes();
-        long totalBytes = Math.max(0L, layoutBytes - remapBytes);
-        long coreBytes = Math.max(0L, layoutBytes - dictBytes - remapBytes);
+        long totalBytes = layoutBytes;
+        long coreBytes = Math.max(0L, layoutBytes - dictBytes);
         double coreMiB = coreBytes / 1_048_576d;
         double totalMiB = totalBytes / 1_048_576d;
 
         System.out.println("\n=== StreamingSlidingWindowIndex JOL footprint ===");
         System.out.println(layout.toFootprint());
         System.out.printf(Locale.ROOT,
-                "SuffixIndex total (excluding token remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex total (including token remaps): %d B (%.3f MiB) [ngram=%d]%n",
                 totalBytes,
                 totalMiB,
-                ngram);
+                suffixNgram);
         System.out.printf(Locale.ROOT,
-                "SuffixIndex core (excluding token dictionary (if any) & remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex core (excluding token dictionary only): %d B (%.3f MiB) [ngram=%d]%n",
                 coreBytes,
                 coreMiB,
-                ngram);
+                suffixNgram);
+        System.out.printf(Locale.ROOT,
+                "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
+                remapBytes,
+                remapBytes / 1_048_576d,
+                suffixNgram);
 
-        return new SuffixMeasurement(totalBytes, coreBytes, totalMiB, coreMiB);
+        return new SuffixMeasurement(totalBytes, coreBytes, totalMiB, coreMiB, remapBytes, remapBytes / 1_048_576d, suffixNgram);
     }
 
-    private static RegexMeasurement buildAndMeasureRegex(Path datasetFile) throws IOException {
+    private static RegexMeasurement buildAndMeasureRegex(Path datasetFile,
+                                                         MemoryOptions options) throws IOException {
         RegexIndex regex = new RegexIndex();
-        MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+        if (options.isSegmentsMode()) {
+            try {
+                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), regex, 1);
+            } catch (Exception e) {
+                throw new IOException("Failed to populate regex baseline in segments mode", e);
+            }
+        } else {
+            MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+        }
 
         GraphLayout layout = GraphLayout.parseInstance(regex);
         long bytes = layout.totalSize();
@@ -305,7 +362,13 @@ public final class MemoryBenchmark {
 
     private record HbiMeasurement(long bytes, double mib) {}
 
-    private record SuffixMeasurement(long totalBytes, long coreBytes, double totalMiB, double coreMiB) {}
+    private record SuffixMeasurement(long totalBytes,
+                                     long coreBytes,
+                                     double totalMiB,
+                                     double coreMiB,
+                                     long remapBytes,
+                                     double remapMiB,
+                                     int ngram) {}
 
     private record RegexMeasurement(long bytes, double mib) {}
 
@@ -396,9 +459,14 @@ public final class MemoryBenchmark {
                                  List<TreeSetting> treeSettings,
                                  int windowLength,
                                  int alphabetBase,
+                                 String mode,
                                  List<Integer> ngrams,
                                  List<Double> fpRates,
                                  double runConfidence,
+                                 double rankEpsTarget,
+                                 double deltaQ,
+                                 double deltaSamp,
+                                 double quantile,
                                  boolean reuseSuffix,
                                  Utils.MemPolicy memPolicy,
                                  int policyBuckets) {
@@ -413,6 +481,7 @@ public final class MemoryBenchmark {
             Integer treePower = 21;
             List<Integer> treePowerList = null;
             Integer alphabetBase = 150;
+            String mode = "chars";
 
             Integer defaultNgram = 8;
             List<Integer> ngramList = null;
@@ -423,6 +492,10 @@ public final class MemoryBenchmark {
             String fpGridArg = null;
 
             double runConfidence = 0.99;
+            double rankEpsTarget = 0.025;
+            double deltaQ = 0.05;
+            double deltaSamp = 0.05;
+            double quantile = 0.05;
             boolean reuseSuffix = true;
             Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
             Integer policyBuckets = null;
@@ -475,11 +548,33 @@ public final class MemoryBenchmark {
                     case "fp-list" -> fpListArg = value;
                     case "fp-grid" -> fpGridArg = value;
                     case "confidence" -> runConfidence = Double.parseDouble(value);
+                    case "epsilon", "eps", "rank-eps", "eps-target" -> rankEpsTarget = Double.parseDouble(value);
+                    case "delta-q" -> deltaQ = Double.parseDouble(value);
+                    case "delta-samp", "delta-sample" -> deltaSamp = Double.parseDouble(value);
+                    case "p", "quantile" -> quantile = Double.parseDouble(value);
+                    case "mode" -> mode = value;
                     case "reuse-suffix", "reuse-suffix-results" -> reuseSuffix = Boolean.parseBoolean(value);
                     case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
                     case "policy-buckets", "mem-policy-buckets" -> policyBuckets = Integer.parseInt(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
+            }
+
+            if (!("chars".equalsIgnoreCase(mode) || "segments".equalsIgnoreCase(mode))) {
+                throw new IllegalArgumentException("mode must be 'chars' or 'segments'");
+            }
+
+            if (!(rankEpsTarget > 0.0 && rankEpsTarget < 1.0)) {
+                throw new IllegalArgumentException("epsilon must be in (0,1)");
+            }
+            if (!(deltaQ > 0.0 && deltaQ < 1.0)) {
+                throw new IllegalArgumentException("delta-q must be in (0,1)");
+            }
+            if (!(deltaSamp > 0.0 && deltaSamp < 1.0)) {
+                throw new IllegalArgumentException("delta-samp must be in (0,1)");
+            }
+            if (!(quantile > 0.0 && quantile < 1.0)) {
+                throw new IllegalArgumentException("p must be in (0,1)");
             }
 
             if (defaultNgram == null) defaultNgram = 8;
@@ -563,9 +658,14 @@ public final class MemoryBenchmark {
                     List.copyOf(treeSettings),
                     windowLength,
                     alphabetBase,
+                    mode,
                     ngramList,
                     fpRates,
                     runConfidence,
+                    rankEpsTarget,
+                    deltaQ,
+                    deltaSamp,
+                    quantile,
                     reuseSuffix,
                     memPolicy,
                     policyBuckets != null ? Math.max(0, policyBuckets) : 0);
@@ -580,6 +680,10 @@ public final class MemoryBenchmark {
 
         int alphabetSize() {
             return alphabetSizeFor(ngram());
+        }
+
+        boolean isSegmentsMode() {
+            return "segments".equalsIgnoreCase(mode);
         }
 
         private TreeSetting primaryTree() {
@@ -598,8 +702,34 @@ public final class MemoryBenchmark {
             return memPolicy != Utils.MemPolicy.NONE;
         }
 
+        public double rankEpsTarget() {
+            return rankEpsTarget;
+        }
+
+        public double deltaQ() {
+            return deltaQ;
+        }
+
+        public double deltaSamp() {
+            return deltaSamp;
+        }
+
+        public double quantile() {
+            return quantile;
+        }
+
         public int policyBuckets() {
             return policyBuckets;
+        }
+
+        boolean hasExplicitPolicyBuckets() {
+            return policyBuckets > 0;
+        }
+
+        Utils.HopsDesignResult policyDesignFor(int ngram) {
+            if (memPolicy == Utils.MemPolicy.NONE) return null;
+            int distinctEstimate = Math.max(1, alphabetSizeFor(ngram));
+            return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, deltaQ, deltaSamp);
         }
 
         int ngram() {

@@ -76,10 +76,28 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
                             options.windowLength(), options.treeLength(), ng,
                             options.alphabetBase(), effAlphabet, suffixNgForLoop, currentFp,
-                            options.runs(), options.algorithm(), options.mode(), options.memPolicy(), options.reinsertPerWorkload());
+                            options.runs(), options.algorithm(), options.mode(), options.memPolicy(), options.reinsertPerWorkload(),
+                            options.rankEpsTarget(), options.deltaQ(), options.deltaSamp(), options.quantile());
+
+                    final double policyQuantile = options.quantile();
+                    int policyBuckets = 0;
+                    Utils.HopsDesignResult policyDesign = null;
+                    if (options.memPolicy() != Utils.MemPolicy.NONE) {
+                        int distinctEstimate = Math.max(1, options.alphabetSizeFor(ng));
+                        policyDesign = Utils.designBucketsForRankTargetChebyshev(distinctEstimate,
+                                options.rankEpsTarget(), options.deltaQ(), options.deltaSamp());
+                        policyBuckets = policyDesign.suggestedBuckets;
+                        System.out.printf(Locale.ROOT,
+                                "  Policy auto-design -> Dhat=%d, buckets=%d, n_req=%d, LB=%d%s%n",
+                                distinctEstimate,
+                                policyDesign.suggestedBuckets,
+                                policyDesign.requiredSampleSize,
+                                policyDesign.occupancyLowerBound,
+                                policyDesign.impossible ? " (target unattainable with Dhat)" : "");
+                    }
 
                     Map<QueryType, List<QueryWorkload>> workloadsByType = new EnumMap<>(QueryType.class);
                     boolean hasQueries = false;
@@ -110,13 +128,14 @@ public final class BenchmarkOrchestrator {
                         if (options.runHbi()) {
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
-                                    options.runConfidence(), options.memPolicy(), ng, options.algorithm());
+                                    options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
                             warm.strides = true;
                             warm.stats().setCollecting(true);
                             warm.stats().setExperimentMode(false);
                             InsertStats warmIns = isSegments(options)
                                     ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), warm, ng)
                                     : MultiQueryExperiment.populateIndex(datasetFile.toString(), warm, ng);
+                            forcePolicyIfActive(warm, options);
                             for (QueryType type : queryTypes) {
                                 List<QueryWorkload> workloads = workloadsByType.get(type);
                                 if (workloads == null || workloads.isEmpty()) continue;
@@ -174,15 +193,16 @@ public final class BenchmarkOrchestrator {
                         if (!options.reinsertPerWorkload()) {
                             HBI hbi = null; InsertStats hbiIns = null;
                             if (options.runHbi()) {
-                            hbi = IndexFactory.createHbi(
-                                    options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
-                                    options.runConfidence(), options.memPolicy(), ng, options.algorithm());
+                                hbi = IndexFactory.createHbi(
+                                        options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
+                                        options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
                                 hbi.strides = true;
                                 hbi.stats().setCollecting(true);
                                 hbi.stats().setExperimentMode(false);
                                 hbiIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbi, ng)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ng);
+                                forcePolicyIfActive(hbi, options);
                             }
                             // For Suffix baseline, decide whether to reuse cached results.
                             final int suffixNg = IndexFactory.getSuffixNgram();
@@ -261,13 +281,14 @@ public final class BenchmarkOrchestrator {
                             if (options.runHbi()) {
                                 hbiSingle = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
-                                        options.runConfidence(), options.memPolicy(), ng, options.algorithm());
+                                        options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
                                 hbiSingle.strides = true;
                                 hbiSingle.stats().setCollecting(false);
                                 hbiSingle.stats().setExperimentMode(false);
                                 hbiSingleIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbiSingle, ng)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbiSingle, ng);
+                                forcePolicyIfActive(hbiSingle, options);
                             }
                             if (options.runRegexBaseline()) {
                                 regexSingle = new RegexIndex();
@@ -368,6 +389,12 @@ public final class BenchmarkOrchestrator {
 
     private static boolean isSegments(MultiBenchmarkOptions options) {
         return "segments".equalsIgnoreCase(options.mode());
+    }
+
+    private static void forcePolicyIfActive(HBI hbi, MultiBenchmarkOptions options) {
+        if (hbi != null && options.memPolicy() != Utils.MemPolicy.NONE) {
+//            hbi.forceApplyMemoryPolicy();
+        }
     }
 
     private static void accumulate(Map<QueryType, Map<Integer, Map<Integer, Aggregation.AggregateStats>>> aggregated,

@@ -47,10 +47,10 @@ public class Pattern{
     }
 
     public Pattern(String[] s, int nGram) {
-        // this.text = s.toCharArray(); // not used in segments mode
+        this.text = this.patternTxt.toCharArray(); // not used in segments mode
         this.size = s.length;
         this.originalSz = s.length;
-        // this.patternTxt = s;         // also unused/commented in your version
+        this.patternTxt =  String.join(" ", s);         // also unused/commented in your version
         this.nGram = nGram;
 
         int len = size - nGram + 1;
