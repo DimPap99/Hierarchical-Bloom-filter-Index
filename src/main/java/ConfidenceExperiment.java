@@ -45,10 +45,10 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/20.uniform.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/10.txt";
 
-    private static final int TextSize = 21;
+    private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
     private static final int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.0;
@@ -58,7 +58,7 @@ public class ConfidenceExperiment {
     private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
     // n-grams for this experiment
-    private static int NGRAMS = 4;
+    private static int NGRAMS = 1;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
     private static int ALPHABET = 89;
