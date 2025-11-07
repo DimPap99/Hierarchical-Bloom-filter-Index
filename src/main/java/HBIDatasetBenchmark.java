@@ -42,18 +42,18 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static final String DEFAULT_DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w20/1/1_W20.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/80.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/80.uniform.txt";
 
-    private static final int WINDOW_LEN       = 1 << 21;
-    private static final int TREE_LEN         = 1 << 21;
+    private static final int WINDOW_LEN       = 1 << 20;
+    private static final int TREE_LEN         = 1 << 20;
     private static final int ALPHABET_BASE    = 500;
     private static final double DEFAULT_FP_RATE = 0.25;
-    private static final int DEFAULT_RUNS     = 1;
+    private static final int DEFAULT_RUNS     = 5;
     private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 8;
+    private static int NGRAMS                 = 2;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -65,7 +65,7 @@ public class HBIDatasetBenchmark {
                                      int runs) {
 
         static BenchmarkOptions parse(String[] args) {
-            String mode = "segments";
+            String mode = "chars";
             String dataFile = DEFAULT_DATA_FILE;
             String queryFile = DEFAULT_QUERY_FILE;
             double fpRate = DEFAULT_FP_RATE;
@@ -350,7 +350,7 @@ public class HBIDatasetBenchmark {
                 memFactory,
                 prFactory,
                 v,
-                /* cost function */ null,
+                /* cost function */ new CostFunctionMaxProb(),
                 conf,
                 NGRAMS
         );

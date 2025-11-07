@@ -152,7 +152,7 @@ public final class  MathUtils {
             final double val   = log2(ratio); // <-- this is where base-2 is required
             final int L        = (int) Math.ceil(val);
 
-            lp = Math.min(L, Lmax);
+            lp = Math.min(L, Lmax)-1;
 
         }
         return (int) Math.max(0, lp);
@@ -160,7 +160,7 @@ public final class  MathUtils {
 
     // If you do not already have one
     private static double log2(double x) {
-        return Math.log(x) / Math.log(2.0);
+        return Math.log(x);
     }
 
 

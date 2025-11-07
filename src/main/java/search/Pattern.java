@@ -47,7 +47,8 @@ public class Pattern{
     }
 
     public Pattern(String[] s, int nGram) {
-        this.text = this.patternTxt.toCharArray(); // not used in segments mode
+        if(this.patternTxt != null)         this.text = this.patternTxt.toCharArray(); // not used in segments mode
+
         this.size = s.length;
         this.originalSz = s.length;
         this.patternTxt =  String.join(" ", s);         // also unused/commented in your version
