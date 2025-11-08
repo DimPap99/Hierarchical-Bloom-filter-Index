@@ -510,6 +510,10 @@ public class ConfidenceExperiment {
         int cfVsArbitraryCount = 0;
         long arbitraryVsRootGain = 0L;
         int arbitraryVsRootCount = 0;
+        int cfBetterThanRoot = 0;
+        int cfVsRootCount = 0;
+        int mispredictedRootComparable = 0;
+        int mispredictedPredBetterThanRoot = 0;
         int mispredictedTotal = 0;
         int mispredictedComparable = 0;
         int mispredictedPredBetter = 0;
@@ -533,10 +537,17 @@ public class ConfidenceExperiment {
             Integer arbitraryProbes = accuracy.probesForArbitraryLp();
             Integer rootProbes = accuracy.probesForLp(0);
             boolean hasComparison = cfProbes != null && arbitraryProbes != null;
+            boolean hasRootComparison = cfProbes != null && rootProbes != null;
 
             if (hasComparison) {
                 cfVsArbitraryGain += (long) arbitraryProbes - cfProbes;
                 cfVsArbitraryCount++;
+            }
+            if (hasRootComparison) {
+                cfVsRootCount++;
+                if (cfProbes < rootProbes) {
+                    cfBetterThanRoot++;
+                }
             }
             if (!withinZeroOrOne && accuracy.hasPredictions()) {
                 mispredictedTotal++;
@@ -546,6 +557,12 @@ public class ConfidenceExperiment {
                         mispredictedPredBetter++;
                     } else if (cfProbes > arbitraryProbes) {
                         mispredictedPredWorse++;
+                    }
+                }
+                if (hasRootComparison) {
+                    mispredictedRootComparable++;
+                    if (cfProbes < rootProbes) {
+                        mispredictedPredBetterThanRoot++;
                     }
                 }
             }
@@ -565,11 +582,15 @@ public class ConfidenceExperiment {
                 cfVsArbitraryCount == 0 ? 0.0 : (cfVsArbitraryGain * 1.0 / cfVsArbitraryCount);
         double avgArbitraryVsRootGain =
                 arbitraryVsRootCount == 0 ? 0.0 : (arbitraryVsRootGain * 1.0 / arbitraryVsRootCount);
+        double predictedBetterThanRootRate =
+                cfVsRootCount == 0 ? 0.0 : (cfBetterThanRoot * 1.0 / cfVsRootCount);
 
         double mispredBetterRate =
                 mispredictedComparable == 0 ? 0.0 : (mispredictedPredBetter * 1.0 / mispredictedComparable);
         double mispredWorseRate  =
                 mispredictedComparable == 0 ? 0.0 : (mispredictedPredWorse * 1.0 / mispredictedComparable);
+        double mispredBetterThanRootRate =
+                mispredictedRootComparable == 0 ? 0.0 : (mispredictedPredBetterThanRoot * 1.0 / mispredictedRootComparable);
 
         avgOverallOverestimation /= runCount;
         double u = 1f - avgOverallOverestimation;
@@ -604,11 +625,22 @@ public class ConfidenceExperiment {
                 arbitraryVsRootCount);
         System.out.printf(
                 Locale.ROOT,
+                "Predicted levels better than starting at root: %d/%d (%.2f%%)%n",
+                cfBetterThanRoot,
+                cfVsRootCount,
+                predictedBetterThanRootRate * 100.0);
+        System.out.printf(
+                Locale.ROOT,
                 "Mispredicted cases (>|1| off optimal): %d  with arbitrary comparison: %d  cf better: %.2f%%  arbitrary better: %.2f%%%n",
                 mispredictedTotal,
                 mispredictedComparable,
                 mispredBetterRate * 100.0,
                 mispredWorseRate * 100.0);
+        System.out.printf(
+                Locale.ROOT,
+                "Mispredicted cases vs root (>|1| off optimal): %d  cf better than root: %.2f%%%n",
+                mispredictedRootComparable,
+                mispredBetterThanRootRate * 100.0);
 
         System.out.printf(
                 Locale.ROOT,
