@@ -45,8 +45,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701/10.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida20/1/1.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida20/1/10.uniform.txt";
 
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -298,7 +298,7 @@ public class ConfidenceExperiment {
         System.out.println("Starting experiment…");
 
         // Default mode is character streaming, which is your current behavior
-        String mode = "chars";
+        String mode = "segments";
 
         // Allow minimal override via command line: --mode chars|segments
         for (int i = 0; i < args.length - 1; i += 2) {
@@ -872,7 +872,7 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionMaxProb(),
+                new CostFunctionIE(),
                 conf,
                 1
         );
