@@ -7,7 +7,8 @@ public final class BenchmarkEnums {
 
     public enum IndexType {
         HBI("HBI", "hbi"),
-        SUFFIX("SuffixTree", "suffix"),
+        SUFFIX("SlidingSuffix", "suffix"),
+        SUFFIX_TREE("SuffixTreeIndex", "suffixtree"),
         REGEX("Regex", "regex");
 
         private final String displayName;
@@ -39,4 +40,3 @@ public final class BenchmarkEnums {
         }
     }
 }
-

@@ -5,6 +5,7 @@ import PMIndex.HbiConfiguration;
 import PMIndex.StreamingSlidingWindowIndex;
 import PMIndex.DelayedStreamingSlidingWindowIndex;
 import PMIndex.IPMIndexing;
+import PMIndex.SuffixTreeIndex;
 import estimators.*;
 import membership.BloomFilter;
 import membership.Membership;
@@ -131,6 +132,12 @@ public final class IndexFactory {
 
     public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength, int expectedAlphabetSize) {
         return new StreamingSlidingWindowIndex(windowLength, expectedAlphabetSize);
+    }
+
+    public static IPMIndexing createSuffixTreeIndex(int expectedAlphabetSize) {
+        long distinctEstimate = Math.max(1L, expectedAlphabetSize);
+        double epsilon = 0.0001;
+        return new SuffixTreeIndex(distinctEstimate, epsilon);
     }
 
     public static IPMIndexing createDelayedSuffixIndex(int windowLength,

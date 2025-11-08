@@ -497,9 +497,9 @@ public final class HBI implements IPMIndexing {
                             this.strides));
                 } else {
                     if (estimatorsActive() && tree.pruningPlan != null) {
-                        lps = tree.pruningPlan.pruningPlan(pat, tree, 0.99, this.strides);
+                        lps = tree.pruningPlan.pruningPlan(pat, tree, this.conf, this.strides);
                     } else {
-                        lps.add(0);
+                        lps.add(0);//defaults to root/vanilla bs
                     }
                 }
             }

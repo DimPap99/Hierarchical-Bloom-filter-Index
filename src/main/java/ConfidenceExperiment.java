@@ -16,32 +16,6 @@ import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
-/**
- * ConfidenceExperiment runs multiple end to end workloads and collects accuracy and cost model diagnostics.
- *
- * After the changes in this version, we ALSO support two streaming modes:
- *
- *   mode="chars"
- *     Treat the dataset as a continuous character stream and queries as raw substrings.
- *     This is the original Experiment.run(...) pipeline.
- *
- *   mode="segments"
- *     Treat the dataset as a token-per-line stream. Each line (for example each packet record)
- *     is one symbol. We index sliding n-grams of those symbols. Queries are sequences of those
- *     symbols separated by spaces. This matches ProcessStream.
- *
- * You select the mode with --mode chars or --mode segments. Default is chars, so if you do not pass
- * --mode you get your original behavior unmodified.
- *
- * Everything else in this class (accuracy stats, timing summaries, CSV export) remains intact.
- *
- * The rest of this header comment is the original explanation of timing metrics:
- *
- * We measure per-run:
- *    averageQueryTimeMillis   average total query time per pattern
- *    averageLpTimeMillis      average pruning level estimation time per pattern
- *    lpShareOfQuery           fraction of query time spent only on pruning level estimation
- */
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */

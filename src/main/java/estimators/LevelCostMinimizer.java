@@ -10,7 +10,7 @@ import java.util.Arrays;
  * Iterates over candidate pruning levels and selects the minimum-cost option using a {@link LevelCostProvider}.
  */
 public final class LevelCostMinimizer {
-
+    public static boolean isDebugging = false;
     private LevelCostMinimizer() {
         // utility
     }
@@ -29,10 +29,10 @@ public final class LevelCostMinimizer {
         int maxDepth = tree.maxDepth();
         int r = probs.length;
         double minProb = Arrays.stream(probs).min().orElse(0.0);
-
+        int _maxlp = MathUtils.pruningLevel(tree, 0.99, minProb);
         int minLp = 0;//MathUtils.pruningLevel(tree, 0.99, minProb);
         int patternFitDepth = computePatternFitDepth(tree, pattern);
-        int maxLpLevel = MathUtils.pruningLevel(tree, 0.9, minProb);
+        int maxLpLevel = MathUtils.pruningLevel(tree, 0.95, minProb);
 
         if (maxLpLevel < minLp) {
             maxLpLevel = minLp;
@@ -50,7 +50,9 @@ public final class LevelCostMinimizer {
                 bestLp = Lp;
             }
         }
-
+        if(bestLp < _maxlp && !isDebugging) {
+            bestCost = _maxlp;
+        }
         return new Result(bestLp, bestCost);
     }
 

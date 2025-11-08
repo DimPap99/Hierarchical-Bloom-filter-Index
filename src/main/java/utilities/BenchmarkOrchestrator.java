@@ -2,7 +2,6 @@ package utilities;
 
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
-import PMIndex.RegexIndex;
 import utilities.BenchmarkEnums.IndexType;
 import utilities.BenchmarkEnums.QueryType;
 import utilities.MultiQueryExperiment.InsertStats;
@@ -29,6 +28,7 @@ public final class BenchmarkOrchestrator {
         // reuse for subsequent iterations. Multiple 'runs' within the very first
         // (fp, ngram) still execute to preserve averaging semantics.
         Map<SuffixCacheKey, MultiRunResult> suffixResultsCache = new HashMap<>();
+        Map<SuffixTreeCacheKey, MultiRunResult> suffixTreeResultsCache = new HashMap<>();
 
         List<QueryType> queryTypes = (options.queryType() != null)
                 ? List.of(options.queryType())
@@ -36,7 +36,7 @@ public final class BenchmarkOrchestrator {
         List<IndexType> activeIndexes = new ArrayList<>();
         if (options.runHbi()) activeIndexes.add(IndexType.HBI);
         if (options.runSuffix()) activeIndexes.add(IndexType.SUFFIX);
-        if (options.runRegexBaseline()) activeIndexes.add(IndexType.REGEX);
+        if (options.runSuffixTreeBaseline()) activeIndexes.add(IndexType.SUFFIX_TREE);
 
         System.out.printf(Locale.ROOT,
                 "Running window %s (%s) with datasets under %s%n",
@@ -167,21 +167,21 @@ public final class BenchmarkOrchestrator {
                             }
                             suffixWarm = null;
                         }
-                        if (options.runRegexBaseline()) {
-                            IPMIndexing regexWarm = new RegexIndex();
-                            InsertStats regexIns = isSegments(options)
-                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), regexWarm, 1)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), regexWarm, 1);
+                        if (options.runSuffixTreeBaseline()) {
+                            IPMIndexing suffixTreeWarm = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                            InsertStats suffixTreeIns = isSegments(options)
+                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTreeWarm, ng)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTreeWarm, ng);
                             for (QueryType type : queryTypes) {
                                 List<QueryWorkload> workloads = workloadsByType.get(type);
                                 if (workloads == null || workloads.isEmpty()) continue;
                                 if (isSegments(options)) {
-                                    SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, regexWarm, 1, regexIns, false, false);
+                                    SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTreeWarm, ng, suffixTreeIns, false, false);
                                 } else {
-                                    MultiQueryExperiment.runQueries(workloads, regexWarm, 1, regexIns, false, false);
+                                    MultiQueryExperiment.runQueries(workloads, suffixTreeWarm, ng, suffixTreeIns, false, false);
                                 }
                             }
-                            regexWarm = null;
+                            suffixTreeWarm = null;
                         }
                     }
 
@@ -189,6 +189,7 @@ public final class BenchmarkOrchestrator {
                     // For suffix reuse: during the first (fp, ng) combination only, we accumulate
                     // per-run suffix results so we can cache the averaged result for reuse.
                     Map<SuffixCacheKey, MRAccumulator> suffixAvgBuilders = new HashMap<>();
+                    Map<SuffixTreeCacheKey, MRAccumulator> suffixTreeAvgBuilders = new HashMap<>();
                     for (int runIndex = 0; runIndex < options.runs(); runIndex++) {
                         if (!options.reinsertPerWorkload()) {
                             HBI hbi = null; InsertStats hbiIns = null;
@@ -216,12 +217,13 @@ public final class BenchmarkOrchestrator {
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNg)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNg);
                             }
-                            IPMIndexing regex = null; InsertStats regexIns = null;
-                            if (options.runRegexBaseline()) {
-                                regex = new RegexIndex();
-                                regexIns = isSegments(options)
-                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), regex, 1)
-                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
+                            final boolean canReuseSuffixTree = options.runSuffixTreeBaseline() && options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
+                            IPMIndexing suffixTree = null; InsertStats suffixTreeIns = null;
+                            if (options.runSuffixTreeBaseline() && !canReuseSuffixTree) {
+                                suffixTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                suffixTreeIns = isSegments(options)
+                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTree, ng)
+                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTree, ng);
                             }
 
                             for (QueryType type : queryTypes) {
@@ -263,21 +265,39 @@ public final class BenchmarkOrchestrator {
                                         }
                                     }
                                 }
-                                MultiRunResult regexResults = null;
-                                if (regex != null) {
-                                    regexResults = isSegments(options)
-                                            ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, regex, 1, regexIns, false, false)
-                                            : MultiQueryExperiment.runQueries(workloads, regex, 1, regexIns, false, false);
+                                MultiRunResult suffixTreeResults = null;
+                                if (options.runSuffixTreeBaseline()) {
+                                    SuffixTreeCacheKey treeKey = SuffixTreeCacheKey.forWorkloads(
+                                            datasetFile.toString(), ng, options.mode(), false, workloads);
+                                    if (canReuseSuffixTree) {
+                                        suffixTreeResults = suffixTreeResultsCache.get(treeKey);
+                                        if (suffixTreeResults == null) {
+                                            IPMIndexing tmpTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                            InsertStats tmpTreeIns = isSegments(options)
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tmpTree, ng)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tmpTree, ng);
+                                            suffixTreeResults = isSegments(options)
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, tmpTree, ng, tmpTreeIns, false, false)
+                                                    : MultiQueryExperiment.runQueries(workloads, tmpTree, ng, tmpTreeIns, false, false);
+                                            if (options.reuseSuffixResults()) suffixTreeResultsCache.put(treeKey, suffixTreeResults);
+                                        }
+                                    } else if (suffixTree != null) {
+                                        suffixTreeResults = isSegments(options)
+                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTree, ng, suffixTreeIns, false, false)
+                                                : MultiQueryExperiment.runQueries(workloads, suffixTree, ng, suffixTreeIns, false, false);
+                                        if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
+                                            suffixTreeAvgBuilders.computeIfAbsent(treeKey, _k -> new MRAccumulator()).add(suffixTreeResults);
+                                        }
+                                    }
                                 }
 
-                                accumulate(aggregated, activeIndexes, ng, type, hbiResults, suffixResults, regexResults);
+                                accumulate(aggregated, activeIndexes, ng, type, hbiResults, suffixResults, suffixTreeResults);
                             }
 
-                            hbi = null; suffix = null; regex = null;
+                            hbi = null; suffix = null; suffixTree = null;
                         } else {
-                            // Reinsert only for delayed suffix index. HBI and Regex are built once per dataset.
+                            // Reinsert only for suffix-style baselines. HBI is built once per dataset.
                             HBI hbiSingle = null; InsertStats hbiSingleIns = null;
-                            IPMIndexing regexSingle = null; InsertStats regexSingleIns = null;
                             if (options.runHbi()) {
                                 hbiSingle = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
@@ -289,12 +309,6 @@ public final class BenchmarkOrchestrator {
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbiSingle, ng)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), hbiSingle, ng);
                                 forcePolicyIfActive(hbiSingle, options);
-                            }
-                            if (options.runRegexBaseline()) {
-                                regexSingle = new RegexIndex();
-                                regexSingleIns = isSegments(options)
-                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), regexSingle, 1)
-                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), regexSingle, 1);
                             }
 
                             for (QueryType type : queryTypes) {
@@ -344,15 +358,40 @@ public final class BenchmarkOrchestrator {
                                         }
                                         addOne(aggregated, IndexType.SUFFIX, sfxNg, type, pl, res, workload);
                                     }
-                                    if (regexSingle != null) {
-                                        MultiRunResult res = isSegments(options)
-                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), regexSingle, 1, regexSingleIns, false, false)
-                                                : MultiQueryExperiment.runQueries(List.of(workload), regexSingle, 1, regexSingleIns, false, false);
-                                        addOne(aggregated, IndexType.REGEX, ng, type, pl, res, workload);
+                                    if (options.runSuffixTreeBaseline()) {
+                                        boolean canReuseTree = options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
+                                        SuffixTreeCacheKey treeKey = SuffixTreeCacheKey.forWorkloads(
+                                                datasetFile.toString(), ng, options.mode(), true, List.of(workload));
+                                        MultiRunResult res;
+                                        if (canReuseTree) {
+                                            res = suffixTreeResultsCache.get(treeKey);
+                                            if (res == null) {
+                                                IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                                InsertStats ins = isSegments(options)
+                                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, ng)
+                                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, ng);
+                                                res = isSegments(options)
+                                                        ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, ng, ins, false, false)
+                                                        : MultiQueryExperiment.runQueries(List.of(workload), tree, ng, ins, false, false);
+                                                if (options.reuseSuffixResults()) suffixTreeResultsCache.put(treeKey, res);
+                                            }
+                                        } else {
+                                            IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                            InsertStats ins = isSegments(options)
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, ng)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, ng);
+                                            res = isSegments(options)
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, ng, ins, false, false)
+                                                    : MultiQueryExperiment.runQueries(List.of(workload), tree, ng, ins, false, false);
+                                            if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
+                                                suffixTreeAvgBuilders.computeIfAbsent(treeKey, _k -> new MRAccumulator()).add(res);
+                                            }
+                                        }
+                                        addOne(aggregated, IndexType.SUFFIX_TREE, ng, type, pl, res, workload);
                                     }
                                 }
                             }
-                            hbiSingle = null; regexSingle = null;
+                            hbiSingle = null;
                         }
                         // If we are building cache averages, after finishing all runs for this dataset
                         // synthesize averaged results and store in the cache for reuse by later n-grams/FPRs.
@@ -362,6 +401,13 @@ public final class BenchmarkOrchestrator {
                                 suffixResultsCache.put(e.getKey(), e.getValue().buildAveraged());
                             }
                             suffixAvgBuilders.clear();
+                        }
+                        if (options.runSuffixTreeBaseline() && options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0
+                                && runIndex == options.runs() - 1 && !suffixTreeAvgBuilders.isEmpty()) {
+                            for (Map.Entry<SuffixTreeCacheKey, MRAccumulator> e : suffixTreeAvgBuilders.entrySet()) {
+                                suffixTreeResultsCache.put(e.getKey(), e.getValue().buildAveraged());
+                            }
+                            suffixTreeAvgBuilders.clear();
                         }
 
                         // Encourage collection between iterations to reduce cross-run interference.
@@ -403,7 +449,7 @@ public final class BenchmarkOrchestrator {
                                    QueryType type,
                                    MultiRunResult hbiRes,
                                    MultiRunResult suffixRes,
-                                   MultiRunResult regexRes) {
+                                   MultiRunResult suffixTreeRes) {
         Map<Integer, Map<Integer, Aggregation.AggregateStats>> perType = aggregated.get(type);
         // HBI aggregated under its actual ng
         if (hbiRes != null) {
@@ -425,11 +471,10 @@ public final class BenchmarkOrchestrator {
             suffixRes.results().forEach((wl, r) -> byPatternSuffixStrict.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
                     .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
         }
-        // Regex: keep as-is (currently runs with n-gram 1, but grouping by ng matches previous behavior)
-        if (regexRes != null) {
-            Map<Integer, Aggregation.AggregateStats> byPatternRegex = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
-            regexRes.results().forEach((wl, r) -> byPatternRegex.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.REGEX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
+        if (suffixTreeRes != null) {
+            Map<Integer, Aggregation.AggregateStats> byPatternSuffixTree = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
+            suffixTreeRes.results().forEach((wl, r) -> byPatternSuffixTree.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
+                    .accumulate(IndexType.SUFFIX_TREE, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
         }
     }
 
@@ -476,6 +521,24 @@ record SuffixCacheKey(String dataset,
                 .map(w -> w.queryFile().toString())
                 .collect(Collectors.joining("|"));
         return new SuffixCacheKey(dataset, suffixNgram, mode, reinsertPerWorkload, joined);
+    }
+}
+
+record SuffixTreeCacheKey(String dataset,
+                          int ngram,
+                          String mode,
+                          boolean reinsertPerWorkload,
+                          String workloadKey) {
+
+    static SuffixTreeCacheKey forWorkloads(String dataset,
+                                           int ngram,
+                                           String mode,
+                                           boolean reinsertPerWorkload,
+                                           List<QueryWorkload> workloads) {
+        String joined = workloads.stream()
+                .map(w -> w.queryFile().toString())
+                .collect(Collectors.joining("|"));
+        return new SuffixTreeCacheKey(dataset, ngram, mode, reinsertPerWorkload, joined);
     }
 }
 

@@ -29,7 +29,7 @@ public record MultiBenchmarkOptions(
         int warmupRuns,
         int runs,
         String algorithm,
-        boolean runRegexBaseline,
+        boolean runSuffixTreeBaseline,
         boolean runHbi,
         boolean runSuffix,
         int suffixNgram,
@@ -71,7 +71,7 @@ public record MultiBenchmarkOptions(
         double quantile = 0.05;
         int warmupRuns = 0;
         int runs = 1;
-        boolean runRegexBaseline = false;
+        boolean runSuffixTreeBaseline = false;
         boolean runHbi = true;
         boolean runSuffix = true;
         int suffixNgram = 1;
@@ -122,7 +122,7 @@ public record MultiBenchmarkOptions(
                 case "warmup" -> warmupRuns = Integer.parseInt(value);
                 case "runs" -> runs = Integer.parseInt(value);
                 case "algorithm", "algo" -> algorithm = value;
-                case "regex", "run-regex" -> runRegexBaseline = Boolean.parseBoolean(value);
+                case "suffix-tree", "run-suffix-tree", "regex", "run-regex" -> runSuffixTreeBaseline = Boolean.parseBoolean(value);
                 case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                 case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
                 case "suffix-ngram" -> {
@@ -198,7 +198,7 @@ public record MultiBenchmarkOptions(
         Path resolvedQueryRoot = queryRoot.resolve(window);
         if (!Files.isDirectory(resolvedDataRoot)) throw new IllegalArgumentException("Data directory not found: " + resolvedDataRoot);
         if (!Files.isDirectory(resolvedQueryRoot)) throw new IllegalArgumentException("Query directory not found: " + resolvedQueryRoot);
-        if (!runRegexBaseline && !runHbi && !runSuffix) throw new IllegalArgumentException("At least one index must be enabled");
+        if (!runSuffixTreeBaseline && !runHbi && !runSuffix) throw new IllegalArgumentException("At least one index must be enabled");
 
         if (ngramList == null) {
             ngramList = List.of(defaultNgram);
@@ -248,7 +248,7 @@ public record MultiBenchmarkOptions(
                 warmupRuns,
                 runs,
                 algorithm,
-                runRegexBaseline,
+                runSuffixTreeBaseline,
                 runHbi,
                 runSuffix,
                 suffixNgram,
