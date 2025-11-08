@@ -38,10 +38,6 @@ public class CostFunctionIE extends AbstractCostFunction {
         final int Ldesc = MathUtils.deepestVisitedLevel(width, r);
 
         double total = 0.0;
-        int nodeGen = 2;
-        int levelgen = 9;
-        if(Lp < levelgen) {nodeGen = 1;}
-
         double nodes = 1 << Lp;
 
         MathUtils.HF nsLp = MathUtils.HF_uncond_pos_beta(width, Lp, keySeq, probs, 0.0, ieMaxOrder);
@@ -51,7 +47,7 @@ public class CostFunctionIE extends AbstractCostFunction {
             return total;
         }
 
-        nodes = nodeGen * nodes * nsLp.F;
+        nodes = SelectiveFanout.multiplier(Lp, Lp, Ldesc, nsLp.F) * nodes * nsLp.F;
         if (nodes <= 0.0) {
             return total;
         }
@@ -66,9 +62,7 @@ public class CostFunctionIE extends AbstractCostFunction {
             total += ns.H * nodes;
 
             if (L < Ldesc) {
-                if(Lp < levelgen) {nodeGen = 1;}
-                else nodeGen = 2;
-                nodes = nodeGen * nodes * ns.F;
+                nodes = SelectiveFanout.multiplier(L, Lp, Ldesc, ns.F) * nodes * ns.F;
                 if (nodes <= 0.0) {
                     break;
                 }

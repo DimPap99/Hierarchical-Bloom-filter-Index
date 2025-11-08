@@ -116,8 +116,6 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         if (probs == null || keySeq == null || keySeq.length == 0) {
             return 0.0;
         }
-        double childrenMult = 1.5;
-        int levelCont = 12;
         if (lpCache == null
             || lpCache.width != tree.baseIntervalSize()
             || lpCache.r != keySeq.length
@@ -149,8 +147,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         if (level > lpCache.upperLevel) {
             return total;
         }
-        if(Lp < levelCont) childrenMult = 1;
-        double nodesAtLevel = childrenMult * nodesAtLp * lpCache.FUncond(Lp);
+        double nodesAtLevel = SelectiveFanout.multiplier(Lp, Lp, Ldesc, lpCache.FUncond(Lp))
+                * nodesAtLp * lpCache.FUncond(Lp);
         if (nodesAtLevel <= 0.0) {
             return total;
         }
@@ -160,9 +158,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         while (level < Ldesc && lpCache.childCanHostFrom(level)) {
             double parents = nodesAtLevel;
             int next = level + 1;
-            if(level < levelCont) childrenMult = 1;
-            else childrenMult = 1.5;
-            nodesAtLevel = childrenMult * parents * lpCache.FCond(level);
+            nodesAtLevel = SelectiveFanout.multiplier(level, Lp, Ldesc, lpCache.FCond(level))
+                    * parents * lpCache.FCond(level);
             if (nodesAtLevel <= 0.0 || next > lpCache.upperLevel) {
                 break;
             }

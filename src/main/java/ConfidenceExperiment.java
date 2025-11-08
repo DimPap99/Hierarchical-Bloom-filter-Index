@@ -858,10 +858,12 @@ public class ConfidenceExperiment {
      * If you truly want to honor NGRAMS here dynamically, replace that 3 with NGRAMS.
      */
     private static HBI newHbi(double conf) {
+        SelectiveFanout.setSelectiveRegimeEnabled(true);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
         Verifier v = new VerifierLinearLeafProbe();
+
         return new HBI(
                 new BlockSearch(),
                 WINDOW_LEN,
@@ -872,7 +874,7 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionIE(),
+                new CostFunctionMaxProb(),
                 conf,
                 1
         );
