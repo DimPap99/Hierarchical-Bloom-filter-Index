@@ -45,8 +45,8 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida20/1/1.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida20/1/10.uniform.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w20/1/1_W20.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/10.uniform.txt";
 
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -58,7 +58,7 @@ public class ConfidenceExperiment {
     private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
     // n-grams for this experiment
-    private static int NGRAMS = 1;
+    private static int NGRAMS = 4;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
     private static int ALPHABET = 89;
@@ -298,7 +298,7 @@ public class ConfidenceExperiment {
         System.out.println("Starting experiment…");
 
         // Default mode is character streaming, which is your current behavior
-        String mode = "segments";
+        String mode = "chars";
 
         // Allow minimal override via command line: --mode chars|segments
         for (int i = 0; i < args.length - 1; i += 2) {

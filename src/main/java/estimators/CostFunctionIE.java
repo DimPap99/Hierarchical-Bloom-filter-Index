@@ -38,35 +38,36 @@ public class CostFunctionIE extends AbstractCostFunction {
         final int Ldesc = MathUtils.deepestVisitedLevel(width, r);
 
         double total = 0.0;
-        double nodes = 1 << Lp;
+        double nodesAtLevel = 1 << Lp;
 
-        MathUtils.HF nsLp = MathUtils.HF_uncond_pos_beta(width, Lp, keySeq, probs, 0.0, ieMaxOrder);
-        total += nsLp.H * nodes;
+        MathUtils.HF parentStats = MathUtils.HF_uncond_pos_beta(width, Lp, keySeq, probs, 0.0, ieMaxOrder);
+        total += parentStats.H * nodesAtLevel;
 
-        if (Lp >= Ldesc) {
-            return total;
-        }
+        int level = Lp;
+        while (level < Ldesc && MathUtils.childCanHost(width, level, r)) {
+            int nextLevel = level + 1;
+            double[] qCond = MathUtils.qCondChildGivenParent(probs, width, nextLevel, 0.0, 0.0);
+            MathUtils.HF childStats = MathUtils.HF_cond_from_q_pos_beta(width,
+                                                                        nextLevel,
+                                                                        keySeq,
+                                                                        qCond,
+                                                                        0.0,
+                                                                        ieMaxOrder);
 
-        nodes = SelectiveFanout.multiplier(Lp, Lp, Ldesc, nsLp.F) * nodes * nsLp.F;
-        if (nodes <= 0.0) {
-            return total;
-        }
-
-        for (int L = Lp + 1; L <= Ldesc; L++) {
-            if (!MathUtils.childCanHost(width, L - 1, r)) {
+            double fanout = SelectiveFanout.multiplier(
+                    level,
+                    Lp,
+                    Ldesc,
+                    parentStats.F,
+                    SelectiveFanout.costEfficiencyScore(parentStats.H, childStats.H));
+            nodesAtLevel = fanout * nodesAtLevel * parentStats.F;
+            if (nodesAtLevel <= 0.0) {
                 break;
             }
 
-            double[] qCondL = MathUtils.qCondChildGivenParent(probs, width, L, 0.0, 0.0);
-            MathUtils.HF ns = MathUtils.HF_cond_from_q_pos_beta(width, L, keySeq, qCondL, 0.0, ieMaxOrder);
-            total += ns.H * nodes;
-
-            if (L < Ldesc) {
-                nodes = SelectiveFanout.multiplier(L, Lp, Ldesc, ns.F) * nodes * ns.F;
-                if (nodes <= 0.0) {
-                    break;
-                }
-            }
+            total += childStats.H * nodesAtLevel;
+            parentStats = childStats;
+            level = nextLevel;
         }
 
         return total;
