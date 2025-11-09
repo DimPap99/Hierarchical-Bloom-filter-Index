@@ -87,6 +87,11 @@ public final class IndexFactory {
                 prFactory = () -> new search.MultiLevelPruning(confidence, fpRate);
                 costFn = null;
             }
+            case "cf" -> {
+                search = new search.BlockSearch();
+                prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
+                costFn = new CostFunctionMaxProb();
+            }
             case "bs" -> {
                 search = new search.BlockSearch();
                 prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
