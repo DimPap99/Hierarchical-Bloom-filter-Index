@@ -145,6 +145,10 @@ public final class HBI implements IPMIndexing {
         return stats;
     }
 
+    public String costFunctionName() {
+        return (cf == null) ? "none" : cf.getClass().getSimpleName();
+    }
+
 //    public void setAlphabetMap(AlphabetMapper<String> alphabetMap) {
 //        this.alphabetMap = Objects.requireNonNull(alphabetMap, "alphabetMap");
 //    }

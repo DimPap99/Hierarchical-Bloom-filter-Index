@@ -45,8 +45,9 @@ import java.util.stream.IntStream;
 public class ConfidenceExperiment {
 
     /** Default file locations for convenience. */
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w20/1/1_W20.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/10.uniform.txt";
+    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt";
+    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/pg2701";
+    private static final List<Integer> DEFAULT_PATTERN_LENGTHS = List.of(5, 10, 15, 20, 25);
 
     private static final int TextSize = 20;
     private static final int WINDOW_LEN   = 1 << TextSize;
@@ -58,7 +59,7 @@ public class ConfidenceExperiment {
     private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
 
     // n-grams for this experiment
-    private static int NGRAMS = 4;
+    private static int NGRAMS = 1;
 
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
     private static int ALPHABET = 89;
@@ -119,6 +120,52 @@ public class ConfidenceExperiment {
             if (l == null) continue;
             String s = l.strip();
             if (!s.isEmpty()) out.add(s);
+        }
+        return out;
+    }
+
+    private static OptionalInt trailingLength(String fileName) {
+        int end = fileName.lastIndexOf('.');
+        if (end < 0) end = fileName.length();
+        int pos = end - 1;
+        if (pos < 0 || !Character.isDigit(fileName.charAt(pos))) return OptionalInt.empty();
+        while (pos >= 0 && Character.isDigit(fileName.charAt(pos))) pos--;
+        int start = pos + 1;
+        if (start >= end) return OptionalInt.empty();
+        try {
+            return OptionalInt.of(Integer.parseInt(fileName.substring(start, end)));
+        } catch (NumberFormatException ex) {
+            return OptionalInt.empty();
+        }
+    }
+
+    private record QueryWorkload(Path queriesFile, OptionalInt patternLength) {
+        String label() {
+            return patternLength.isPresent() ? ("len" + patternLength.getAsInt()) : queriesFile.getFileName().toString();
+        }
+    }
+
+    private static List<QueryWorkload> resolveQueryWorkloads(Path queriesDir, List<Integer> wantedLengths) throws IOException {
+        if (!Files.isDirectory(queriesDir)) {
+            OptionalInt len = trailingLength(queriesDir.getFileName().toString());
+            if (wantedLengths != null && !wantedLengths.isEmpty() && len.isPresent() && !wantedLengths.contains(len.getAsInt())) {
+                return List.of();
+            }
+            return List.of(new QueryWorkload(queriesDir, len));
+        }
+        List<Path> files;
+        try (var stream = Files.list(queriesDir)) {
+            files = stream.filter(Files::isRegularFile).filter(p -> p.getFileName().toString().endsWith(".txt")).sorted().toList();
+        }
+        if (files.isEmpty()) return List.of();
+        Set<Integer> wanted = (wantedLengths == null || wantedLengths.isEmpty()) ? null : new HashSet<>(wantedLengths);
+        List<QueryWorkload> out = new ArrayList<>();
+        for (Path f : files) {
+            OptionalInt len = trailingLength(f.getFileName().toString());
+            if (len.isEmpty()) continue;
+            if (wanted == null || wanted.contains(len.getAsInt())) {
+                out.add(new QueryWorkload(f, len));
+            }
         }
         return out;
     }
@@ -297,53 +344,41 @@ public class ConfidenceExperiment {
     public static void main(String[] args) throws IOException {
         System.out.println("Starting experiment…");
 
-        // Default mode is character streaming, which is your current behavior
         String mode = "chars";
-
-        // Allow minimal override via command line: --mode chars|segments
-        for (int i = 0; i < args.length - 1; i += 2) {
-            if ("--mode".equalsIgnoreCase(args[i])) {
-                mode = args[i + 1];
-            }
-        }
-
-        // Expand ALPHABET to n-gram space (same as your current code does with ALPHABET, NGRAMS)
+        // Expand ALPHABET to n-gram space
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
-        System.out.printf(
-                "Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
-                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode);
+        Path queriesRoot = Path.of(QUERIES_FILE);
+        List<QueryWorkload> workloads = resolveQueryWorkloads(queriesRoot, DEFAULT_PATTERN_LENGTHS);
+        if (workloads.isEmpty()) {
+            throw new IllegalArgumentException("No query files discovered under " + queriesRoot);
+        }
 
-        // Per-run summaries for runs_summary.csv
-        List<List<?>> runRows = new ArrayList<>();
-        runRows.add(List.of(
-                "run",
-                "patterns",
-                "sumActualProbes",
-                "sumEstimatedProbes",
-                "overallRelError",
-                "MAPE",
-                "RMSE",
-                "LpMatchRate",
-                "avgQueryMs",
-                "avgLpMs",
-                "lpShare",
-                "queryTimeMsTotal",
-                "insertTimeMsTotal",
-                "avgQueryLen"));
+        List<List<?>> summary = new ArrayList<>();
+        summary.add(List.of(
+                "queriesFile","patternLength","runsUsed",
+                "avgOverallRelErr","avgMAPE","avgRMSE","avgMinCostLpMs",
+                "avgQueryMs","avgLpMs","avgLpShare",
+                "predictedMatches","evaluatedPatterns","predictedStrictOne","predictedWithinOne",
+                "predictedMatchesPct","predictedStrictOnePct","predictedWithinOnePct",
+                "cfVsArbitraryCount","avgCfVsArbitraryGain","arbitraryVsRootCount","avgArbitraryVsRootGain",
+                "cfVsRootCount","cfBetterThanRoot","cfBetterThanRootPct",
+                "mispredictedTotal","mispredictedComparable","mispredictedPredBetter","mispredictedPredWorse",
+                "mispredictedRootComparable","mispredictedPredBetterThanRoot",
+                "avgOverestimation","avgUnderestimation","timeTakenMs","costFunction"));
 
-        // Optional per-pattern CSV rows
-        List<List<?>> patternRows = new ArrayList<>();
-        patternRows.add(List.of(
-                "run",
-                "Lp",
-                "cfLp",
-                "actualProbes",
-                "estProbes",
-                "relError",
-                "patternLen"));
+        for (QueryWorkload w : workloads) {
+            List<Object> row = runSummaryForQueries(w, mode);
+            summary.add(row);
+        }
 
-        // Cross-run aggregates
+        CsvUtil.writeRows(Path.of("pattern_summary.csv"), summary);
+    }
+
+    private static List<Object> runSummaryForQueries(QueryWorkload workload, String mode) throws IOException {
+        System.out.printf("Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s, queries=%s%n",
+                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode, workload.queriesFile());
+
         double aggOverallRelErr = 0.0;
         double aggMAPE          = 0.0;
         double aggRMSE          = 0.0;
@@ -352,65 +387,42 @@ public class ConfidenceExperiment {
         double aggAvgQueryMs = 0.0;
         double aggAvgLpMs    = 0.0;
         double aggLpShare    = 0.0;
+        int validRuns = 0;
 
         Map<String, PatternAccuracy> patternAccuracy = new HashMap<>();
         double avgOverallOverestimation = 0.0;
         long start = System.currentTimeMillis();
+        String costFunctionName = null;
 
         for (int run = 0; run <= RUNS; run++) {
-
-            // ---------------------------------
-            // Build a fresh HBI index for this run
-            // ---------------------------------
             HBI hbi = newHbi(0.99);
+            if (costFunctionName == null) costFunctionName = hbi.costFunctionName();
             hbi.isMarkov = false;
             hbi.strides = false;
             hbi.setLpOverride(run);
             hbi.stats().setCollecting(true);
             hbi.stats().setExperimentMode(true);
 
-            // ---------------------------------
-            // Run either chars-mode pipeline or segments-mode pipeline
-            // ---------------------------------
             ExperimentRunResult result;
             if ("segments".equalsIgnoreCase(mode)) {
-                result = runStreamingSegments(
-                        DATA_FILE,
-                        QUERIES_FILE,
-                        hbi,
-                        NGRAMS,
-                        WINDOW_LEN,
-                        false,   // verbose
-                        true     // collect PatternResult objects
-                );
+                result = runStreamingSegments(DATA_FILE, workload.queriesFile().toString(), hbi, NGRAMS, WINDOW_LEN, false, true);
             } else {
-                // chars mode (original behavior)
-                result = Experiment.run(
-                        DATA_FILE,
-                        QUERIES_FILE,
-                        hbi,
-                        NGRAMS,
-                        false,   // verbose
-                        true     // collect PatternResult objects
-                );
+                result = Experiment.run(DATA_FILE, workload.queriesFile().toString(), hbi, NGRAMS, false, true);
             }
 
-            // ---------------------------------
-            // Summarize model accuracy for this run
-            // ---------------------------------
-            RunStats stats = summarizeRun(
-                    run,
-                    result,
-                    patternRows,
-                    true,
-                    patternAccuracy);
+            if (result.patternResults().isEmpty()) continue;
 
-            // Pull timing metrics from HBI
+            RunStats stats = summarizeRun(run, result, new ArrayList<>(), true, patternAccuracy);
+
             double avgQueryMs = hbi.stats().averageQueryTimeMillis();
             double avgLpMs    = hbi.stats().averageLpTimeMillis();
-            double lpShare    = hbi.stats().lpShareOfQuery(); // fraction in [0,1]
+            double lpShare    = hbi.stats().lpShareOfQuery();
 
-            // Print concise per-run summary
+            validRuns++;
+
+            double avgMinCostLpMillis = hbi.stats().averageMinCostLpTimeMillis();
+
+            // Per-run summary line (restores overallRelErr per run as before)
             System.out.printf(
                     Locale.ROOT,
                     "Run %2d: patterns=%4d  sumActual=%.0f  sumEst=%.1f  overallRelErr=%.4f  MAPE=%.4f  RMSE=%.2f  LpMatch=%.2f%n",
@@ -426,39 +438,11 @@ public class ConfidenceExperiment {
             System.out.println(
                     "Leaf probes: " + stats.leafProbes + " Bloom Probes: " + stats.bloomProbes);
 
-            double avgMinCostLpMillis = hbi.stats().averageMinCostLpTimeMillis();
-            System.out.printf(
-                    Locale.ROOT,
-                    "Avg minCostLp time = %.3f ms%n",
-                    avgMinCostLpMillis);
-
-            // Also print timing share
-            System.out.printf(
-                    Locale.ROOT,
+            System.out.printf(Locale.ROOT, "Avg minCostLp time = %.3f ms%n", avgMinCostLpMillis);
+            System.out.printf(Locale.ROOT,
                     "Avg query time per pattern = %.3f ms, Lp estimation time = %.3f ms (%.2f%% of query time)%n",
-                    avgQueryMs,
-                    avgLpMs,
-                    lpShare * 100.0);
+                    avgQueryMs, avgLpMs, lpShare * 100.0);
 
-            // Add this run to runs_summary.csv
-            runRows.add(List.of(
-                    run,
-                    stats.patterns,
-                    (long) stats.sumActual,
-                    stats.sumEstimated,
-                    stats.overallRelError(),
-                    stats.mape(),
-                    stats.rmse(),
-                    stats.lpMatchRate(),
-                    avgQueryMs,
-                    avgLpMs,
-                    lpShare,
-                    result.totalRunTimeMs(),
-                    result.totalInsertTimeMs(),
-                    result.avgQuerySize()
-            ));
-
-            // Accumulate cross-run aggregates
             aggOverallRelErr       += stats.overallRelError();
             aggMAPE                += stats.mape();
             aggRMSE                += stats.rmse();
@@ -470,38 +454,20 @@ public class ConfidenceExperiment {
             aggLpShare             += lpShare;
         }
 
-        int runCount = RUNS + 1;
+        if (validRuns == 0) {
+            System.out.printf(Locale.ROOT, "No valid runs for %s%n", workload.queriesFile());
+            return List.of(workload.queriesFile().toString(), workload.patternLength().orElse(-1), 0);
+        }
 
-        // Final cross-run summary
+        int runCount = validRuns;
         double avgOverallRelErr = aggOverallRelErr / runCount;
         double avgMAPE          = aggMAPE / runCount;
         double avgRMSE          = aggRMSE / runCount;
         double avgMinCostLpMillis = aggAvgMinCostLpMillis / runCount;
-
         double finalAvgQueryMs = aggAvgQueryMs / runCount;
         double finalAvgLpMs    = aggAvgLpMs / runCount;
         double finalAvgLpShare = aggLpShare  / runCount;
 
-        System.out.println("\n=== Cross-run summary ===");
-        System.out.printf(Locale.ROOT, "Avg overallRelError = %.4f%n", avgOverallRelErr);
-        System.out.printf(Locale.ROOT, "Avg MAPE            = %.4f%n", avgMAPE);
-        System.out.printf(Locale.ROOT, "Avg RMSE (probes)   = %.2f%n", avgRMSE);
-        System.out.printf(Locale.ROOT, "Avg minCostLp time  = %.3f ms%n", avgMinCostLpMillis);
-
-        System.out.printf(
-                Locale.ROOT,
-                "Avg query time per pattern (across runs) = %.3f ms%n",
-                finalAvgQueryMs);
-        System.out.printf(
-                Locale.ROOT,
-                "Avg Lp estimation time per pattern (across runs) = %.3f ms%n",
-                finalAvgLpMs);
-        System.out.printf(
-                Locale.ROOT,
-                "Mean fraction of query time spent in Lp estimation (across runs) = %.2f%%%n",
-                finalAvgLpShare * 100.0);
-
-        // Probe accuracy diagnostics across runs
         Map<String, PatternAccuracy> patternAccuracyMap = patternAccuracy;
         int predictedMatches = 0;
         int predictedStrictOne = 0;
@@ -573,10 +539,27 @@ public class ConfidenceExperiment {
         }
 
         int evaluatedPatterns = patternAccuracyMap.size();
+        // Print cross-run summary header and core averages (restored)
+        System.out.printf("\n=== Cross-run summary (%s) ===%n", workload.label());
+        System.out.printf(Locale.ROOT, "Avg overallRelError = %.4f%n", avgOverallRelErr);
+        System.out.printf(Locale.ROOT, "Avg MAPE            = %.4f%n", avgMAPE);
+        System.out.printf(Locale.ROOT, "Avg RMSE (probes)   = %.2f%n", avgRMSE);
+        System.out.printf(Locale.ROOT, "Avg minCostLp time  = %.3f ms%n", avgMinCostLpMillis);
+        System.out.printf(Locale.ROOT,
+                "Avg query time per pattern (across runs) = %.3f ms%n", finalAvgQueryMs);
+        System.out.printf(Locale.ROOT,
+                "Avg Lp estimation time per pattern (across runs) = %.3f ms%n", finalAvgLpMs);
+        System.out.printf(Locale.ROOT,
+                "Mean fraction of query time spent in Lp estimation (across runs) = %.2f%%%n",
+                finalAvgLpShare * 100.0);
+
         double predictedMatchRate = evaluatedPatterns == 0 ? 0.0 : (predictedMatches * 1.0 / evaluatedPatterns);
         double predictedNearRate  = evaluatedPatterns == 0 ? 0.0 : (predictedStrictOne * 1.0 / evaluatedPatterns);
         double predictedNearInclusiveRate =
                 evaluatedPatterns == 0 ? 0.0 : (predictedWithinOneInclusive * 1.0 / evaluatedPatterns);
+        double predictedMatchPct = predictedMatchRate * 100.0;
+        double predictedNearPct  = predictedNearRate * 100.0;
+        double predictedNearInclusivePct = predictedNearInclusiveRate * 100.0;
 
         double avgCfVsArbitraryGain =
                 cfVsArbitraryCount == 0 ? 0.0 : (cfVsArbitraryGain * 1.0 / cfVsArbitraryCount);
@@ -642,16 +625,47 @@ public class ConfidenceExperiment {
                 mispredictedRootComparable,
                 mispredBetterThanRootRate * 100.0);
 
-        System.out.printf(
-                Locale.ROOT,
-                "Overall Overestimation: " + avgOverallOverestimation + " Underestimation: " + u);
+        System.out.printf(Locale.ROOT, "Overall Overestimation: %f Underestimation: %f%n", avgOverallOverestimation, u);
 
         long end = System.currentTimeMillis() - start;
         System.out.println("\nTime taken: " + end);
 
-        // Write CSVs
-        CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
-        CsvUtil.writeRows(Path.of("patterns_summary.csv"), patternRows);
+        Object patternLengthValue = workload.patternLength().isPresent() ? workload.patternLength().getAsInt() : -1;
+        return List.of(
+                workload.queriesFile().toString(),
+                patternLengthValue,
+                runCount,
+                avgOverallRelErr,
+                avgMAPE,
+                avgRMSE,
+                avgMinCostLpMillis,
+                finalAvgQueryMs,
+                finalAvgLpMs,
+                finalAvgLpShare,
+                predictedMatches,
+                evaluatedPatterns,
+                predictedStrictOne,
+                predictedWithinOneInclusive,
+                predictedMatchPct,
+                predictedNearPct,
+                predictedNearInclusivePct,
+                cfVsArbitraryCount,
+                avgCfVsArbitraryGain,
+                arbitraryVsRootCount,
+                avgArbitraryVsRootGain,
+                cfVsRootCount,
+                cfBetterThanRoot,
+                predictedBetterThanRootRate * 100.0,
+                mispredictedTotal,
+                mispredictedComparable,
+                mispredictedPredBetter,
+                mispredictedPredWorse,
+                mispredictedRootComparable,
+                mispredictedPredBetterThanRoot,
+                avgOverallOverestimation,
+                u,
+                end,
+                costFunctionName);
     }
 
     private static RunStats summarizeRun(
@@ -858,7 +872,7 @@ public class ConfidenceExperiment {
      * If you truly want to honor NGRAMS here dynamically, replace that 3 with NGRAMS.
      */
     private static HBI newHbi(double conf) {
-        SelectiveFanout.setSelectiveRegimeEnabled(true);
+        SelectiveFanout.setSelectiveRegimeEnabled(false);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf);
@@ -874,9 +888,9 @@ public class ConfidenceExperiment {
                 memFactory,
                 prFactory,
                 v,
-                new CostFunctionMaxProb(),
+                new CostFunctionIE(),
                 conf,
-                1
+                NGRAMS
         );
     }
 }
