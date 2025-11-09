@@ -272,6 +272,7 @@ public final class BenchmarkOrchestrator {
                                         }
                                     }
                                 }
+                                // suffixResults averaged or reused per existing logic
                                 MultiRunResult suffixTreeResults = null;
                                 if (options.runSuffixTreeBaseline()) {
                                     SuffixTreeCacheKey treeKey = SuffixTreeCacheKey.forWorkloads(
@@ -296,8 +297,10 @@ public final class BenchmarkOrchestrator {
                                             suffixTreeAvgBuilders.computeIfAbsent(treeKey, _k -> new MRAccumulator()).add(suffixTreeResults);
                                         }
                                     }
+                                    // suffixTreeResults averaged or reused per existing logic
                                 }
 
+                                // Aggregate all results (averages/reuse) for this run
                                 accumulate(aggregated, activeIndexes, ng, type, hbiResults, suffixResults, suffixTreeResults);
                             }
 
@@ -421,6 +424,7 @@ public final class BenchmarkOrchestrator {
                         // This happens outside the measured sections and should not skew per-run timings.
                         System.gc();
                     }
+                    // No special best-run aggregation; averages/reuse already reflected via MRAccumulator and caches.
                 }
                 ngIndex++;
             }

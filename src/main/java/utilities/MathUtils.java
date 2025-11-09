@@ -146,13 +146,15 @@ public final class  MathUtils {
             final double logOneMinusProb = Math.log1p(-prob);           // < 0
             final double numerator       = Math.log1p(-conf) - Math.log1p(-beta); // < 0 when conf > beta
             final double bAlphaQ         = numerator / logOneMinusProb; // > 0
-
+            if (!(Double.isFinite(bAlphaQ)) || bAlphaQ <= 0.0) {
+                return 0;
+            }
             // L = ceil( log2( baseIntervalSize / bAlphaQ ) )
             final double ratio = tree.baseIntervalSize() / bAlphaQ;
             final double val   = log2(ratio); // <-- this is where base-2 is required
             final int L        = (int) Math.ceil(val);
 
-            lp = Math.min(L, Lmax)-1;
+            lp = Math.min(L, 0)-1;//l can underflow if the probs are too small. clamp to 0
 
         }
         return (int) Math.max(0, lp);
