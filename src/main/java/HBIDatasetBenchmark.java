@@ -45,15 +45,16 @@ public class HBIDatasetBenchmark {
             "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w20/1/1_W20.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/80.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/40.uniform.txt";
 
     private static final int WINDOW_LEN       = 1 << 20;
     private static final int TREE_LEN         = 1 << 20;
     private static final int ALPHABET_BASE    = 500;
     private static final double DEFAULT_FP_RATE = 0.25;
-    private static final int DEFAULT_RUNS     = 5;
+    private static final int DEFAULT_RUNS     = 20;
+    private static final double Confidence = 0.99;
     private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 2;
+    private static int NGRAMS                 = 8;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -71,7 +72,7 @@ public class HBIDatasetBenchmark {
             double fpRate = DEFAULT_FP_RATE;
             boolean runSuffix = false;
             boolean skipQueries = false;
-            int warmupRuns = 0;
+            int warmupRuns = 2;
             int runs = DEFAULT_RUNS;
 
             for (int i = 0; i < args.length; i++) {
@@ -350,7 +351,7 @@ public class HBIDatasetBenchmark {
                 memFactory,
                 prFactory,
                 v,
-                /* cost function */ new CostFunctionMaxProb(),
+                /* cost function */ null,
                 conf,
                 NGRAMS
         );
@@ -392,7 +393,7 @@ public class HBIDatasetBenchmark {
         // Warm-up iterations
         // ------------------
         for (int i = 0; i < warmupRuns; i++) {
-            HBI hbi = newHbi(0.999, alphabet, fpRate);
+            HBI hbi = newHbi(Confidence, alphabet, fpRate);
             hbi.strides = USE_STRIDES;
             HbiStats stats = hbi.stats();
             stats.setCollecting(false);
@@ -464,7 +465,7 @@ public class HBIDatasetBenchmark {
         for (int i = 0; i < runs; i++) {
 
             // HBI pass
-            HBI hbi = newHbi(0.99, alphabet, fpRate);
+            HBI hbi = newHbi(Confidence, alphabet, fpRate);
             hbi.strides = USE_STRIDES;
             HbiStats stats = hbi.stats();
             stats.setCollecting(true);
