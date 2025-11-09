@@ -138,7 +138,8 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         final int Ldesc = lpCache.Ldesc;
 
         double nodesAtLp = (double) (1L << Lp);
-        double total = lpCache.HUncond(Lp) * nodesAtLp;
+        double parentCostAtLp = lpCache.HUncond(Lp);
+        double total = parentCostAtLp * nodesAtLp;
 
         if (!lpCache.childCanHostFrom(Lp) || Lp >= Ldesc) {
             return total;
@@ -149,7 +150,14 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             return total;
         }
 
-        double nodesAtLevel = 2.0 * nodesAtLp * lpCache.FUncond(Lp);
+        double childCost = lpCache.HCond(level);
+        double fanout = SelectiveFanout.multiplier(
+                Lp,
+                Lp,
+                Ldesc,
+                lpCache.FUncond(Lp),
+                SelectiveFanout.costEfficiencyScore(parentCostAtLp, childCost));
+        double nodesAtLevel = fanout * nodesAtLp * lpCache.FUncond(Lp);
         if (nodesAtLevel <= 0.0) {
             return total;
         }
@@ -159,8 +167,13 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
         while (level < Ldesc && lpCache.childCanHostFrom(level)) {
             double parents = nodesAtLevel;
             int next = level + 1;
-            nodesAtLevel = 2.0 * parents * lpCache.FCond(level);
-            if (nodesAtLevel <= 0.0 || next > lpCache.upperLevel) {
+            if (next > lpCache.upperLevel) {
+                break;
+            }
+            double costScore = SelectiveFanout.costEfficiencyScore(lpCache.HCond(level), lpCache.HCond(next));
+            double levelFanout = SelectiveFanout.multiplier(level, Lp, Ldesc, lpCache.FCond(level), costScore);
+            nodesAtLevel = levelFanout * parents * lpCache.FCond(level);
+            if (nodesAtLevel <= 0.0) {
                 break;
             }
             total += lpCache.HCond(next) * nodesAtLevel;
