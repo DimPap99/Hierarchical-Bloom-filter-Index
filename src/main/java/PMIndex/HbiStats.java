@@ -96,7 +96,9 @@ public final class HbiStats {
     }
 
     public void recordMinCostLpTime(long durationNanos) {
-        if (!experimentMode) {
+        // Record CF minCost Lp timing when stats collection is enabled,
+        // regardless of experiment mode. This keeps overhead opt‑in via collectStats.
+        if (!collectStats) {
             return;
         }
         minCostLpTimesNanos.add(durationNanos);

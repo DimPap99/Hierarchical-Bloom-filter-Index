@@ -1,3 +1,4 @@
+import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import search.Pattern;
 import utilities.CharRingBuffer;
@@ -118,6 +119,8 @@ public class Experiment {
 
         double avgInsertMsPerSymbol = insertionCount == 0 ? 0.0 : (insertDuration / (double) insertionCount);
         double avgQueryLoadMs = runQueries ? (double) queryDuration : 0.0;
-        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs, matchRes);
+        double avgLpMs = (index instanceof HBI hbi) ? hbi.stats().averageLpTimeMillis() : 0.0;
+        double avgCfLpMs = (index instanceof HBI hbi) ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, matchRes);
     }
 }

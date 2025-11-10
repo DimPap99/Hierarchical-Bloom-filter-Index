@@ -53,7 +53,8 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     Utils.MemPolicy memPolicy,
                                     boolean runRegexBaseline,
                                     boolean runHbi,
-                                    boolean runSuffix) {
+                                    boolean runSuffix,
+                                    boolean collectStats) {
 
         static BenchmarkOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -73,6 +74,7 @@ public final class HBIDatasetBenchmarkPerDataset {
             boolean runSuffix = false;
             String algorithm = "bs"; // default as requested
             Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
+            boolean collectStats = false;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -112,6 +114,7 @@ public final class HBIDatasetBenchmarkPerDataset {
                     case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                     case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
                     case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
+                    case "collect-stats", "stats" -> collectStats = Boolean.parseBoolean(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -167,7 +170,8 @@ public final class HBIDatasetBenchmarkPerDataset {
                     memPolicy,
                     runRegexBaseline,
                     runHbi,
-                    runSuffix);
+                    runSuffix,
+                    collectStats);
         }
 
         int alphabetSize() {
@@ -382,6 +386,8 @@ public final class HBIDatasetBenchmarkPerDataset {
 
                     MultiQueryExperiment.MultiRunResult hbiResults = null;
                     if (hbi != null) {
+                        // Enable/disable stats collection per CLI option
+                        hbi.stats().setCollecting(options.collectStats());
                         hbiResults = MultiQueryExperiment.runQueries(workloads, hbi, options.ngram(), hbiInsertStats, false, false);
                     }
 
@@ -404,7 +410,9 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     .accumulate(IndexType.HBI,
                                             result.avgInsertMsPerSymbol(),
                                             result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
+                                            result.totalRunTimeMs(),
+                                            result.avgLpMs(),
+                                            result.avgCfLpMs());
                         });
                     }
 
@@ -415,7 +423,9 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     .accumulate(IndexType.SUFFIX,
                                             result.avgInsertMsPerSymbol(),
                                             result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
+                                            result.totalRunTimeMs(),
+                                            0.0,
+                                            0.0);
                         });
                     }
 
@@ -426,7 +436,9 @@ public final class HBIDatasetBenchmarkPerDataset {
                                     .accumulate(IndexType.REGEX,
                                             result.avgInsertMsPerSymbol(),
                                             result.totalInsertTimeMs(),
-                                            result.totalRunTimeMs());
+                                            result.totalRunTimeMs(),
+                                            0.0,
+                                            0.0);
                         });
                     }
                 }
@@ -468,13 +480,25 @@ public final class HBIDatasetBenchmarkPerDataset {
                             System.out.printf(Locale.ROOT, "      %s -> no data%n", index.displayName());
                             continue;
                         }
-                        System.out.printf(Locale.ROOT,
-                                "      %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d run(s)%n",
-                                index.displayName(),
-                                snapshot.avgInsertMsPerSymbol(),
-                                snapshot.avgInsertMs(),
-                                snapshot.avgQueryMs(),
-                                snapshot.count());
+                        if (index == IndexType.HBI) {
+                            System.out.printf(Locale.ROOT,
+                                    "      %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms, lp=%.3f ms, cfLp=%.3f ms over %d run(s)%n",
+                                    index.displayName(),
+                                    snapshot.avgInsertMsPerSymbol(),
+                                    snapshot.avgInsertMs(),
+                                    snapshot.avgQueryMs(),
+                                    snapshot.avgLpMs(),
+                                    snapshot.avgCfLpMs(),
+                                    snapshot.count());
+                        } else {
+                            System.out.printf(Locale.ROOT,
+                                    "      %s -> avgInsert=%.6f ms, insert=%.3f ms, query=%.3f ms over %d run(s)%n",
+                                    index.displayName(),
+                                    snapshot.avgInsertMsPerSymbol(),
+                                    snapshot.avgInsertMs(),
+                                    snapshot.avgQueryMs(),
+                                    snapshot.count());
+                        }
                     }
                 });
             }
@@ -492,6 +516,10 @@ public final class HBIDatasetBenchmarkPerDataset {
                 header.add("avgInsertMsPerSymbol_" + suffix);
                 header.add("insertMs_" + suffix);
                 header.add("avgMs_" + suffix);
+                if (index == IndexType.HBI) {
+                    header.add("avgLpMs_" + suffix);
+                    header.add("avgCfLpMs_" + suffix);
+                }
                 header.add("datasetCount_" + suffix); // now equals number of runs contributing for this dataset
             }
         }
@@ -524,11 +552,19 @@ public final class HBIDatasetBenchmarkPerDataset {
                             row.add(null);
                             row.add(null);
                             row.add(null);
+                            if (index == IndexType.HBI) {
+                                row.add(null);
+                                row.add(null);
+                            }
                             row.add(0);
                         } else {
                             row.add(snapshot.avgInsertMsPerSymbol());
                             row.add(snapshot.avgInsertMs());
                             row.add(snapshot.avgQueryMs());
+                            if (index == IndexType.HBI) {
+                                row.add(snapshot.avgLpMs());
+                                row.add(snapshot.avgCfLpMs());
+                            }
                             row.add(snapshot.count());
                         }
                     }
@@ -682,11 +718,15 @@ public final class HBIDatasetBenchmarkPerDataset {
         void accumulate(IndexType indexType,
                         double avgInsertMsPerSymbol,
                         double totalInsertMs,
-                        double totalQueryMs) {
+                        double totalQueryMs,
+                        double avgLpMs,
+                        double avgCfLpMs) {
             StatsSum sum = sums.computeIfAbsent(indexType, ignored -> new StatsSum());
             sum.avgInsertMsPerSymbolSum += avgInsertMsPerSymbol;
             sum.totalInsertMsSum += totalInsertMs;
             sum.totalQueryMsSum += totalQueryMs;
+            sum.avgLpMsSum += avgLpMs;
+            sum.avgCfLpMsSum += avgCfLpMs;
             sum.count++;
         }
 
@@ -699,6 +739,8 @@ public final class HBIDatasetBenchmarkPerDataset {
                     sum.avgInsertMsPerSymbolSum / sum.count,
                     sum.totalInsertMsSum / sum.count,
                     sum.totalQueryMsSum / sum.count,
+                    sum.avgLpMsSum / sum.count,
+                    sum.avgCfLpMsSum / sum.count,
                     sum.count);
         }
 
@@ -710,13 +752,17 @@ public final class HBIDatasetBenchmarkPerDataset {
             private double avgInsertMsPerSymbolSum;
             private double totalInsertMsSum;
             private double totalQueryMsSum;
+            private double avgLpMsSum;
+            private double avgCfLpMsSum;
             private int count;
         }
     }
-
+    
     private record StatsSnapshot(double avgInsertMsPerSymbol,
                                  double avgInsertMs,
                                  double avgQueryMs,
+                                 double avgLpMs,
+                                 double avgCfLpMs,
                                  int count) {
     }
 

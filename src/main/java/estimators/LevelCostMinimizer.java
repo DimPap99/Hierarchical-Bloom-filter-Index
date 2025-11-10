@@ -29,7 +29,7 @@ public final class LevelCostMinimizer {
         int maxDepth = tree.maxDepth();
         int r = probs.length;
         double minProb = Arrays.stream(probs).min().orElse(0.0);
-        int _maxlp = MathUtils.pruningLevel(tree, 0.99, minProb);
+        int _maxlp = (int) ((tree.maxDepth()-1) - Math.ceil(Math.log(pattern.nGramArr.length)/Math.log(2)));//MathUtils.pruningLevel(tree, 0.9, minProb);
         int minLp = 0;//MathUtils.pruningLevel(tree, 0.99, minProb);
         int patternFitDepth = computePatternFitDepth(tree, pattern);
         int maxLpLevel = MathUtils.pruningLevel(tree, 0.95, minProb);
@@ -50,7 +50,8 @@ public final class LevelCostMinimizer {
                 bestLp = Lp;
             }
         }
-        if(bestLp < _maxlp && !isDebugging) {
+        // Also apply this clamp when SelectiveFanout is enabled, regardless of debugging flag
+        if (bestLp < _maxlp && (SelectiveFanout.isSelectiveRegimeEnabled())) {
             bestCost = _maxlp;
         }
         return new Result(bestLp, bestCost);
@@ -82,4 +83,3 @@ public final class LevelCostMinimizer {
         }
     }
 }
-

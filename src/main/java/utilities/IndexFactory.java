@@ -81,21 +81,28 @@ public final class IndexFactory {
                 search = new search.BlockSearch();
                 prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
                 costFn = null;
+                //alphabetSize = 10000
             }
             case "cgbs" -> {
                 search = new search.BlockSearchCharSet();
                 prFactory = () -> new search.MultiLevelPruning(confidence, fpRate);
                 costFn = null;
+                //alphabetSize = 10000
+
             }
             case "cf" -> {
                 search = new search.BlockSearch();
                 prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
                 costFn = new CostFunctionMaxProb();
+                alphabetSize = 100000;
+
             }
             case "bs" -> {
                 search = new search.BlockSearch();
                 prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
                 costFn = new CostFunctionDefaultRoot();
+                //alphabetSize = 3000
+
             }
             default -> {
                 search = new search.BlockSearch();

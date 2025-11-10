@@ -46,13 +46,21 @@ public final class MultiQueryExperiment {
         for (QueryWorkload workload : workloads) {
             QueryStats queryStats = executeQueries(workload.queryFile(), index, nGram, verbose, queryResults);
 
+            double avgLpMs = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageLpTimeMillis() : 0.0;
+            double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+
             ExperimentRunResult runResult = new ExperimentRunResult(
                     queryStats.queryDurationMs(),
                     insertStats.insertDurationMs(),
                     queryStats.patternResults(),
                     queryStats.avgQueryLength(),
                     insertStats.avgInsertMsPerSymbol(),
-                    queryStats.queryDurationMs(),null);
+                    queryStats.queryDurationMs(),
+                    avgLpMs,
+                    avgCfLpMs,
+                    null);
 
             results.put(workload, runResult);
         }

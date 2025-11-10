@@ -205,7 +205,7 @@ public final class BenchmarkOrchestrator {
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
                                 hbi.strides = true;
-                                hbi.stats().setCollecting(true);
+                                hbi.stats().setCollecting(options.collectStats());
                                 hbi.stats().setExperimentMode(false);
                                 hbiIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbi, ng)
@@ -566,6 +566,8 @@ final class MRAccumulator {
         double sumTotalInsertMs;
         double sumTotalQueryMs;
         double sumAvgQuerySize;
+        double sumAvgLpMs;
+        double sumAvgCfLpMs;
         int count;
     }
 
@@ -580,6 +582,8 @@ final class MRAccumulator {
             s.sumTotalInsertMs += r.totalInsertTimeMs();
             s.sumTotalQueryMs += r.totalRunTimeMs();
             s.sumAvgQuerySize += r.avgQuerySize();
+            s.sumAvgLpMs += r.avgLpMs();
+            s.sumAvgCfLpMs += r.avgCfLpMs();
             s.count++;
         }
     }
@@ -600,6 +604,8 @@ final class MRAccumulator {
                     avgQSize,
                     avgInsSym,
                     avgQueryMs,
+                    s.sumAvgLpMs / c,
+                    s.sumAvgCfLpMs / c,
                     null
             ));
         }

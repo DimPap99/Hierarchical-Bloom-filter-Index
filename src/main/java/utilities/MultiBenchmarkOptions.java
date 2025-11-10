@@ -42,7 +42,8 @@ public record MultiBenchmarkOptions(
         double rankEpsTarget,
         double deltaQ,
         double deltaSamp,
-        double quantile) {
+        double quantile,
+        boolean collectStats) {
 
     public static MultiBenchmarkOptions parse(String[] args) {
         Path dataRoot = Path.of("data");
@@ -82,6 +83,7 @@ public record MultiBenchmarkOptions(
         boolean reuseSuffixResults = true; // default: reuse suffix results across FPR/ng loops
         boolean reinsertPerWorkload = false;
         String algorithm = "bs"; // default algorithm
+        boolean collectStats = false; // default off; enable via --collect-stats=true
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -148,6 +150,7 @@ public record MultiBenchmarkOptions(
                 case "delta-q" -> deltaQ = Double.parseDouble(value);
                 case "delta-samp", "delta-sample" -> deltaSamp = Double.parseDouble(value);
                 case "p", "quantile" -> quantile = Double.parseDouble(value);
+                case "collect-stats", "stats" -> collectStats = Boolean.parseBoolean(value);
                 default -> throw new IllegalArgumentException("Unknown option --" + key);
             }
         }
@@ -261,7 +264,8 @@ public record MultiBenchmarkOptions(
                 rankEpsTarget,
                 deltaQ,
                 deltaSamp,
-                quantile
+                quantile,
+                collectStats
         );
     }
 

@@ -103,6 +103,10 @@ public final class SegmentModeRunner {
             long durationMs = System.currentTimeMillis() - startTimeMs;
             double avgQueryLen = (queryCount == 0) ? 0.0 : (totalQueryLen / (double) queryCount);
 
+            double avgLpMs = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageLpTimeMillis() : 0.0;
+            double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
             ExperimentRunResult runResult = new ExperimentRunResult(
                     durationMs,
                     insertStats.insertDurationMs(),
@@ -110,6 +114,8 @@ public final class SegmentModeRunner {
                     avgQueryLen,
                     insertStats.avgInsertMsPerSymbol(),
                     durationMs,
+                    avgLpMs,
+                    avgCfLpMs,
                     null);
 
             results.put(workload, runResult);
@@ -118,4 +124,3 @@ public final class SegmentModeRunner {
         return new MultiQueryExperiment.MultiRunResult(results);
     }
 }
-

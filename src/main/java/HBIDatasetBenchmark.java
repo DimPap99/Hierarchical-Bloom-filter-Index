@@ -51,10 +51,10 @@ public class HBIDatasetBenchmark {
     private static final int TREE_LEN         = 1 << 20;
     private static final int ALPHABET_BASE    = 500;
     private static final double DEFAULT_FP_RATE = 0.25;
-    private static final int DEFAULT_RUNS     = 20;
+    private static final int DEFAULT_RUNS     = 2;
     private static final double Confidence = 0.99;
     private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 8;
+    private static int NGRAMS                 = 1;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -280,6 +280,11 @@ public class HBIDatasetBenchmark {
         double avgQueryLoadMs =
                 (queryLoads == 0) ? 0.0 : (totalQueryMs / queryLoads);
 
+        double avgLpMs = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageLpTimeMillis() : 0.0;
+        double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+
         return new ExperimentRunResult(
                 totalQueryMs,
                 totalInsertMs,
@@ -289,6 +294,8 @@ public class HBIDatasetBenchmark {
                 ? 0.0
                 : (totalInsertMs / insertionEvents),
                 avgQueryLoadMs,
+                avgLpMs,
+                avgCfLpMs,
                 allQueryMatches
         );
     }
@@ -351,7 +358,7 @@ public class HBIDatasetBenchmark {
                 memFactory,
                 prFactory,
                 v,
-                /* cost function */ null,
+                /* cost function */ new CostFunctionMaxProb(),
                 conf,
                 NGRAMS
         );
@@ -456,6 +463,7 @@ public class HBIDatasetBenchmark {
         double avgLpLevelSum = 0.0; // average chosen LP level per run
         double avgQueryTimeSum = 0.0;
         double avgLpTimeSum = 0.0;
+        double avgCfLpTimeSum = 0.0;
         int statsSamples = 0;
         int suffixRuns = 0;
 
@@ -501,6 +509,7 @@ public class HBIDatasetBenchmark {
                 lpShareSum += stats.lpShareOfQuery();
                 avgQueryTimeSum += stats.averageQueryTimeMillis();
                 avgLpTimeSum += stats.averageLpTimeMillis();
+                avgCfLpTimeSum += stats.averageMinCostLpTimeMillis();
                 // compute average LP level chosen this run
                 double runAvgLp = 0.0;
                 List<Integer> lps = stats.lpLevels();
@@ -579,6 +588,10 @@ public class HBIDatasetBenchmark {
                         Locale.ROOT,
                         "HBI avg LP computation time per pattern (ms): %.3f%n",
                         (avgLpTimeSum / statsSamples));
+                System.out.printf(
+                        Locale.ROOT,
+                        "HBI avg CF Lp computation time per pattern (ms): %.3f%n",
+                        (avgCfLpTimeSum / statsSamples));
                 System.out.printf(
                         Locale.ROOT,
                         "HBI LP time share of query (%%): %.2f%n",

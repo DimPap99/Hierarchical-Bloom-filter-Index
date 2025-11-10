@@ -79,7 +79,9 @@ public class ProcessStream {
         double totalQueryMs = sumQueryLoadMs;
         double avgQueryLoadMs = queryLoads == 0 ? 0.0 : (totalQueryMs / queryLoads);
 
-        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs, null);
+        double avgLpMs = (index instanceof HBI hbi) ? hbi.stats().averageLpTimeMillis() : 0.0;
+        double avgCfLpMs = (index instanceof HBI hbi) ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, null);
     }
 
 

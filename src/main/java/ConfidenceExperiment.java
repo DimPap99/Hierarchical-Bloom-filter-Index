@@ -195,6 +195,11 @@ public class ConfidenceExperiment {
         double avgQueryLoadMs =
                 queryLoads == 0 ? 0.0 : (totalQueryMs / queryLoads);
 
+        double avgLpMs = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageLpTimeMillis() : 0.0;
+        double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+
         return new ExperimentRunResult(
                 totalQueryMs,
                 totalInsertMs,
@@ -202,6 +207,8 @@ public class ConfidenceExperiment {
                 avgQueryLen,
                 avgInsertMsPerSymbol,
                 avgQueryLoadMs,
+                avgLpMs,
+                avgCfLpMs,
                 null // match results omitted here, but could be added later if you wish
         );
     }

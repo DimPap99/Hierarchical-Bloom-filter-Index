@@ -489,12 +489,17 @@ public final class HBI implements IPMIndexing {
                 lps.add(lp);
             } else {
                 if (this.cf != null) {
-                    lps.add(cf.minCostLp(tree,
+                    long cfStart = System.nanoTime();
+                    int chosen = cf.minCostLp(tree,
                             0.95,
                             pat,
                             this.bfCost,
                             this.leafCost,
-                            this.strides));
+                            this.strides);
+                    long cfDur = System.nanoTime() - cfStart;
+                    lps.add(chosen);
+                    // Record CF minCost timing if stats collection is enabled
+                    stats.recordMinCostLpTime(cfDur);
                 } else {
                     if (estimatorsActive() && tree.pruningPlan != null) {
                         lps = tree.pruningPlan.pruningPlan(pat, tree, this.conf, this.strides);
