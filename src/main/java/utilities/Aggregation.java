@@ -16,11 +16,19 @@ public final class Aggregation {
         public void accumulate(IndexType indexType,
                                double avgInsertMsPerSymbol,
                                double totalInsertMs,
-                               double totalQueryMs) {
+                               double totalQueryMs,
+                               double avgLpMs,
+                               double avgCfLpMs,
+                               double avgLpChosen,
+                               double avgCfLpChosen) {
             StatsSum sum = sums.computeIfAbsent(indexType, ignored -> new StatsSum());
             sum.avgInsertMsPerSymbolSum += avgInsertMsPerSymbol;
             sum.totalInsertMsSum += totalInsertMs;
             sum.totalQueryMsSum += totalQueryMs;
+            sum.avgLpMsSum += avgLpMs;
+            sum.avgCfLpMsSum += avgCfLpMs;
+            sum.avgLpChosenSum += avgLpChosen;
+            sum.avgCfLpChosenSum += avgCfLpChosen;
             sum.count++;
         }
 
@@ -33,6 +41,10 @@ public final class Aggregation {
                     sum.avgInsertMsPerSymbolSum / sum.count,
                     sum.totalInsertMsSum / sum.count,
                     sum.totalQueryMsSum / sum.count,
+                    sum.avgLpMsSum / sum.count,
+                    sum.avgCfLpMsSum / sum.count,
+                    sum.avgLpChosenSum / sum.count,
+                    sum.avgCfLpChosenSum / sum.count,
                     sum.count);
         }
 
@@ -49,6 +61,10 @@ public final class Aggregation {
             double avgInsertMsPerSymbolSum;
             double totalInsertMsSum;
             double totalQueryMsSum;
+            double avgLpMsSum;
+            double avgCfLpMsSum;
+            double avgLpChosenSum;
+            double avgCfLpChosenSum;
             int count;
         }
     }
@@ -56,5 +72,9 @@ public final class Aggregation {
     public record StatsSnapshot(double avgInsertMsPerSymbol,
                                 double avgInsertMs,
                                 double avgQueryMs,
+                                double avgLpMs,
+                                double avgCfLpMs,
+                                double avgLpChosen,
+                                double avgCfLpChosen,
                                 int count) {}
 }

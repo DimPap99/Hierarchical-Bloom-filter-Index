@@ -107,6 +107,10 @@ public final class SegmentModeRunner {
                     ? hbi.stats().averageLpTimeMillis() : 0.0;
             double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
                     ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+            double avgLpChosen = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageChosenLp() : 0.0;
+            double avgCfLpChosen = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageCfChosenLp() : 0.0;
             ExperimentRunResult runResult = new ExperimentRunResult(
                     durationMs,
                     insertStats.insertDurationMs(),
@@ -116,6 +120,8 @@ public final class SegmentModeRunner {
                     durationMs,
                     avgLpMs,
                     avgCfLpMs,
+                    avgLpChosen,
+                    avgCfLpChosen,
                     null);
 
             results.put(workload, runResult);

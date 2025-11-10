@@ -11,6 +11,8 @@ public record ExperimentRunResult (
         double avgQueryLoadMs ,             // average time per query load (ms); for single-load experiments equals totalRunTimeMs
         double avgLpMs,                     // average Lp estimation time per pattern (ms); 0 if unavailable
         double avgCfLpMs,                   // average CF-only Lp time per pattern (ms); 0 if unavailable
+        double avgLpChosen,                 // average chosen Lp (current algo); 0 if unavailable
+        double avgCfLpChosen,               // average chosen CF Lp (min-cost); 0 if unavailable
         ArrayList<ArrayList<Integer>> matchRes
 
 ) {

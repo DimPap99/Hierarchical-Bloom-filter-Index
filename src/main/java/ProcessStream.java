@@ -81,7 +81,9 @@ public class ProcessStream {
 
         double avgLpMs = (index instanceof HBI hbi) ? hbi.stats().averageLpTimeMillis() : 0.0;
         double avgCfLpMs = (index instanceof HBI hbi) ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
-        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, null);
+        double avgLpChosen = (index instanceof HBI hbi) ? hbi.stats().averageChosenLp() : 0.0;
+        double avgCfLpChosen = (index instanceof HBI hbi) ? hbi.stats().averageCfChosenLp() : 0.0;
+        return new ExperimentRunResult(totalQueryMs, totalInsertMs, new ArrayList<>(), avgQueryLen, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, avgLpChosen, avgCfLpChosen, null);
     }
 
 

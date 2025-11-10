@@ -32,7 +32,7 @@ public final class LevelCostMinimizer {
         int _maxlp = (int) ((tree.maxDepth()-1) - Math.ceil(Math.log(pattern.nGramArr.length)/Math.log(2)));//MathUtils.pruningLevel(tree, 0.9, minProb);
         int minLp = 0;//MathUtils.pruningLevel(tree, 0.99, minProb);
         int patternFitDepth = computePatternFitDepth(tree, pattern);
-        int maxLpLevel = MathUtils.pruningLevel(tree, 0.95, minProb);
+        int maxLpLevel = (int) ((tree.maxDepth()-1) - Math.ceil(Math.log(pattern.nGramArr.length)/Math.log(2)));
 
         if (maxLpLevel < minLp) {
             maxLpLevel = minLp;

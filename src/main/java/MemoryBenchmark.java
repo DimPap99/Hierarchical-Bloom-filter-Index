@@ -2,6 +2,7 @@ import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.RegexIndex;
 import PMIndex.StreamingSlidingWindowIndex;
+import PMIndex.IPMIndexing;
 
 import estimators.CSEstimator;
 import estimators.CostFunctionMaxProb;
@@ -23,6 +24,7 @@ import utilities.CsvUtil;
 import utilities.MultiQueryExperiment;
 import utilities.Utils;
 import utilities.SegmentModeRunner;
+import utilities.IndexFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -55,6 +57,7 @@ import java.util.stream.Stream;
  *   hbi_mem_mib,
  *   suffix_core_mem_mib,
  *   suffix_total_mem_mib,
+ *   suffix_tree_mem_mib,
  *   regex_mem_mib
  *
  * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
@@ -113,9 +116,11 @@ public final class MemoryBenchmark {
                 "hbi_mem_mib",
                 "suffix_core_mem_mib",
                 "suffix_total_mem_mib",
+                "suffix_tree_mem_mib",
                 "regex_mem_mib"));
 
         Map<Integer, SuffixMeasurement> suffixCache = new HashMap<>();
+        Map<Integer, SuffixTreeMeasurement> suffixTreeCache = new HashMap<>();
         RegexMeasurement regexCache = null;
 
         for (double fpRate : options.fpRates()) {
@@ -153,6 +158,20 @@ public final class MemoryBenchmark {
                     regexCache = buildAndMeasureRegex(datasetFile, options);
                 }
 
+                SuffixTreeMeasurement suffixTreeStats;
+                if (options.reuseSuffixResults() && suffixTreeCache.containsKey(ngram)) {
+                    suffixTreeStats = suffixTreeCache.get(ngram);
+                    System.out.printf(Locale.ROOT, "Reusing suffix-tree measurement for ngram %d%n", ngram);
+                    System.out.printf(Locale.ROOT,
+                            "SuffixTree total (reuse): %d B (%.3f MiB) [ngram=%d]%n",
+                            suffixTreeStats.bytes(), suffixTreeStats.mib(), ngram);
+                } else {
+                    suffixTreeStats = buildAndMeasureSuffixTree(datasetFile, options, ngram);
+                    if (options.reuseSuffixResults()) {
+                        suffixTreeCache.put(ngram, suffixTreeStats);
+                    }
+                }
+
                 for (TreeSetting treeSetting : options.treeSettings()) {
                     HbiMeasurement hbiStats = buildAndMeasureHbi(datasetFile, options, treeSetting, ngram, fpRate);
 
@@ -169,6 +188,7 @@ public final class MemoryBenchmark {
                             hbiStats.mib(),
                             suffixStats.coreMiB(),
                             suffixStats.totalMiB(),
+                            suffixTreeStats.mib(),
                             regexCache.mib()));
                 }
             }
@@ -360,6 +380,35 @@ public final class MemoryBenchmark {
         return new RegexMeasurement(bytes, mib);
     }
 
+    private static SuffixTreeMeasurement buildAndMeasureSuffixTree(Path datasetFile,
+                                                                   MemoryOptions options,
+                                                                   int ngram) throws IOException {
+        IPMIndexing suffixTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ngram));
+        if (options.isSegmentsMode()) {
+            try {
+                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTree, ngram);
+            } catch (Exception e) {
+                throw new IOException("Failed to populate suffix-tree index in segments mode", e);
+            }
+        } else {
+            MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTree, ngram);
+        }
+
+        GraphLayout layout = GraphLayout.parseInstance(suffixTree);
+        long bytes = layout.totalSize();
+        double mib = bytes / 1_048_576d;
+
+        System.out.println("\n=== SuffixTree JOL footprint ===");
+        System.out.println(layout.toFootprint());
+        System.out.printf(Locale.ROOT,
+                "SuffixTree total: %d B (%.3f MiB) [ngram=%d]%n",
+                bytes,
+                mib,
+                ngram);
+
+        return new SuffixTreeMeasurement(bytes, mib);
+    }
+
     private record HbiMeasurement(long bytes, double mib) {}
 
     private record SuffixMeasurement(long totalBytes,
@@ -371,6 +420,7 @@ public final class MemoryBenchmark {
                                      int ngram) {}
 
     private record RegexMeasurement(long bytes, double mib) {}
+    private record SuffixTreeMeasurement(long bytes, double mib) {}
 
     private static List<Path> listDatasetDirectories(Path root) throws IOException {
         try (Stream<Path> stream = Files.list(root)) {

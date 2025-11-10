@@ -284,6 +284,10 @@ public class HBIDatasetBenchmark {
                 ? hbi.stats().averageLpTimeMillis() : 0.0;
         double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
                 ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+        double avgLpChosen = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageChosenLp() : 0.0;
+        double avgCfLpChosen = (index instanceof PMIndex.HBI hbi)
+                ? hbi.stats().averageCfChosenLp() : 0.0;
 
         return new ExperimentRunResult(
                 totalQueryMs,
@@ -296,6 +300,8 @@ public class HBIDatasetBenchmark {
                 avgQueryLoadMs,
                 avgLpMs,
                 avgCfLpMs,
+                avgLpChosen,
+                avgCfLpChosen,
                 allQueryMatches
         );
     }

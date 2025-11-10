@@ -41,9 +41,15 @@ public final class BenchmarkReporter {
                             System.out.printf(Locale.ROOT, "      %s -> no data%n", index.displayName());
                             continue;
                         }
-                        System.out.printf(Locale.ROOT,
-                                "      %s -> avgInsertMs/sym=%.6f, avgInsertMs=%.3f, avgQueryMs=%.3f, count=%d%n",
-                                index.displayName(), snap.avgInsertMsPerSymbol(), snap.avgInsertMs(), snap.avgQueryMs(), snap.count());
+                        if (snap.avgLpMs() > 0.0 || snap.avgCfLpMs() > 0.0) {
+                            System.out.printf(Locale.ROOT,
+                                    "      %s -> avgInsertMs/sym=%.6f, avgInsertMs=%.3f, avgQueryMs=%.3f, avgLpMs=%.4f, avgCfLpMs=%.4f, avgLpChosen=%.3f, avgCfLpChosen=%.3f, count=%d%n",
+                                    index.displayName(), snap.avgInsertMsPerSymbol(), snap.avgInsertMs(), snap.avgQueryMs(), snap.avgLpMs(), snap.avgCfLpMs(), snap.avgLpChosen(), snap.avgCfLpChosen(), snap.count());
+                        } else {
+                            System.out.printf(Locale.ROOT,
+                                    "      %s -> avgInsertMs/sym=%.6f, avgInsertMs=%.3f, avgQueryMs=%.3f, avgLpChosen=%.3f, avgCfLpChosen=%.3f, count=%d%n",
+                                    index.displayName(), snap.avgInsertMsPerSymbol(), snap.avgInsertMs(), snap.avgQueryMs(), snap.avgLpChosen(), snap.avgCfLpChosen(), snap.count());
+                        }
                     }
                 });
             });
@@ -65,6 +71,10 @@ public final class BenchmarkReporter {
                 header.add("avg_insert_ms_per_symbol_" + type.fileToken() + "_" + index.csvLabel());
                 header.add("avg_insert_ms_" + type.fileToken() + "_" + index.csvLabel());
                 header.add("avg_query_ms_" + type.fileToken() + "_" + index.csvLabel());
+                header.add("avg_lp_ms_" + type.fileToken() + "_" + index.csvLabel());
+                header.add("avg_cflp_ms_" + type.fileToken() + "_" + index.csvLabel());
+                header.add("avg_lp_chosen_" + type.fileToken() + "_" + index.csvLabel());
+                header.add("avg_cflp_chosen_" + type.fileToken() + "_" + index.csvLabel());
                 header.add("count_" + type.fileToken() + "_" + index.csvLabel());
             }
         }
@@ -107,11 +117,15 @@ public final class BenchmarkReporter {
                     for (IndexType index : activeIndexes) {
                         Aggregation.StatsSnapshot snap = (stats != null) ? stats.snapshot(index) : null;
                         if (snap == null || snap.count() == 0) {
-                            row.add(null); row.add(null); row.add(null); row.add(0);
+                            row.add(null); row.add(null); row.add(null); row.add(null); row.add(null); row.add(null); row.add(null); row.add(0);
                         } else {
                             row.add(snap.avgInsertMsPerSymbol());
                             row.add(snap.avgInsertMs());
                             row.add(snap.avgQueryMs());
+                            row.add(snap.avgLpMs());
+                            row.add(snap.avgCfLpMs());
+                            row.add(snap.avgLpChosen());
+                            row.add(snap.avgCfLpChosen());
                             row.add(snap.count());
                         }
                     }

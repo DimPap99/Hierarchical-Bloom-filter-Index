@@ -50,6 +50,10 @@ public final class MultiQueryExperiment {
                     ? hbi.stats().averageLpTimeMillis() : 0.0;
             double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
                     ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
+            double avgLpChosen = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageChosenLp() : 0.0;
+            double avgCfLpChosen = (index instanceof PMIndex.HBI hbi)
+                    ? hbi.stats().averageCfChosenLp() : 0.0;
 
             ExperimentRunResult runResult = new ExperimentRunResult(
                     queryStats.queryDurationMs(),
@@ -60,6 +64,8 @@ public final class MultiQueryExperiment {
                     queryStats.queryDurationMs(),
                     avgLpMs,
                     avgCfLpMs,
+                    avgLpChosen,
+                    avgCfLpChosen,
                     null);
 
             results.put(workload, runResult);

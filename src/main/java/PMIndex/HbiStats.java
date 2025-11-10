@@ -13,6 +13,7 @@ import java.util.List;
 public final class HbiStats {
 
     private final List<Integer> lpLevels = new ArrayList<>();
+    private final List<Integer> cfLpLevels = new ArrayList<>();
     private final List<Double> alphas = new ArrayList<>();
     private final List<Long> minCostLpTimesNanos = new ArrayList<>();
     private PatternResult latestPatternResult;
@@ -38,6 +39,7 @@ public final class HbiStats {
         if (!collectStats) {
             lpLevels.clear();
             alphas.clear();
+            cfLpLevels.clear();
             resetExperimentStats();
             resetTiming();
         }
@@ -68,6 +70,16 @@ public final class HbiStats {
 
     public List<Integer> lpLevels() {
         return Collections.unmodifiableList(lpLevels);
+    }
+
+    public void recordCfLp(int cfLp) {
+        if (collectStats) {
+            cfLpLevels.add(cfLp);
+        }
+    }
+
+    public List<Integer> cfLpLevels() {
+        return Collections.unmodifiableList(cfLpLevels);
     }
 
     public List<Double> alphas() {
@@ -117,6 +129,22 @@ public final class HbiStats {
             return 0.0;
         }
         return (totalLpTimeNanos / 1_000_000.0) / queryCount;
+    }
+
+    /** Average chosen Lp level across queries (current algorithm). */
+    public double averageChosenLp() {
+        if (lpLevels.isEmpty()) return 0.0;
+        long sum = 0;
+        for (int v : lpLevels) sum += v;
+        return sum * 1.0 / lpLevels.size();
+    }
+
+    /** Average chosen Lp level for CF min-cost (if recorded). */
+    public double averageCfChosenLp() {
+        if (cfLpLevels.isEmpty()) return 0.0;
+        long sum = 0;
+        for (int v : cfLpLevels) sum += v;
+        return sum * 1.0 / cfLpLevels.size();
     }
 
     public double lpShareOfQuery() {

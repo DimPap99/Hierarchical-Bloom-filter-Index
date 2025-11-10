@@ -121,6 +121,8 @@ public class Experiment {
         double avgQueryLoadMs = runQueries ? (double) queryDuration : 0.0;
         double avgLpMs = (index instanceof HBI hbi) ? hbi.stats().averageLpTimeMillis() : 0.0;
         double avgCfLpMs = (index instanceof HBI hbi) ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
-        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, matchRes);
+        double avgLpChosen = (index instanceof HBI hbi) ? hbi.stats().averageChosenLp() : 0.0;
+        double avgCfLpChosen = (index instanceof HBI hbi) ? hbi.stats().averageCfChosenLp() : 0.0;
+        return new ExperimentRunResult(queryDuration, insertDuration, queryResultsList, avgQueryLength, avgInsertMsPerSymbol, avgQueryLoadMs, avgLpMs, avgCfLpMs, avgLpChosen, avgCfLpChosen, matchRes);
     }
 }

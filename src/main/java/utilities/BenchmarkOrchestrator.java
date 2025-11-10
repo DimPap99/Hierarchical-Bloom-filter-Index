@@ -313,7 +313,8 @@ public final class BenchmarkOrchestrator {
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
                                 hbiSingle.strides = true;
-                                hbiSingle.stats().setCollecting(false);
+                                // Honor --collect-stats/--stats even when not reinserting per workload
+                                hbiSingle.stats().setCollecting(options.collectStats());
                                 hbiSingle.stats().setExperimentMode(false);
                                 hbiSingleIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbiSingle, ng)
@@ -472,7 +473,7 @@ public final class BenchmarkOrchestrator {
         if (hbiRes != null) {
             Map<Integer, Aggregation.AggregateStats> byPatternHbi = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
             hbiRes.results().forEach((wl, r) -> byPatternHbi.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.HBI, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
+                    .accumulate(IndexType.HBI, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
         }
         // Suffix baseline: also aggregate under the active n-gram so it prints next to HBI
         // This ensures summaries like "Pattern X" show both HBI and SuffixTree together.
@@ -480,18 +481,18 @@ public final class BenchmarkOrchestrator {
             // Aggregate under current n-gram group for reporting
             Map<Integer, Aggregation.AggregateStats> byPatternSuffixAtNg = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
             suffixRes.results().forEach((wl, r) -> byPatternSuffixAtNg.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
+                    .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
 
             // Retain aggregation under the suffix's configured n-gram for completeness
             int suffixNg = IndexFactory.getSuffixNgram();
             Map<Integer, Aggregation.AggregateStats> byPatternSuffixStrict = perType.computeIfAbsent(suffixNg, _k -> new TreeMap<>());
             suffixRes.results().forEach((wl, r) -> byPatternSuffixStrict.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
+                    .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
         }
         if (suffixTreeRes != null) {
             Map<Integer, Aggregation.AggregateStats> byPatternSuffixTree = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
             suffixTreeRes.results().forEach((wl, r) -> byPatternSuffixTree.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.SUFFIX_TREE, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs()));
+                    .accumulate(IndexType.SUFFIX_TREE, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
         }
     }
 
@@ -506,7 +507,7 @@ public final class BenchmarkOrchestrator {
         Map<Integer, Aggregation.AggregateStats> byPattern = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
         var r = res.results().get(workload);
         byPattern.computeIfAbsent(pl, _k -> new Aggregation.AggregateStats())
-                .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
+                .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen());
 
         // Special-case: if we are adding Suffix results and ng differs from its configured n-gram,
         // also keep a copy under the suffix's native n-gram for completeness.
@@ -515,7 +516,7 @@ public final class BenchmarkOrchestrator {
             if (suffixNg != ng) {
                 Map<Integer, Aggregation.AggregateStats> byPatternSuffixStrict = perType.computeIfAbsent(suffixNg, _k -> new TreeMap<>());
                 byPatternSuffixStrict.computeIfAbsent(pl, _k -> new Aggregation.AggregateStats())
-                        .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs());
+                        .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen());
             }
         }
     }
@@ -568,6 +569,8 @@ final class MRAccumulator {
         double sumAvgQuerySize;
         double sumAvgLpMs;
         double sumAvgCfLpMs;
+        double sumAvgLpChosen;
+        double sumAvgCfLpChosen;
         int count;
     }
 
@@ -584,6 +587,8 @@ final class MRAccumulator {
             s.sumAvgQuerySize += r.avgQuerySize();
             s.sumAvgLpMs += r.avgLpMs();
             s.sumAvgCfLpMs += r.avgCfLpMs();
+            s.sumAvgLpChosen += r.avgLpChosen();
+            s.sumAvgCfLpChosen += r.avgCfLpChosen();
             s.count++;
         }
     }
@@ -606,6 +611,8 @@ final class MRAccumulator {
                     avgQueryMs,
                     s.sumAvgLpMs / c,
                     s.sumAvgCfLpMs / c,
+                    s.sumAvgLpChosen / c,
+                    s.sumAvgCfLpChosen / c,
                     null
             ));
         }

@@ -484,7 +484,11 @@ public final class HBI implements IPMIndexing {
 
                 long minCostStart = System.nanoTime();
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);
-                stats.recordMinCostLpTime(System.nanoTime() - minCostStart);
+                long cfDur = System.nanoTime() - minCostStart;
+                stats.recordMinCostLpTime(cfDur);
+                if (stats.isCollecting()) {
+                    stats.recordCfLp(lpCf);
+                }
 
                 lps.add(lp);
             } else {
@@ -500,6 +504,9 @@ public final class HBI implements IPMIndexing {
                     lps.add(chosen);
                     // Record CF minCost timing if stats collection is enabled
                     stats.recordMinCostLpTime(cfDur);
+                    if (stats.isCollecting()) {
+                        stats.recordCfLp(chosen);
+                    }
                 } else {
                     if (estimatorsActive() && tree.pruningPlan != null) {
                         lps = tree.pruningPlan.pruningPlan(pat, tree, this.conf, this.strides);
