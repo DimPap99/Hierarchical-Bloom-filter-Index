@@ -20,18 +20,20 @@ public class Pattern{
     public boolean isConverted;
 
     public Pattern(String s, int nGram) {
+        if (nGram <= 0) {
+            throw new IllegalArgumentException("nGram must be positive");
+        }
         this.text = s.toCharArray();
         size = text.length;
         this.originalSz = this.text.length;
         this.patternTxt = s;
         this.nGram = nGram;
         this.prefixFunction();
-        int len = s.length() - nGram + 1;
+        int len = Math.max(0, s.length() - nGram + 1);
 
         this.nGramArr   = new String[len];
         this.nGramToLong = new long[len];
-        int addition =  originalSz%nGram == 0 ? 0 : 1;
-        this.effectiveNgramArr = new long[originalSz/nGram + addition];
+        this.effectiveNgramArr = buildEffectiveArray(len, originalSz, nGram);
         for (int i = 0; i < len; i++) {
             nGramArr[i] = s.substring(i, i + nGram);   // sliding window
         }
@@ -39,19 +41,21 @@ public class Pattern{
     }
 
     public Pattern(String[] s, int nGram) {
+        if (nGram <= 0) {
+            throw new IllegalArgumentException("nGram must be positive");
+        }
         this.patternTxt = String.join(" ", s);
         this.text = this.patternTxt.toCharArray();
         size = s.length;
         this.originalSz = s.length;
         this.nGram = nGram;
 
-        int len = size - nGram + 1;
+        int len = Math.max(0, size - nGram + 1);
 
         this.nGramArr   = new String[len];
         Arrays.fill(this.nGramArr, "");
         this.nGramToLong = new long[len];
-        int addition =  originalSz%nGram == 0 ? 0 : 1;
-        this.effectiveNgramArr = new long[originalSz/nGram + addition];
+        this.effectiveNgramArr = buildEffectiveArray(len, originalSz, nGram);
         for (int i = 0; i < len; i++) {
             for (int j = i; j < i + nGram; j++ ) {
                 nGramArr[i] += s[j];   // sliding window
@@ -84,6 +88,14 @@ public class Pattern{
 
 
     /* ------- private copy of your helper so callers don't see it ------- */
+    private long[] buildEffectiveArray(int nGramCount, int originalSize, int nGram) {
+        if (nGramCount <= 0 || originalSize <= 0) {
+            return new long[0];
+        }
+        int ceilLen = (int) Math.ceil((double) originalSize / nGram);
+        return new long[ceilLen];
+    }
+
     private int[] prefixFunction() {
         int[] pi = new int[this.text.length];
         int k = 0;

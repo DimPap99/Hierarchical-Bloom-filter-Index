@@ -228,6 +228,11 @@ public final class HBI implements IPMIndexing {
     public ArrayList<Integer> report(Pattern pat) {
 
         ArrayList<Integer> results = new ArrayList<>();
+        if (pat == null || pat.nGramArr == null || pat.nGramArr.length == 0) {
+            recordDegeneratePattern(pat);
+            return results;
+        }
+
         long queryStartNanos = System.nanoTime();
         long totalLpTimeNanos = 0L;
         this.searchAlgo.setStrides(this.strides);
@@ -238,7 +243,9 @@ public final class HBI implements IPMIndexing {
             // if (isMarkov) { ensureMarkovBuilder(); this.modelBuilder.ensureSymbolRegistered(tokenVal); }
             if(nIdx % pat.nGram == 0) pat.effectiveNgramArr[nIdx/pat.nGram] = tokenVal;
         }
-        if(pat.originalSz % pat.nGram != 0) pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
+        if(pat.originalSz % pat.nGram != 0 && pat.effectiveNgramArr.length > 0 && pat.nGramToLong.length > 0) {
+            pat.effectiveNgramArr[pat.effectiveNgramArr.length-1] = pat.nGramToLong[pat.nGramToLong.length-1];
+        }
 
         // Lazily rebuild the immutable snapshot once (if new data arrived), then reuse
         if (isMarkov) {
@@ -326,6 +333,12 @@ public final class HBI implements IPMIndexing {
         return results;
     }
 
+    private void recordDegeneratePattern(Pattern pat) {
+        if (stats != null) {
+            stats.setLatestPatternResult(new PatternResult(0.0, 0, 0, pat, 0, 0.0, 0, 0));
+        }
+    }
+
     private void refreshCostModelIfNeeded() {
         if (!isMarkov) return;
         ensureMarkovBuilder();
@@ -337,6 +350,9 @@ public final class HBI implements IPMIndexing {
     }
 
     public long getAvgBloomCost(Pattern pat) {
+        if (pat == null || pat.nGramToLong == null || pat.nGramToLong.length == 0) {
+            return 0L;
+        }
         ImplicitTree<Membership> tree = this.trees.getLast();
         int maxLvl = tree.maxDepth() - 1;
         long duration = 0;
@@ -373,6 +389,9 @@ public final class HBI implements IPMIndexing {
     }
 
     public long getAvgLeafCost(Pattern pat) {
+        if (pat == null || pat.nGramToLong == null || pat.nGramToLong.length == 0) {
+            return 0L;
+        }
         ImplicitTree<Membership> tree = this.trees.getLast();
         long duration = 0;
         for (int i = 0; i < lcCostEstimIter; i++) {
