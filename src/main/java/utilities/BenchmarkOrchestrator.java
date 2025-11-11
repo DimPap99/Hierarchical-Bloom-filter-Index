@@ -128,7 +128,7 @@ public final class BenchmarkOrchestrator {
                     for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                         if (options.runHbi()) {
 
-                            boolean enableSelective = (ng >= 6) || isCaidaWindow(options.window());
+                            boolean enableSelective = false;//(ng >= 6) || isCaidaWindow(options.window());
                             SelectiveFanout.setSelectiveRegimeEnabled(enableSelective);
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,

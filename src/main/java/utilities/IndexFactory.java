@@ -94,7 +94,7 @@ public final class IndexFactory {
                 search = new search.BlockSearch();
                 prFactory = () -> new search.MostFreqPruning(confidence, fpRate);
                 costFn = new CostFunctionMaxProb();
-                alphabetSize = 100000;
+//                alphabetSize = 1048576;
 
             }
             case "bs" -> {

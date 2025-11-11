@@ -42,14 +42,14 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static final String DEFAULT_DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w20/1/1_W20.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida20/1/1.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w20/1/40.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida20/1/160p.uniform.txt";
 
     private static final int WINDOW_LEN       = 1 << 20;
     private static final int TREE_LEN         = 1 << 20;
-    private static final int ALPHABET_BASE    = 500;
+    private static final int ALPHABET_BASE    = 130000;
     private static final double DEFAULT_FP_RATE = 0.25;
     private static final int DEFAULT_RUNS     = 2;
     private static final double Confidence = 0.99;
@@ -66,7 +66,7 @@ public class HBIDatasetBenchmark {
                                      int runs) {
 
         static BenchmarkOptions parse(String[] args) {
-            String mode = "chars";
+            String mode = "segments";
             String dataFile = DEFAULT_DATA_FILE;
             String queryFile = DEFAULT_QUERY_FILE;
             double fpRate = DEFAULT_FP_RATE;
@@ -349,6 +349,7 @@ public class HBIDatasetBenchmark {
      */
     private static HBI newHbi(double conf, int alphabet, double fpRate) {
         //ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
+        SelectiveFanout.setSelectiveRegimeEnabled(true);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
