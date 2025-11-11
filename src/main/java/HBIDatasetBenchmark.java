@@ -42,13 +42,13 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static final String DEFAULT_DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida20/1/1.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida20/1/160p.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/160.uniform.txt";
 
-    private static final int WINDOW_LEN       = 1 << 20;
-    private static final int TREE_LEN         = 1 << 20;
+    private static final int WINDOW_LEN       = 1 << 21;
+    private static final int TREE_LEN         = 1 << 21;
     private static final int ALPHABET_BASE    = 130000;
     private static final double DEFAULT_FP_RATE = 0.25;
     private static final int DEFAULT_RUNS     = 2;
@@ -66,7 +66,7 @@ public class HBIDatasetBenchmark {
                                      int runs) {
 
         static BenchmarkOptions parse(String[] args) {
-            String mode = "segments";
+            String mode = "chars";
             String dataFile = DEFAULT_DATA_FILE;
             String queryFile = DEFAULT_QUERY_FILE;
             double fpRate = DEFAULT_FP_RATE;
@@ -365,7 +365,7 @@ public class HBIDatasetBenchmark {
                 memFactory,
                 prFactory,
                 v,
-                /* cost function */ new CostFunctionMaxProb(),
+                /* cost function */ null,
                 conf,
                 NGRAMS
         );
