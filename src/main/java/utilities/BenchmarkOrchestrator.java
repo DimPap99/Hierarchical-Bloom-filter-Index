@@ -124,6 +124,15 @@ public final class BenchmarkOrchestrator {
 
                     if (!hasQueries) continue;
 
+                    workloadsByType = filterWorkloadsByPatternLength(workloadsByType, ng);
+                    boolean hasEligibleWorkloads = workloadsByType.values().stream().anyMatch(list -> list != null && !list.isEmpty());
+                    if (!hasEligibleWorkloads) {
+                        System.out.printf(Locale.ROOT,
+                                "  All query workloads shorter than ngram %d; skipping dataset %s for this configuration.%n",
+                                ng, datasetDir.getFileName());
+                        continue;
+                    }
+
                     // Warmups
                     for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                         if (options.runHbi()) {
@@ -443,6 +452,30 @@ public final class BenchmarkOrchestrator {
                 System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
             }
         }
+    }
+
+    private static Map<QueryType, List<QueryWorkload>> filterWorkloadsByPatternLength(
+            Map<QueryType, List<QueryWorkload>> workloadsByType,
+            int ngram) {
+        Map<QueryType, List<QueryWorkload>> filtered = new EnumMap<>(QueryType.class);
+        for (Map.Entry<QueryType, List<QueryWorkload>> entry : workloadsByType.entrySet()) {
+            QueryType type = entry.getKey();
+            List<QueryWorkload> workloads = entry.getValue();
+            if (workloads == null || workloads.isEmpty()) {
+                filtered.put(type, List.of());
+                continue;
+            }
+            List<QueryWorkload> eligible = workloads.stream()
+                    .filter(workload -> workload.patternLength() >= ngram)
+                    .collect(Collectors.toList());
+            if (eligible.size() != workloads.size()) {
+                System.out.printf(Locale.ROOT,
+                        "  Query type %s: ignoring %d workloads (pattern length < ngram %d)%n",
+                        type.fileToken(), workloads.size() - eligible.size(), ngram);
+            }
+            filtered.put(type, eligible);
+        }
+        return filtered;
     }
 
     private static boolean isCaidaWindow(String windowToken) {
