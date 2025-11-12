@@ -25,6 +25,7 @@ public final class IndexFactory {
     // Configurable n-gram for the StreamingSuffix baseline (default 1).
     // Not exposed via CLI; set programmatically if you want a different value.
     private static volatile int SUFFIX_NGRAM = 1;
+    private static volatile int SUFFIX_TREE_NGRAM = 1;
 
     public static void setSuffixNgram(int ngram) {
         SUFFIX_NGRAM = Math.max(1, ngram);
@@ -32,6 +33,14 @@ public final class IndexFactory {
 
     public static int getSuffixNgram() {
         return SUFFIX_NGRAM;
+    }
+
+    public static void setSuffixTreeNgram(int ngram) {
+        SUFFIX_TREE_NGRAM = Math.max(1, ngram);
+    }
+
+    public static int getSuffixTreeNgram() {
+        return SUFFIX_TREE_NGRAM;
     }
 
     public static HBI createHbi(int windowLength,

@@ -35,6 +35,7 @@ public record MultiBenchmarkOptions(
         int suffixNgram,
         List<Integer> suffixNgramList,
         boolean suffixNgramFollowsPrimary,
+        boolean baselinesMatchPrimaryNgram,
         Utils.MemPolicy memPolicy,
         int suffixDelta,
         boolean reuseSuffixResults,
@@ -82,6 +83,7 @@ public record MultiBenchmarkOptions(
         int suffixDelta = 160; // default delta for delayed suffix when not reinserting per-workload
         boolean reuseSuffixResults = true; // default: reuse suffix results across FPR/ng loops
         boolean reinsertPerWorkload = false;
+        boolean baselinesMatchPrimaryNgram = false;
         String algorithm = "bs"; // default algorithm
         boolean collectStats = false; // default off; enable via --collect-stats=true
 
@@ -146,6 +148,7 @@ public record MultiBenchmarkOptions(
                 case "reinsert-per-workload" -> reinsertPerWorkload = Boolean.parseBoolean(value);
                 case "suffix-delta" -> suffixDelta = Integer.parseInt(value);
                 case "reuse-suffix", "reuse-suffix-results" -> reuseSuffixResults = Boolean.parseBoolean(value);
+                case "baseline-match-ngrams", "match-baseline-ngrams", "baselines-match" -> baselinesMatchPrimaryNgram = Boolean.parseBoolean(value);
                 case "epsilon", "eps", "rank-eps", "eps-target" -> rankEpsTarget = Double.parseDouble(value);
                 case "delta-q" -> deltaQ = Double.parseDouble(value);
                 case "delta-samp", "delta-sample" -> deltaSamp = Double.parseDouble(value);
@@ -232,6 +235,10 @@ public record MultiBenchmarkOptions(
         // normalize algorithm token
         algorithm = (algorithm == null) ? "bs" : algorithm.toLowerCase(Locale.ROOT).trim();
 
+        if (baselinesMatchPrimaryNgram) {
+            suffixNgramFollowsPrimary = true;
+        }
+
         return new MultiBenchmarkOptions(
                 resolvedDataRoot,
                 resolvedQueryRoot,
@@ -257,6 +264,7 @@ public record MultiBenchmarkOptions(
                 suffixNgram,
                 suffixNgramList,
                 suffixNgramFollowsPrimary,
+                baselinesMatchPrimaryNgram,
                 policy,
                 suffixDelta,
                 reuseSuffixResults,
@@ -278,6 +286,13 @@ public record MultiBenchmarkOptions(
             return suffixNgramList.get(idx);
         }
         return suffixNgram;
+    }
+
+    public int suffixTreeNgramFor(int primaryNgramIndex, int primaryNgram) {
+        if (baselinesMatchPrimaryNgram) {
+            return Math.max(1, primaryNgram);
+        }
+        return resolveSuffixNgram(primaryNgramIndex, primaryNgram);
     }
 
     public int alphabetSizeFor(int ngram) {

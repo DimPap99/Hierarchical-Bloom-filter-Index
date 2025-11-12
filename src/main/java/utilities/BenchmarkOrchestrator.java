@@ -61,6 +61,8 @@ public final class BenchmarkOrchestrator {
 
                 int suffixNgForLoop = options.resolveSuffixNgram(ngIndex, ng);
                 IndexFactory.setSuffixNgram(suffixNgForLoop);
+                int suffixTreeNgForLoop = options.suffixTreeNgramFor(ngIndex, ng);
+                IndexFactory.setSuffixTreeNgram(suffixTreeNgForLoop);
 
                 for (Path datasetDir : datasetDirs) {
                     Path datasetFile = BenchmarkIO.findSingleDatasetFile(datasetDir);
@@ -77,9 +79,9 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, suffixTreeNgram=%d, fpr=%.6f, runs=%d, algo=%s, mode=%s, policy=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
                             options.windowLength(), options.treeLength(), ng,
-                            options.alphabetBase(), effAlphabet, suffixNgForLoop, currentFp,
+                            options.alphabetBase(), effAlphabet, suffixNgForLoop, suffixTreeNgForLoop, currentFp,
                             options.runs(), options.algorithm(), options.mode(), options.memPolicy(), options.reinsertPerWorkload(),
                             options.rankEpsTarget(), options.deltaQ(), options.deltaSamp(), options.quantile());
 
@@ -181,17 +183,17 @@ public final class BenchmarkOrchestrator {
                             suffixWarm = null;
                         }
                         if (options.runSuffixTreeBaseline()) {
-                            IPMIndexing suffixTreeWarm = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                            IPMIndexing suffixTreeWarm = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(suffixTreeNgForLoop));
                             InsertStats suffixTreeIns = isSegments(options)
-                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTreeWarm, ng)
-                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTreeWarm, ng);
+                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTreeWarm, suffixTreeNgForLoop)
+                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTreeWarm, suffixTreeNgForLoop);
                             for (QueryType type : queryTypes) {
                                 List<QueryWorkload> workloads = workloadsByType.get(type);
                                 if (workloads == null || workloads.isEmpty()) continue;
                                 if (isSegments(options)) {
-                                    SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTreeWarm, ng, suffixTreeIns, false, false);
+                                    SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTreeWarm, suffixTreeNgForLoop, suffixTreeIns, false, false);
                                 } else {
-                                    MultiQueryExperiment.runQueries(workloads, suffixTreeWarm, ng, suffixTreeIns, false, false);
+                                    MultiQueryExperiment.runQueries(workloads, suffixTreeWarm, suffixTreeNgForLoop, suffixTreeIns, false, false);
                                 }
                             }
                             suffixTreeWarm = null;
@@ -236,10 +238,10 @@ public final class BenchmarkOrchestrator {
                             final boolean canReuseSuffixTree = options.runSuffixTreeBaseline() && options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
                             IPMIndexing suffixTree = null; InsertStats suffixTreeIns = null;
                             if (options.runSuffixTreeBaseline() && !canReuseSuffixTree) {
-                                suffixTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                suffixTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(suffixTreeNgForLoop));
                                 suffixTreeIns = isSegments(options)
-                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTree, ng)
-                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTree, ng);
+                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTree, suffixTreeNgForLoop)
+                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTree, suffixTreeNgForLoop);
                             }
 
                             for (QueryType type : queryTypes) {
@@ -285,23 +287,23 @@ public final class BenchmarkOrchestrator {
                                 MultiRunResult suffixTreeResults = null;
                                 if (options.runSuffixTreeBaseline()) {
                                     SuffixTreeCacheKey treeKey = SuffixTreeCacheKey.forWorkloads(
-                                            datasetFile.toString(), ng, options.mode(), false, workloads);
+                                            datasetFile.toString(), suffixTreeNgForLoop, options.mode(), false, workloads);
                                     if (canReuseSuffixTree) {
                                         suffixTreeResults = suffixTreeResultsCache.get(treeKey);
                                         if (suffixTreeResults == null) {
-                                            IPMIndexing tmpTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                            IPMIndexing tmpTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(suffixTreeNgForLoop));
                                             InsertStats tmpTreeIns = isSegments(options)
-                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tmpTree, ng)
-                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tmpTree, ng);
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tmpTree, suffixTreeNgForLoop)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tmpTree, suffixTreeNgForLoop);
                                             suffixTreeResults = isSegments(options)
-                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, tmpTree, ng, tmpTreeIns, false, false)
-                                                    : MultiQueryExperiment.runQueries(workloads, tmpTree, ng, tmpTreeIns, false, false);
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, tmpTree, suffixTreeNgForLoop, tmpTreeIns, false, false)
+                                                    : MultiQueryExperiment.runQueries(workloads, tmpTree, suffixTreeNgForLoop, tmpTreeIns, false, false);
                                             if (options.reuseSuffixResults()) suffixTreeResultsCache.put(treeKey, suffixTreeResults);
                                         }
                                     } else if (suffixTree != null) {
                                         suffixTreeResults = isSegments(options)
-                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTree, ng, suffixTreeIns, false, false)
-                                                : MultiQueryExperiment.runQueries(workloads, suffixTree, ng, suffixTreeIns, false, false);
+                                                ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), workloads, suffixTree, suffixTreeNgForLoop, suffixTreeIns, false, false)
+                                                : MultiQueryExperiment.runQueries(workloads, suffixTree, suffixTreeNgForLoop, suffixTreeIns, false, false);
                                         if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
                                             suffixTreeAvgBuilders.computeIfAbsent(treeKey, _k -> new MRAccumulator()).add(suffixTreeResults);
                                         }
@@ -381,33 +383,33 @@ public final class BenchmarkOrchestrator {
                                     if (options.runSuffixTreeBaseline()) {
                                         boolean canReuseTree = options.reuseSuffixResults() && (fpIndex > 0 || ngIndex > 0);
                                         SuffixTreeCacheKey treeKey = SuffixTreeCacheKey.forWorkloads(
-                                                datasetFile.toString(), ng, options.mode(), true, List.of(workload));
+                                                datasetFile.toString(), suffixTreeNgForLoop, options.mode(), true, List.of(workload));
                                         MultiRunResult res;
                                         if (canReuseTree) {
                                             res = suffixTreeResultsCache.get(treeKey);
                                             if (res == null) {
-                                                IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                                IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(suffixTreeNgForLoop));
                                                 InsertStats ins = isSegments(options)
-                                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, ng)
-                                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, ng);
+                                                        ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, suffixTreeNgForLoop)
+                                                        : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, suffixTreeNgForLoop);
                                                 res = isSegments(options)
-                                                        ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, ng, ins, false, false)
-                                                        : MultiQueryExperiment.runQueries(List.of(workload), tree, ng, ins, false, false);
+                                                        ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, suffixTreeNgForLoop, ins, false, false)
+                                                        : MultiQueryExperiment.runQueries(List.of(workload), tree, suffixTreeNgForLoop, ins, false, false);
                                                 if (options.reuseSuffixResults()) suffixTreeResultsCache.put(treeKey, res);
                                             }
                                         } else {
-                                            IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ng));
+                                            IPMIndexing tree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(suffixTreeNgForLoop));
                                             InsertStats ins = isSegments(options)
-                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, ng)
-                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, ng);
+                                                    ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tree, suffixTreeNgForLoop)
+                                                    : MultiQueryExperiment.populateIndex(datasetFile.toString(), tree, suffixTreeNgForLoop);
                                             res = isSegments(options)
-                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, ng, ins, false, false)
-                                                    : MultiQueryExperiment.runQueries(List.of(workload), tree, ng, ins, false, false);
+                                                    ? SegmentModeRunner.runQueriesSegments(datasetFile.toString(), List.of(workload), tree, suffixTreeNgForLoop, ins, false, false)
+                                                    : MultiQueryExperiment.runQueries(List.of(workload), tree, suffixTreeNgForLoop, ins, false, false);
                                             if (options.reuseSuffixResults() && fpIndex == 0 && ngIndex == 0) {
                                                 suffixTreeAvgBuilders.computeIfAbsent(treeKey, _k -> new MRAccumulator()).add(res);
                                             }
                                         }
-                                        addOne(aggregated, IndexType.SUFFIX_TREE, ng, type, pl, res, workload);
+                                        addOne(aggregated, IndexType.SUFFIX_TREE, suffixTreeNgForLoop, type, pl, res, workload);
                                     }
                                 }
                             }
@@ -526,6 +528,12 @@ public final class BenchmarkOrchestrator {
             Map<Integer, Aggregation.AggregateStats> byPatternSuffixTree = perType.computeIfAbsent(ng, _k -> new TreeMap<>());
             suffixTreeRes.results().forEach((wl, r) -> byPatternSuffixTree.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
                     .accumulate(IndexType.SUFFIX_TREE, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
+            int suffixTreeNg = IndexFactory.getSuffixTreeNgram();
+            if (suffixTreeNg != ng) {
+                Map<Integer, Aggregation.AggregateStats> byPatternSuffixTreeStrict = perType.computeIfAbsent(suffixTreeNg, _k -> new TreeMap<>());
+                suffixTreeRes.results().forEach((wl, r) -> byPatternSuffixTreeStrict.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
+                        .accumulate(IndexType.SUFFIX_TREE, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
+            }
         }
     }
 
@@ -549,6 +557,13 @@ public final class BenchmarkOrchestrator {
             if (suffixNg != ng) {
                 Map<Integer, Aggregation.AggregateStats> byPatternSuffixStrict = perType.computeIfAbsent(suffixNg, _k -> new TreeMap<>());
                 byPatternSuffixStrict.computeIfAbsent(pl, _k -> new Aggregation.AggregateStats())
+                        .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen());
+            }
+        } else if (indexType == IndexType.SUFFIX_TREE) {
+            int suffixTreeNg = IndexFactory.getSuffixTreeNgram();
+            if (suffixTreeNg != ng) {
+                Map<Integer, Aggregation.AggregateStats> byPatternSuffixTreeStrict = perType.computeIfAbsent(suffixTreeNg, _k -> new TreeMap<>());
+                byPatternSuffixTreeStrict.computeIfAbsent(pl, _k -> new Aggregation.AggregateStats())
                         .accumulate(indexType, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen());
             }
         }
