@@ -23,6 +23,8 @@ public record MultiBenchmarkOptions(
         int windowLength,
         int treeLength,
         int alphabetBase,
+        int minQueryLength,
+        int maxQueryLength,
         double fpRate,
         List<Double> fpRates,
         double runConfidence,
@@ -60,6 +62,8 @@ public record MultiBenchmarkOptions(
         Integer windowPower = 21;
         Integer treePower = 21;
         Integer alphabetBase = 150;
+        int minQueryLength = 0;
+        int maxQueryLength = 0;
 
         double fpRate = 0.15;
         List<Double> fpRates = null;
@@ -119,6 +123,8 @@ public record MultiBenchmarkOptions(
                 case "window-power", "wpow", "wpower" -> windowPower = Integer.parseInt(value);
                 case "tree-power", "tpow", "tpower" -> treePower = Integer.parseInt(value);
                 case "alphabet", "alphabet-base" -> alphabetBase = Integer.parseInt(value);
+                case "min-query-length", "min-query-len", "query-length-start" -> minQueryLength = Integer.parseInt(value);
+                case "max-query-length", "max-query-len", "query-length-end" -> maxQueryLength = Integer.parseInt(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
                 case "fp-grid" -> fpGridArg = value; // start:end:step
@@ -190,6 +196,16 @@ public record MultiBenchmarkOptions(
             treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
         }
 
+        if (minQueryLength < 0) {
+            throw new IllegalArgumentException("--min-query-length must be >= 0");
+        }
+        if (maxQueryLength < 0) {
+            throw new IllegalArgumentException("--max-query-length must be >= 0");
+        }
+        if (maxQueryLength > 0 && minQueryLength > 0 && maxQueryLength < minQueryLength) {
+            throw new IllegalArgumentException("--max-query-length must be >= --min-query-length when both are set");
+        }
+
         // Validate relationship: window must be >= tree
         if (windowLength < treeLength) {
             throw new IllegalArgumentException(
@@ -252,6 +268,8 @@ public record MultiBenchmarkOptions(
                 windowLength,
                 treeLength,
                 alphabetBase,
+                minQueryLength,
+                maxQueryLength,
                 fpRate,
                 fpRates,
                 runConfidence,

@@ -126,12 +126,23 @@ public final class BenchmarkOrchestrator {
 
                     if (!hasQueries) continue;
 
-                    workloadsByType = filterWorkloadsByPatternLength(workloadsByType, ng);
+                    workloadsByType = filterWorkloadsByMinLength(
+                            workloadsByType,
+                            options.minQueryLength(),
+                            "configured minimum query length");
+                    workloadsByType = filterWorkloadsByMaxLength(
+                            workloadsByType,
+                            options.maxQueryLength(),
+                            "configured maximum query length");
+                    workloadsByType = filterWorkloadsByMinLength(
+                            workloadsByType,
+                            ng,
+                            "ngram");
                     boolean hasEligibleWorkloads = workloadsByType.values().stream().anyMatch(list -> list != null && !list.isEmpty());
                     if (!hasEligibleWorkloads) {
                         System.out.printf(Locale.ROOT,
-                                "  All query workloads shorter than ngram %d; skipping dataset %s for this configuration.%n",
-                                ng, datasetDir.getFileName());
+                                "  No query workloads remain after filtering; skipping dataset %s for this configuration.%n",
+                                datasetDir.getFileName());
                         continue;
                     }
 
@@ -456,9 +467,13 @@ public final class BenchmarkOrchestrator {
         }
     }
 
-    private static Map<QueryType, List<QueryWorkload>> filterWorkloadsByPatternLength(
+    private static Map<QueryType, List<QueryWorkload>> filterWorkloadsByMinLength(
             Map<QueryType, List<QueryWorkload>> workloadsByType,
-            int ngram) {
+            int minThreshold,
+            String thresholdLabel) {
+        if (minThreshold <= 0) {
+            return workloadsByType;
+        }
         Map<QueryType, List<QueryWorkload>> filtered = new EnumMap<>(QueryType.class);
         for (Map.Entry<QueryType, List<QueryWorkload>> entry : workloadsByType.entrySet()) {
             QueryType type = entry.getKey();
@@ -468,12 +483,40 @@ public final class BenchmarkOrchestrator {
                 continue;
             }
             List<QueryWorkload> eligible = workloads.stream()
-                    .filter(workload -> workload.patternLength() >= ngram)
+                    .filter(workload -> workload.patternLength() >= minThreshold)
                     .collect(Collectors.toList());
             if (eligible.size() != workloads.size()) {
                 System.out.printf(Locale.ROOT,
-                        "  Query type %s: ignoring %d workloads (pattern length < ngram %d)%n",
-                        type.fileToken(), workloads.size() - eligible.size(), ngram);
+                        "  Query type %s: ignoring %d workloads (pattern length < %s %d)%n",
+                        type.fileToken(), workloads.size() - eligible.size(), thresholdLabel, minThreshold);
+            }
+            filtered.put(type, eligible);
+        }
+        return filtered;
+    }
+
+    private static Map<QueryType, List<QueryWorkload>> filterWorkloadsByMaxLength(
+            Map<QueryType, List<QueryWorkload>> workloadsByType,
+            int maxThreshold,
+            String thresholdLabel) {
+        if (maxThreshold <= 0) {
+            return workloadsByType;
+        }
+        Map<QueryType, List<QueryWorkload>> filtered = new EnumMap<>(QueryType.class);
+        for (Map.Entry<QueryType, List<QueryWorkload>> entry : workloadsByType.entrySet()) {
+            QueryType type = entry.getKey();
+            List<QueryWorkload> workloads = entry.getValue();
+            if (workloads == null || workloads.isEmpty()) {
+                filtered.put(type, List.of());
+                continue;
+            }
+            List<QueryWorkload> eligible = workloads.stream()
+                    .filter(workload -> workload.patternLength() <= maxThreshold)
+                    .collect(Collectors.toList());
+            if (eligible.size() != workloads.size()) {
+                System.out.printf(Locale.ROOT,
+                        "  Query type %s: ignoring %d workloads (pattern length > %s %d)%n",
+                        type.fileToken(), workloads.size() - eligible.size(), thresholdLabel, maxThreshold);
             }
             filtered.put(type, eligible);
         }
