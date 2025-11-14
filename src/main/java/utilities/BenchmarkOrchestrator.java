@@ -563,9 +563,11 @@ public final class BenchmarkOrchestrator {
 
             // Retain aggregation under the suffix's configured n-gram for completeness
             int suffixNg = IndexFactory.getSuffixNgram();
-            Map<Integer, Aggregation.AggregateStats> byPatternSuffixStrict = perType.computeIfAbsent(suffixNg, _k -> new TreeMap<>());
-            suffixRes.results().forEach((wl, r) -> byPatternSuffixStrict.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
-                    .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
+            if (suffixNg != ng) {
+                Map<Integer, Aggregation.AggregateStats> byPatternSuffixStrict = perType.computeIfAbsent(suffixNg, _k -> new TreeMap<>());
+                suffixRes.results().forEach((wl, r) -> byPatternSuffixStrict.computeIfAbsent(wl.patternLength(), _k -> new Aggregation.AggregateStats())
+                        .accumulate(IndexType.SUFFIX, r.avgInsertMsPerSymbol(), r.totalInsertTimeMs(), r.totalRunTimeMs(), r.avgLpMs(), r.avgCfLpMs(), r.avgLpChosen(), r.avgCfLpChosen()));
+            }
         }
         if (suffixTreeRes != null) {
             Map<Integer, Aggregation.AggregateStats> byPatternSuffixTree = perType.computeIfAbsent(ng, _k -> new TreeMap<>());

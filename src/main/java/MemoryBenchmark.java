@@ -267,8 +267,9 @@ public final class MemoryBenchmark {
      */
     private static StreamingSlidingWindowIndex newSuffixIndex(MemoryOptions options, int nGram) {
         int windowSize = options.windowLength();
-        // Suffix index always operates on unigrams regardless of benchmarked n-gram setting.
-        int expectedAlphabetSize = options.alphabetSizeFor(1);
+        // Optionally match HBI's n-gram for the suffix baseline if requested.
+        int suffixNg = options.suffixMatchNgram() ? Math.max(1, nGram) : 1;
+        int expectedAlphabetSize = options.alphabetSizeFor(suffixNg);
         return new StreamingSlidingWindowIndex(windowSize, expectedAlphabetSize);
     }
 
@@ -311,8 +312,9 @@ public final class MemoryBenchmark {
     private static SuffixMeasurement buildAndMeasureSuffix(Path datasetFile,
                                                            MemoryOptions options,
                                                            int ngram) throws IOException {
-        int suffixNgram = 1;
-        StreamingSlidingWindowIndex suffix = newSuffixIndex(options, ngram);
+        int suffixNgram = options.suffixMatchNgram() ? Math.max(1, ngram) : 1;
+        StreamingSlidingWindowIndex suffix = newSuffixIndex(options, suffixNgram);
+        System.out.printf(Locale.ROOT, "SuffixIndex using ngram=%d (match=%b)%n", suffixNgram, options.suffixMatchNgram());
         if (options.isSegmentsMode()) {
             try {
                 SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNgram);
@@ -518,6 +520,7 @@ public final class MemoryBenchmark {
                                  double deltaSamp,
                                  double quantile,
                                  boolean reuseSuffix,
+                                 boolean suffixMatchNgram,
                                  Utils.MemPolicy memPolicy,
                                  int policyBuckets) {
 
@@ -547,6 +550,7 @@ public final class MemoryBenchmark {
             double deltaSamp = 0.05;
             double quantile = 0.05;
             boolean reuseSuffix = true;
+            boolean suffixMatchNgram = false;
             Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
             Integer policyBuckets = null;
 
@@ -604,6 +608,7 @@ public final class MemoryBenchmark {
                     case "p", "quantile" -> quantile = Double.parseDouble(value);
                     case "mode" -> mode = value;
                     case "reuse-suffix", "reuse-suffix-results" -> reuseSuffix = Boolean.parseBoolean(value);
+                    case "suffix-match-ngram", "match-suffix-ngram", "suffix-use-hbi-ngram" -> suffixMatchNgram = Boolean.parseBoolean(value);
                     case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
                     case "policy-buckets", "mem-policy-buckets" -> policyBuckets = Integer.parseInt(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
@@ -717,6 +722,7 @@ public final class MemoryBenchmark {
                     deltaSamp,
                     quantile,
                     reuseSuffix,
+                    suffixMatchNgram,
                     memPolicy,
                     policyBuckets != null ? Math.max(0, policyBuckets) : 0);
         }
