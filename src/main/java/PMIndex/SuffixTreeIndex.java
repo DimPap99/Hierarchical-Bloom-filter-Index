@@ -43,7 +43,7 @@ public class SuffixTreeIndex implements IPMIndexing {
     private Node lastCreatedInternalNode = null;
 
     public SuffixTreeIndex() {
-        this(new StringKeyMapper(1_000_000L, 0.0001));
+        this(new StringKeyMapper(1 << 21, 0.0001));
     }
 
     public SuffixTreeIndex(long expectedDistinctTokens, double epsilon) {

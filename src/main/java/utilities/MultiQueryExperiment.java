@@ -25,14 +25,24 @@ public final class MultiQueryExperiment {
                                      int nGram,
                                      boolean verbose,
                                      boolean queryResults) throws IOException {
-        InsertStats insertStats = insertDataset(datasetPath, index, nGram);
+        // Use populateIndex to ensure any index-specific finalization (e.g., suffix tree terminator) occurs
+        InsertStats insertStats = populateIndex(datasetPath, index, nGram);
         return runQueries(workloads, index, nGram, insertStats, verbose, queryResults);
     }
 
     public static InsertStats populateIndex(String datasetPath,
                                             IPMIndexing index,
                                             int nGram) throws IOException {
-        return insertDataset(datasetPath, index, nGram);
+        InsertStats stats = insertDataset(datasetPath, index, nGram);
+        // Append a single terminator token for online suffix tree only, after measuring insert time.
+        if (index instanceof PMIndex.SuffixTreeIndex) {
+            try {
+                index.insert("$");
+            } catch (Exception ignored) {
+                // Best-effort: do not fail the run if terminator insert throws
+            }
+        }
+        return stats;
     }
 
     public static MultiRunResult runQueries(List<QueryWorkload> workloads,

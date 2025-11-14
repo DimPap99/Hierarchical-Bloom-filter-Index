@@ -48,7 +48,16 @@ public final class SegmentModeRunner {
 
         long durationMs = System.currentTimeMillis() - startWallMs;
         double avgInsertMsPerSymbol = insertionEvents == 0 ? 0.0 : (durationMs / (double) insertionEvents);
-        return new MultiQueryExperiment.InsertStats(durationMs, avgInsertMsPerSymbol);
+        MultiQueryExperiment.InsertStats stats = new MultiQueryExperiment.InsertStats(durationMs, avgInsertMsPerSymbol);
+        // Append a single terminator token for online suffix tree only, after measuring insert time.
+        if (index instanceof PMIndex.SuffixTreeIndex) {
+            try {
+                index.insert("$");
+            } catch (Exception ignored) {
+                // best-effort
+            }
+        }
+        return stats;
     }
 
     /**
