@@ -1,7 +1,7 @@
 package tree.ssws;
 
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.openjdk.jol.info.GraphLayout;
 
 import java.util.ArrayList;
@@ -29,17 +29,16 @@ public final class SuffixTree {
 
     private final Node root;
     private static final int MAX_HASH_ATTEMPTS = 11;
-    private static final int SENTINEL =0; //reserve 0 as sentinel
-    private final int[] text;           // includes sentinel at end (remapped per-tree)
+    private static final int SENTINEL =0; //reserve 0 as sentinel for dense-int build
+    private static final long SENTINEL_LONG = -1L; // sentinel in final long[] text
+    private final long[] text;           // includes sentinel at end (original tokens)
     private final int originalLength;   // length before sentinel
-    private final DenseMapper mapper;
     private boolean released = false;
 
-    private SuffixTree(Node root, int[] text, int originalLength, DenseMapper mapper) {
+    private SuffixTree(Node root, long[] text, int originalLength) {
         this.root = root;
         this.text = text;
         this.originalLength = originalLength;
-        this.mapper = mapper;
     }
 
     /**
@@ -69,38 +68,24 @@ public final class SuffixTree {
             throw new IllegalArgumentException("text cannot be null");
         }
 
-        // Precondition on incoming symbols from the global AlphabetMapper:
-        //  - All real symbols are >= 1 (0 is reserved for the sentinel globally).
-        // However, their numeric IDs can be very large (global alphabet growth),
-        // which would blow up counting-sort buckets inside DC3 if used directly.
-        // To keep construction and queries independent of global alphabet size,
-        // we remap the per-text symbols to a dense local range 1..distinct.
-
         final int n0 = alphabetMappedText.length;
-
+        // Build-time dense remap for DC3 + LCP
         RemapResult remapResult = remapTokens(alphabetMappedText, windowSize);
-        DenseMapper mapper = remapResult.mapper;
-        int[] terminated = remapResult.terminated;
+        int[] denseTerminated = remapResult.terminated;
+
+        // Keep original tokens, append a long sentinel distinct from any non-negative token
+        long[] originalTerminated = new long[n0 + 1];
+        if (n0 > 0) {
+            System.arraycopy(alphabetMappedText, 0, originalTerminated, 0, n0);
+        }
+        originalTerminated[n0] = SENTINEL_LONG;
 
         final int n = n0 + 1;
+        int[] sa = SuffixArrayBuilder.buildSuffixArray(denseTerminated);
+        int[] lcp = (n > 1) ? SuffixArrayBuilder.buildLcpArray(denseTerminated, sa) : new int[0];
 
-        // Step 1. Build suffix array directly on the terminated integer array.
-        // SuffixArrayBuilder.buildSuffixArray requires:
-        //   - All values are non-negative.
-        //   - The smallest value is the unique sentinel at the end.
-        // With SENTINEL = 0 and all real tokens >= 1, these hold.
-        int[] sa = SuffixArrayBuilder.buildSuffixArray(terminated);
-
-        // Step 2. Build Longest Common Prefix (LCP) via Kasai on the SAME terminated array.
-        int[] lcp = (n > 1)
-                ? SuffixArrayBuilder.buildLcpArray(terminated, sa)
-                : new int[0];
-
-        // Step 3. Build explicit compressed suffix tree from suffix array + LCP.
-        Node root = LinearBuilder.buildFromSuffixArray(terminated, sa, lcp);
-
-        // originalLength is the logical text length before the sentinel was appended.
-        return new SuffixTree(root, terminated, n0, mapper);
+        Node root = LinearBuilder.buildFromSuffixArray(originalTerminated, sa, lcp);
+        return new SuffixTree(root, originalTerminated, n0);
     }
 
 
@@ -114,7 +99,7 @@ public final class SuffixTree {
     /**
      * Return a copy of the underlying text (with sentinel).
      */
-    public int[] getText() {
+    public long[] getText() {
         return Arrays.copyOf(text, text.length);
     }
 
@@ -125,9 +110,7 @@ public final class SuffixTree {
         return originalLength;
     }
 
-    public long estimateTokenRemapBytes() {
-        return mapper.estimateBytes();
-    }
+    public long estimateTokenRemapBytes() { return 0L; }
 
     /**
      * Find all starting offsets where the pattern occurs in the original text.
@@ -141,23 +124,11 @@ public final class SuffixTree {
             return Collections.emptyList();
         }
 
-        // Translate pattern symbols via per-tree remap. If any symbol
-        // does not exist in this tree, there can be no occurrences.
-        int[] q = new int[pattern.length];
-        for (int i = 0; i < pattern.length; i++) {
-            int mapped = mapper.map(pattern[i]);
-            if (mapped <= 0) {
-                return Collections.emptyList();
-            }
-            q[i] = mapped;
-        }
-
         Node current = root;
         int patternIndex = 0;
 
         while (patternIndex < pattern.length) {
-
-            int symbol = q[patternIndex];
+            long symbol = pattern[patternIndex];
             Edge edge = current.getEdge(symbol);
             if (edge == null) {
                 return Collections.emptyList();
@@ -169,7 +140,7 @@ public final class SuffixTree {
 
             int consumed = 0;
             while (consumed < edgeLen && patternIndex < pattern.length) {
-                if (text[edgeStart + consumed] != q[patternIndex]) {
+                if (text[edgeStart + consumed] != pattern[patternIndex]) {
                     return Collections.emptyList();
                 }
                 consumed++;
@@ -461,15 +432,15 @@ public final class SuffixTree {
     public static final class Node {
 
         // Inline child slot A
-        private int keyA = Integer.MIN_VALUE;
+        private long keyA = Long.MIN_VALUE;
         private Edge edgeA = null;
 
         // Inline child slot B
-        private int keyB = Integer.MIN_VALUE;
+        private long keyB = Long.MIN_VALUE;
         private Edge edgeB = null;
 
         // Promoted map for >2 children
-        private Int2ObjectOpenHashMap<Edge> edgeMap = null;
+        private Long2ObjectOpenHashMap<Edge> edgeMap = null;
 
         // Leaf payload
         private int suffixIndex = -1; // only meaningful for leaves
@@ -495,7 +466,7 @@ public final class SuffixTree {
         /**
          * Return the edge starting with 'symbol', or null if none.
          */
-        public Edge getEdge(int symbol) {
+        public Edge getEdge(long symbol) {
             if (edgeMap != null) {
                 return edgeMap.get(symbol);
             }
@@ -511,7 +482,7 @@ public final class SuffixTree {
         /**
          * Insert or replace an outgoing edge under the given first symbol.
          */
-        public void putEdge(int symbol, Edge e) {
+        public void putEdge(long symbol, Edge e) {
             if (edgeMap != null) {
                 edgeMap.put(symbol, e);
                 return;
@@ -532,7 +503,7 @@ public final class SuffixTree {
             }
 
             // Need to promote to a map
-            edgeMap = new Int2ObjectOpenHashMap<>(4);
+            edgeMap = new Long2ObjectOpenHashMap<>(4);
             edgeMap.put(keyA, edgeA);
             edgeMap.put(keyB, edgeB);
             edgeMap.put(symbol, e);
@@ -568,8 +539,7 @@ public final class SuffixTree {
             return;
         }
         released = true;
-        Arrays.fill(text, 0);
-        mapper.clear();
+        Arrays.fill(text, 0L);
         clearNode(root);
     }
 
@@ -580,12 +550,12 @@ public final class SuffixTree {
         if (node.edgeA != null) {
             clearNode(node.edgeA.child);
             node.edgeA = null;
-            node.keyA = Integer.MIN_VALUE;
+            node.keyA = Long.MIN_VALUE;
         }
         if (node.edgeB != null) {
             clearNode(node.edgeB.child);
             node.edgeB = null;
-            node.keyB = Integer.MIN_VALUE;
+            node.keyB = Long.MIN_VALUE;
         }
         if (node.edgeMap != null) {
             for (Edge edge : node.edgeMap.values()) {
@@ -642,7 +612,7 @@ public final class SuffixTree {
         private LinearBuilder() {
         }
 
-        static Node buildFromSuffixArray(int[] text, int[] sa, int[] lcp) {
+        static Node buildFromSuffixArray(long[] text, int[] sa, int[] lcp) {
             final int n = sa.length;
             final Node root = new Node();
 
