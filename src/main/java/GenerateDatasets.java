@@ -11,8 +11,8 @@ import java.nio.file.Paths;
  * under:
  *   <project-root>/data/<family>/<i>/<i>_<family>.txt
  *
- * For example, for i = 1 and family = wzipf21_e13 the output is:
- *   .../data/wzipf21_e13/1/1_wzipf21_e13.txt
+ * For example, for i = 1 and family = wzipf_21_e13 the output is:
+ *   .../data/wzipf_21_e13/1/1_wzipf_21_e13.txt
  */
 public class GenerateDatasets {
 
@@ -20,12 +20,12 @@ public class GenerateDatasets {
         System.out.println("Generating datasets...");
 
         // Configuration
-        int numDatasets = 5;
-        int alphabetSize = 128;
+        int numDatasets = 1;
+        int alphabetSize = 10;
         double exponent = 1;
 
         // Use a family name without a trailing slash. This becomes both a directory and part of the file name.
-        String family = "wzipf21_e1_"+alphabetSize;
+        String family = "wzipf_21_adv" + alphabetSize;
 
         // Root "data" directory of your repo. Keep it absolute if you prefer, or make it relative.
         Path dataRoot = Paths.get("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data");
