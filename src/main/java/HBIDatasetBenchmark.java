@@ -42,10 +42,10 @@ public class HBIDatasetBenchmark {
 
     /** Default input paths and parameters. Change these as you like. */
     private static final String DEFAULT_DATA_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/1/1_W21.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/3/3_W21.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/1/160.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/3/160.uniform.txt";
 
     private static final int WINDOW_LEN       = 1 << 21;
     private static final int TREE_LEN         = 1 << 21;
@@ -54,7 +54,7 @@ public class HBIDatasetBenchmark {
     private static final int DEFAULT_RUNS     = 2;
     private static final double Confidence = 0.99;
     private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 1;
+    private static int NGRAMS                 = 8;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -70,9 +70,9 @@ public class HBIDatasetBenchmark {
             String dataFile = DEFAULT_DATA_FILE;
             String queryFile = DEFAULT_QUERY_FILE;
             double fpRate = DEFAULT_FP_RATE;
-            boolean runSuffix = false;
+            boolean runSuffix = true;
             boolean skipQueries = false;
-            int warmupRuns = 2;
+            int warmupRuns = 1;
             int runs = DEFAULT_RUNS;
 
             for (int i = 0; i < args.length; i++) {
@@ -145,10 +145,8 @@ public class HBIDatasetBenchmark {
             List<Integer> row1 = arr1.get(i);
             List<Integer> row2 = arr2.get(i);
 
-            List<Integer> a = (row1 == null) ? new ArrayList<>() : new ArrayList<>(row1);
-            List<Integer> b = (row2 == null) ? new ArrayList<>() : new ArrayList<>(row2);
-            Collections.sort(a);
-            Collections.sort(b);
+            List<Integer> a = normalizeMatches(row1);
+            List<Integer> b = normalizeMatches(row2);
 
             if (!a.equals(b)) {
                 resultsMatch = false;
@@ -176,6 +174,37 @@ public class HBIDatasetBenchmark {
         } else {
             System.out.println("Indexes produced differing results.");
         }
+    }
+
+    /**
+     * Normalize a reported match list so benchmarks can compare indexes fairly.
+     * We skip null entries, sort ascending, and drop duplicates.
+     */
+    private static List<Integer> normalizeMatches(List<Integer> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        ArrayList<Integer> sorted = new ArrayList<>(raw.size());
+        for (Integer value : raw) {
+            if (value != null) {
+                sorted.add(value);
+            }
+        }
+        if (sorted.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Collections.sort(sorted);
+        ArrayList<Integer> deduped = new ArrayList<>(sorted.size());
+        Integer previous = null;
+        for (Integer value : sorted) {
+            if (previous == null || !previous.equals(value)) {
+                deduped.add(value);
+                previous = value;
+            }
+        }
+        return deduped;
     }
 
     /**
@@ -436,13 +465,13 @@ public class HBIDatasetBenchmark {
             }
 
             if (runSuffix) {
-                IPMIndexing suffix = new StreamingSlidingWindowIndex(WINDOW_LEN, alphabet);
+                IPMIndexing suffix = new SuffixTreeIndex();//new StreamingSlidingWindowIndex(WINDOW_LEN, alphabet);
                 if ("segments".equalsIgnoreCase(mode)) {
                     runSegmentsMode(
                             dataFile,
                             queryFile,
                             suffix,
-                            1,
+                            NGRAMS,
                             WINDOW_LEN,
                             false,
                             runQueries
@@ -452,7 +481,7 @@ public class HBIDatasetBenchmark {
                             dataFile,
                             queryFile,
                             suffix,
-                            1,
+                            NGRAMS,
                             false,
                             false,
                             runQueries
@@ -532,7 +561,7 @@ public class HBIDatasetBenchmark {
             ArrayList<ArrayList<Integer>> hbiMatches = hbiRes.matchRes();
 
             if (runSuffix) {
-                IPMIndexing suffix = new StreamingSlidingWindowIndex(WINDOW_LEN, alphabet);
+                IPMIndexing suffix = new SuffixTreeIndex();//new StreamingSlidingWindowIndex(WINDOW_LEN, alphabet);
 
                 ExperimentRunResult suffixRes;
                 if ("segments".equalsIgnoreCase(mode)) {
@@ -540,7 +569,7 @@ public class HBIDatasetBenchmark {
                             dataFile,
                             queryFile,
                             suffix,
-                            1,
+                            NGRAMS,
                             WINDOW_LEN,
                             false,
                             runQueries
@@ -550,7 +579,7 @@ public class HBIDatasetBenchmark {
                             dataFile,
                             queryFile,
                             suffix,
-                            1,
+                            NGRAMS,
                             false,
                             false,
                             runQueries

@@ -6,9 +6,9 @@ import search.Pattern;
 import utilities.PatternResult;
 import utilities.StringKeyMapper;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -258,7 +258,6 @@ public class SuffixTreeIndex implements IPMIndexing {
                 int nextPathLength = pathLength + consumedOnThisEdge;
 
                 collectSuffixIndices(next, nextPathLength, result);
-                Collections.sort(result);
                 return result;
             }
 
@@ -271,37 +270,37 @@ public class SuffixTreeIndex implements IPMIndexing {
                 return new ArrayList<>();
             }
         }
-
-        Collections.sort(result);
-        // deduplicate in-place
-        if (!result.isEmpty()) {
-            int w = 1;
-            for (int r = 1; r < result.size(); r++) {
-                if (!result.get(r).equals(result.get(w - 1))) {
-                    result.set(w++, result.get(r));
-                }
-            }
-            while (result.size() > w) result.remove(result.size() - 1);
-        }
         return result;
     }
 
     private void collectSuffixIndices(Node node, int pathLength, ArrayList<Integer> result) {
         if (node == null) return;
 
-        if (!hasChildren(node)) {
-            // For leaves, the suffix start is the leaf's start position. Prefer recorded suffixIndex if present.
-            int start = (node.suffixIndex >= 0) ? node.suffixIndex : node.start;
-            if (start >= 0) {
-                node.suffixIndex = start;
-                result.add(start);
-            }
-            return;
-        }
+        ArrayDeque<Node> stack = new ArrayDeque<>();
+        ArrayDeque<Integer> pathLengths = new ArrayDeque<>();
+        stack.push(node);
+        pathLengths.push(pathLength);
 
-        forEachChild(node, child ->
-                collectSuffixIndices(child, pathLength + child.edgeLength(leafEndValue), result)
-        );
+        while (!stack.isEmpty()) {
+            Node current = stack.pop();
+            int currentPathLength = pathLengths.pop();
+
+            if (!hasChildren(current)) {
+                // For leaves, the suffix start is the leaf's start position. Prefer recorded suffixIndex if present.
+                int start = (current.suffixIndex >= 0) ? current.suffixIndex : current.start;
+                if (start >= 0) {
+                    current.suffixIndex = start;
+                    result.add(start);
+                }
+                continue;
+            }
+
+            final int nextPathLengthBase = currentPathLength;
+            forEachChild(current, child -> {
+                stack.push(child);
+                pathLengths.push(nextPathLengthBase + child.edgeLength(leafEndValue));
+            });
+        }
     }
 
     @Override
