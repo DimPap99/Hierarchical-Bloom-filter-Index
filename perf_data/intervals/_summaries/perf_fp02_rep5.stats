@@ -1,0 +1,8 @@
+rows_total=41 warmup_skipped=12 rows_used=23 trimmed_each_side=3 autodetect_interval=yes
+avg_stores_per_row=49031480.174  avg_refs_per_row=10550782.609
+stalls_per_store: mean=0.007545 sd=0.004834 min=0.002696 median=0.004400 p90=0.015033 p99=0.015636
+miss_rate: mean=0.650777 sd=0.006362 min=0.640948 median=0.649477 p90=0.659205 p99=0.665257
+cycles_per_store: mean=23.602279 sd=0.485128 min=22.092479 median=23.750388 p90=24.088177 p99=24.270396
+instructions_per_store: mean=31.590191 sd=0.508118 min=30.085883 median=31.761438 p90=31.983681 p99=31.999556
+store_forward_blocks_per_store: mean=0.005775 sd=0.000487 min=0.004892 median=0.006071 p90=0.006269 p99=0.006270
+ratio_of_sums: stalls_per_store=0.007568  miss_rate=0.650756  cycles_per_store=23.590663  instructions_per_store=31.581642  store_forward_blocks_per_store=0.005773
