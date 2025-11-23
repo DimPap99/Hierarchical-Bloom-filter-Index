@@ -4,9 +4,7 @@ import PMIndex.NgramModel;
 import search.Pattern;
 import tree.ImplicitTree;
 
-/**
- * Shared scaffolding for cost functions that evaluate level costs through {@link LevelCostMinimizer}.
- */
+// Shared base for cost functions that delegate to LevelCostMinimizer.
 public abstract class AbstractCostFunction implements CostFunction {
 
     protected double bloomProbeCost = 1.0;
@@ -54,4 +52,3 @@ public abstract class AbstractCostFunction implements CostFunction {
         return this.bigramModel;
     }
 }
-

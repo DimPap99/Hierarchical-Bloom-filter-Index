@@ -3,25 +3,14 @@ package datagenerators;
 import java.util.Arrays;
 import java.util.Objects;
 
-/**
- * Helpers that synthesise adversarial workloads meant to stress the HBI pruning logic.
- * Keeping the generators in Java allows us to reproduce datasets without depending on
- * external scripts and keeps the CLI integration simple.
- */
+// Adversarial dataset generators for HBI.
+// Kept in Java to avoid external scripts.
 public final class AdversarialGenerators {
 
     private AdversarialGenerators() {
     }
 
-    /**
-     * Builds a stream made of alternating mono-character blocks. Block boundaries are aligned
-     * so that each Bloom interval of size {@code blockLength} or smaller sees a single token.
-     *
-     * @param totalLength total number of characters to emit
-     * @param blockLength length of each mono-character block (use powers of two to align with tree intervals)
-     * @param alphabet    sequence of characters to cycle through for each block
-     * @return dataset contents as a {@link String}
-     */
+    // Alternating mono-character blocks aligned with Bloom intervals.
     public static String generateAlternatingBlocks(int totalLength,
                                                    int blockLength,
                                                    char[] alphabet) {
@@ -49,17 +38,7 @@ public final class AdversarialGenerators {
         return sb.toString();
     }
 
-    /**
-     * Emits a de Bruijn sequence for the specified alphabet and order. The full cycle is repeated
-     * until {@code totalLength} characters are produced.
-     *
-     * @param alphabetSize number of symbols in the alphabet
-     * @param order        de Bruijn order (equals the maximum n-gram in our workloads)
-     * @param totalLength  desired output length
-     * @param alphabetBase first code point in the alphabet; the alphabet is the contiguous range
-     *                     {@code [alphabetBase, alphabetBase + alphabetSize)} (0-255 works just fine)
-     * @return dataset contents as a {@link String}
-     */
+    // De Bruijn sequence over an integer alphabet, repeated up to totalLength.
     public static String generateDeBruijnSequence(int alphabetSize,
                                                   int order,
                                                   int totalLength,
@@ -77,14 +56,7 @@ public final class AdversarialGenerators {
         return generateDeBruijnSequence(alphabet, order, totalLength);
     }
 
-    /**
-     * Emits a de Bruijn sequence using an explicit alphabet.
-     *
-     * @param alphabet    array of symbols to use (copied directly, so any subset of 0-65535 is valid)
-     * @param order       de Bruijn order / maximum n-gram length
-     * @param totalLength desired output length
-     * @return dataset contents as a {@link String}
-     */
+    // De Bruijn sequence using an explicit alphabet.
     public static String generateDeBruijnSequence(char[] alphabet,
                                                   int order,
                                                   int totalLength) {
