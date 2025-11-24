@@ -148,9 +148,9 @@ public final class  MathUtils {
             // L = ceil( log2( baseIntervalSize / bAlphaQ ) )
             final double ratio = tree.baseIntervalSize() / bAlphaQ;
             final double val   = log2(ratio); // <-- this is where base-2 is required
-            final int L        = (int) Math.ceil(val);
+            final int L        = (int) Math.ceil(val) + 1 ;
 
-            lp = Math.min(L, tree.maxDepth())-1;//l can underflow if the probs are too small. clamp to 0
+            lp = Math.min(L, tree.maxDepth());//l can underflow if the probs are too small. clamp to 0
 
         }
         return (int) Math.max(0, lp);
