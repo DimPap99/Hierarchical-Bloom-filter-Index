@@ -4,14 +4,7 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Random;
 
-/**
- * CountSketch variant backed by 32-bit counters for better cache locality and lower memory.
- * Keys are hashed from various types (int/long/String/byte[]) to a 64-bit base hash.
- *
- * Notes:
- * - Updates use saturating arithmetic to avoid wrap-around on overflow.
- * - Point queries return a long (median over rows) to match the original API.
- */
+
 public final class IntCountSketch {
 
     private final int width;
@@ -22,7 +15,7 @@ public final class IntCountSketch {
     private final boolean widthIsPow2;
     private final int widthMask;       // valid only if width is power of two
 
-    /** Create with explicit width (columns), depth (rows), and random seed. */
+    // Create with explicit width (columns), depth (rows), and random seed.
     public IntCountSketch(int width, int depth, long seed) {
         if (width <= 0 || depth <= 0) throw new IllegalArgumentException("width and depth must be > 0");
         this.width = width;
@@ -32,7 +25,7 @@ public final class IntCountSketch {
         this.widthIsPow2 = isPowerOfTwo(width);
         this.widthMask = widthIsPow2 ? (width - 1) : 0;
 
-        // Derive per-row seeds deterministically from the global seed
+        // Derive per-row seeds deterministically from the global seed.
         this.rowSeeds = new long[depth];
         long s = seed ^ 0x9E3779B97F4A7C15L;
         for (int i = 0; i < depth; i++) {
@@ -41,16 +34,12 @@ public final class IntCountSketch {
         }
     }
 
-    /** Create with explicit width/depth and a random seed from java.util.Random. */
+    // Create with explicit width/depth and a random seed from java.util.Random.
     public IntCountSketch(int width, int depth) {
         this(width, depth, new Random().nextLong());
     }
 
-    /**
-     * Factory based on target additive-error epsilon (ε) and failure probability delta (δ).
-     * width  ≈ ceil_to_pow2( 3 / ε^2 )
-     * depth  ≈ ceil( ln(1/δ) )
-     */
+    // Factory based on target additive-error epsilon and failure probability delta.
     public static IntCountSketch fromEpsDelta(double epsilon, double delta, long seed) {
         if (!(epsilon > 0.0) || !(delta > 0.0) || delta >= 1.0) {
             throw new IllegalArgumentException("epsilon must be > 0 and delta in (0,1)");
@@ -66,9 +55,9 @@ public final class IntCountSketch {
         return fromEpsDelta(epsilon, delta, new Random().nextLong());
     }
 
-    // ---------- Public API ----------
+    // Public API.
 
-    /** Update the sketch by 'delta' occurrences of 'item'. */
+    // Update the sketch by delta occurrences of item.
     public void update(int item, long delta) { updateHash(hashInt(item), delta); }
     public void update(long item, long delta) { updateHash(hashLong(item), delta); }
     public void update(String item, long delta) {
@@ -80,19 +69,19 @@ public final class IntCountSketch {
         updateHash(hashBytes(item), delta);
     }
 
-    /** Convenience: increment by +1. */
+    // Convenience: increment by 1.
     public void add(int item)    { update(item, 1L); }
     public void add(long item)   { update(item, 1L); }
     public void add(String item) { update(item, 1L); }
     public void add(byte[] item) { update(item, 1L); }
 
-    /** Point query estimate for a key. Unbiased. Returns a long (median of signed row estimates). */
+    // Point query estimate for a key (median of signed row estimates).
     public long estimate(int item)    { return estimateHash(hashInt(item)); }
     public long estimate(long item)   { return estimateHash(hashLong(item)); }
     public long estimate(String item) { return estimateHash(hashString(item)); }
     public long estimate(byte[] item) { return estimateHash(hashBytes(item)); }
 
-    /** Merge another sketch in-place (must have same width, depth, and seeds). */
+    // Merge another sketch in-place (same width, depth, and seeds).
     public void mergeInPlace(IntCountSketch other) {
         requireSameShape(other);
         for (int i = 0; i < depth; i++) {
@@ -104,20 +93,20 @@ public final class IntCountSketch {
         }
     }
 
-    /** Reset all counters to zero. */
+    // Reset all counters to zero.
     public void clear() {
         for (int i = 0; i < depth; i++) {
             Arrays.fill(table[i], 0);
         }
     }
 
-    /** @return number of rows (depth). */
+    // Number of rows (depth).
     public int depth() { return depth; }
 
-    /** @return number of columns (width). */
+    // Number of columns (width).
     public int width() { return width; }
 
-    /** @return read-only snapshot of internal table (defensive copy). */
+    // Read-only snapshot of internal table (defensive copy).
     public int[][] snapshot() {
         int[][] cp = new int[depth][];
         for (int i = 0; i < depth; i++) {
@@ -131,7 +120,7 @@ public final class IntCountSketch {
         return "IntCountSketch{width=" + width + ", depth=" + depth + ", seed=" + seed + "}";
     }
 
-    // ---------- internals ----------
+    // Internals.
 
     private void updateHash(long h, long delta) {
         if (delta == 0L) return;
@@ -174,7 +163,7 @@ public final class IntCountSketch {
         return ((h >>> 63) == 0) ? +1 : -1;
     }
 
-    // ---------- Hashing to 64-bit base hash ----------
+    // Hashing to a 64-bit base hash.
 
     private long hashInt(int x) {
         long z = (long) x ^ seed;
@@ -202,7 +191,7 @@ public final class IntCountSketch {
         return z;
     }
 
-    /** SplitMix64 finalizer (public domain). */
+    // SplitMix64 finalizer (public domain).
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -250,4 +239,3 @@ public final class IntCountSketch {
         return saturatingAdd(a, (int) b);
     }
 }
-

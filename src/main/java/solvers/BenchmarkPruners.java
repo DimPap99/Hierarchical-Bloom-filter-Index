@@ -2,24 +2,16 @@ package solvers;
 
 import java.util.Random;
 
-/**
- *  solvers.BenchmarkPruners.java
- *
- *  Compare different b-a,P solvers under identical loads.
- *  Compile with the two solver classes on the class-path:
- *
- *      javac solvers.PatternPrunerBrent.java solvers.PatternPrunerHalley.java solvers.BenchmarkPruners.java
- *      java  solvers.BenchmarkPruners
- */
+// Compare different b-a,P solvers under identical synthetic workloads.
 public class BenchmarkPruners {
 
-    /* ------------------------------------------------------------------ */
+    // Solver functional interface.
     @FunctionalInterface
     public interface PrunerSolver {
         double solve(double[] pHat, double a);
     }
 
-    /** Run the same workload on a solver and report elapsed-time stats. */
+    // Run the same workload on a solver and report elapsed-time stats.
     public static void benchmark(String name,
                                  PrunerSolver solver,
                                  double[][]   patterns,
@@ -45,7 +37,7 @@ public class BenchmarkPruners {
     public static void main(String[] args) {
 
         int       numPatterns = 500;
-        int       maxLen      = 15;           // pattern length r  (1…10)
+        int       maxLen      = 15;           // pattern length r  (1..10)
         Random    rng         = new Random(42);
         double[][] patterns   = new double[numPatterns][];
 
@@ -53,11 +45,11 @@ public class BenchmarkPruners {
             int r = 1 + rng.nextInt(maxLen);
             double[] p = new double[r];
             for (int j = 0; j < r; j++)
-                p[j] = 0.1 + rng.nextDouble() * 0.15;   // 0.001 … 0.151
+                p[j] = 0.1 + rng.nextDouble() * 0.15;   // 0.001 .. 0.151
             patterns[i] = p;
         }
         double a = 0.99;                      // same confidence for all
-        int    repeats = 100;                   // run each solver 5×
+        int    repeats = 100;                   // run each solver 5 times
 
         PrunerSolver halley = (p, conf) ->
                 PatternPrunerHalley.solveB(p, conf, 1e-10, 1e-12);

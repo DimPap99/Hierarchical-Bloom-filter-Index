@@ -8,9 +8,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Console and CSV reporting for aggregated benchmark results.
- */
+// Console and CSV reporting for aggregated benchmark results.
 public final class BenchmarkReporter {
     private BenchmarkReporter() {}
 

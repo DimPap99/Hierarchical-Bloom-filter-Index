@@ -7,20 +7,8 @@ import utilities.TokenHasher;
 
 import java.util.*;
 
-/**
- * Delayed SSWSI variant (Section 4 in CPM 2024):
- * - Maintains only the O(log(w/delta)) largest power-of-two segments (suffix trees),
- *   so the uncovered suffix t has size < delta.
- * - Long patterns (|P| > delta/4): answer immediately by querying segment and
- *   boundary trees and by building a temporary suffix tree over R = last (m-1) of s + t.
- * - Short patterns (|P| <= delta/4): optionally buffer queries/updates up to ~delta/2
- *   ops; on flush, build suffix tree over t and answer in batch. For synchronous calls,
- *   we can also answer immediately by doing the same work eagerly.
- *
- * This class is a practical, faithful implementation on top of the segment/boundary
- * scaffolding of StreamingSlidingWindowIndex. It keeps the segments merged in powers of two;
- * tree materialization is skipped for segments shorter than minSegLen (= delta/2).
- */
+// Delayed SSWSI variant: keeps large power-of-two segments and delays short patterns.
+// Uses StreamingSlidingWindowIndex-style segment and boundary trees.
 public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
 
     private final int windowSize;
@@ -271,7 +259,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     private void buildBoundary(Segment left, Segment right) {
-        // Only materialize boundary trees when both sides are covered by segment trees
+        // Only materialize boundary trees when both sides are covered by segment trees.
         if (left == null || right == null) return;
         left.rightBoundary = null;
         right.leftBoundary = null;
@@ -332,14 +320,14 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     private long[] uncoveredSuffixTokens() {
-        // Concatenate tokens from the tail made of segments < minSegLen
+        // Concatenate tokens from tail segments shorter than minSegLen.
         ArrayDeque<long[]> parts = new ArrayDeque<>();
         int total = 0;
         for (Segment s = tail; s != null; s = s.prev) {
             if (s.length >= minSegLen) break;
             parts.addFirst(s.tokens);
             total += s.length;
-            if (total >= delta) break; // cap at delta for safety
+            if (total >= delta) break; // cap at delta.
         }
         long[] out = new long[total];
         int w = 0;
@@ -409,7 +397,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
     }
 
     @Override
-    public void expire() { /* not used in this variant */ }
+    public void expire() { }
 
     @Override
     public ArrayList<Long> getAvgTimes(Pattern pat) { return new ArrayList<>(); }

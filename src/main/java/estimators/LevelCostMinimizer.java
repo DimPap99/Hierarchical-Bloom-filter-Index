@@ -6,9 +6,6 @@ import utilities.MathUtils;
 
 import java.util.Arrays;
 
-/**
- * Iterates over candidate pruning levels and selects the minimum-cost option using a {@link LevelCostProvider}.
- */
 public final class LevelCostMinimizer {
     public static boolean isDebugging = false;
     private LevelCostMinimizer() {

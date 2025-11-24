@@ -6,13 +6,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Fischer–Heun RMQ for maximum on a static integer array.
- * Preprocessing O(n), queries O(1), space O(n).
- *
- * Implementation via max-Cartesian tree + Euler tour on depths (±1 property),
- * and block decomposition with microstructure tables and a sparse table on block minima.
- */
+// Fischer-Heun RMQ for maximum on a static integer array (max queries).
 final class RMQFischerHeunMax {
     private final int n;
     private final int[] arr;
@@ -119,7 +113,7 @@ final class RMQFischerHeunMax {
             // but leave arrays as-is for safety
         }
 
-        // 3) Fischer–Heun over L (min RMQ on depths)
+        // Step 3: Fischer-Heun over L (min RMQ on depths).
         int mm = m;
         int log2 = (mm <= 1) ? 1 : (31 - Integer.numberOfLeadingZeros(mm));
         int bs = Math.max(1, log2 / 2);
@@ -258,4 +252,3 @@ final class RMQFischerHeunMax {
         }
     }
 }
-

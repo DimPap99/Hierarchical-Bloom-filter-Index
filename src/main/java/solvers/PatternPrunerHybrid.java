@@ -4,7 +4,7 @@ import java.util.Arrays;
 
 public final class PatternPrunerHybrid {
 
-    // ------------------------ public API ------------------------
+    // Public API.
     public static double solveBHybrid(double[] pHat,
                                       double    a,
                                       double    epsRel,
@@ -12,7 +12,7 @@ public final class PatternPrunerHybrid {
 
         validateInputs(pHat, a);
 
-        // ---- 1. bracketing  -----------------------------------
+        // Bracketing.
         double bLow  = 0.0;                    // G(0+) = -a < 0
         double bHigh = 1.0;
         while (G(bHigh, pHat, a) < 0.0) {
@@ -21,7 +21,7 @@ public final class PatternPrunerHybrid {
                 throw new IllegalStateException("excessive bHigh (>1e12)");
         }
 
-        // ---- 2. initial bisection stage -----------------------
+        // Initial bisection stage.
         final double bisectTol = 1e-3;         // absolute width trigger
         while ((bHigh - bLow) > bisectTol) {
             double bMid = 0.5 * (bLow + bHigh);
@@ -32,7 +32,7 @@ public final class PatternPrunerHybrid {
                 bHigh = bMid;
         }
 
-        // ---- 3. Newton stage inside the shrunken bracket -----
+        // Newton stage inside the shrunken bracket.
         double b = 0.5 * (bLow + bHigh);
         while (true) {
             double g  = G(b,  pHat, a);
@@ -44,7 +44,7 @@ public final class PatternPrunerHybrid {
             } else {
                 double bNew = b - g / gPrime;
 
-                // clamp to current bracket
+                // Clamp to current bracket.
                 if (bNew <= bLow || bNew >= bHigh)
                     bNew = 0.5 * (bLow + bHigh);
 
@@ -53,7 +53,7 @@ public final class PatternPrunerHybrid {
                 b = bNew;
             }
 
-            // keep bracket consistent
+            // Keep bracket consistent.
             if (G(b, pHat, a) < 0.0)
                 bLow = b;
             else
@@ -61,7 +61,7 @@ public final class PatternPrunerHybrid {
         }
     }
 
-    // ------------------------ helpers --------------------------
+    // Helpers.
     private static void validateInputs(double[] pHat, double a) {
         if (!(a > 0.0 && a < 1.0))
             throw new IllegalArgumentException("a must be in (0,1)");
@@ -69,7 +69,7 @@ public final class PatternPrunerHybrid {
             throw new IllegalArgumentException("all pHat must lie in (0,1)");
     }
 
-    /** G(b) = F(b) - a, in linear domain but computed via log-space */
+    // G(b) = F(b) - a, in linear domain but computed via log-space.
     private static double G(double b, double[] pHat, double a) {
         double logProd = 0.0;
         for (double p : pHat) {
@@ -80,7 +80,7 @@ public final class PatternPrunerHybrid {
         return Math.exp(logProd) - a;
     }
 
-    /** G'(b) = F'(b), computed safely in log-space */
+    // G'(b) = F'(b), computed safely in log-space.
     private static double Gprime(double b, double[] pHat) {
         double logProd = 0.0;
         double sumFrac = 0.0;
@@ -91,13 +91,13 @@ public final class PatternPrunerHybrid {
             double termDer   = -pow * Math.log(oneMinusP); // y_i'(b)
 
             logProd += Math.log(term);               // for F(b)
-            sumFrac += termDer / term;               // Σ y_i'/y_i
+            sumFrac += termDer / term;               // sum of y_i'/y_i
         }
         double F = Math.exp(logProd);
         return F * sumFrac;                          // F'(b)
     }
 
-    // --------------------- demo main (optional) ----------------
+    // Demo main (optional).
     public static void main(String[] args) {
         double[] pHat = {0.12, 0.033, 0.004, 0.44, 0.003, 0.014};
         double   a    = 0.99;

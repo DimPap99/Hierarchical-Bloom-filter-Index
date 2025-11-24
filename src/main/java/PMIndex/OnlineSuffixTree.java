@@ -13,31 +13,20 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/**
- * Suffix tree that stores hashed n-gram tokens as longs. Incoming strings are mapped to longs via
- * {@link StringKeyMapper} so the representation matches the numeric token stream used by HBI.
- * Ukkonen's algorithm keeps the tree in sync as tokens arrive, allowing pattern queries to execute
- * in linear time w.r.t. number of tokens in the query.
- *
- * Memory optimizations included:
- *  - Lazy children: Node.children is null until the first child is inserted (big leaf savings)
- *  - Four-inline-slot ChildMap before upgrading to a hash table
- *  - Integer edge ends with a single global leafEndValue (no per-node End objects)
- *  - Optional compaction pass after build
- *  - JOL memory reports (full and partitioned)
- */
+// Suffix tree over hashed n-gram tokens using Ukkonen's algorithm.
+// Keeps memory usage low and can optionally report JOL memory stats.
 public class OnlineSuffixTree implements IPMIndexing {
 
     private final StringKeyMapper keyMapper;
     private final LongSequence tokenStream;
     private final Node root;
 
-    // Ukkonen active point
+    // Ukkonen active point.
     private Node activeNode;
     private int activeEdge = -1;
     private int activeLength = 0;
 
-    // Ukkonen bookkeeping
+    // Ukkonen bookkeeping.
     private int remainingSuffixCount = 0;
     private int leafEndValue = -1;                // global, shared end for all leaves
     private Node lastCreatedInternalNode = null;
@@ -50,7 +39,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         this(new StringKeyMapper(expectedDistinctTokens, epsilon));
     }
 
-    /** Construct with a provided mapper and a dynamically-resizable token stream. */
+    // Construct with a provided mapper and a dynamically-resizable token stream.
     public OnlineSuffixTree(StringKeyMapper mapper) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
         this.tokenStream = new LongSequence();
@@ -59,12 +48,12 @@ public class OnlineSuffixTree implements IPMIndexing {
         this.activeNode = this.root;
     }
 
-    /** Fixed-capacity token stream, preallocating space for the full text to index. */
+    // Fixed-capacity token stream, preallocating space for the full text to index.
     public OnlineSuffixTree(long expectedDistinctTokens, double epsilon, int totalTokens) {
         this(new StringKeyMapper(expectedDistinctTokens, epsilon), totalTokens);
     }
 
-    /** Construct with a provided mapper and a fixed-capacity token stream. */
+    // Construct with a provided mapper and a fixed-capacity token stream.
     public OnlineSuffixTree(StringKeyMapper mapper, int totalTokens) {
         this.keyMapper = Objects.requireNonNull(mapper, "mapper");
         if (totalTokens <= 0) {
@@ -87,7 +76,7 @@ public class OnlineSuffixTree implements IPMIndexing {
     }
 
     private void extendSuffixTree(int pos) {
-        // advance the global leaf end
+        // Advance the global leaf end.
         leafEndValue = pos;
         remainingSuffixCount++;
         lastCreatedInternalNode = null;
@@ -100,7 +89,7 @@ public class OnlineSuffixTree implements IPMIndexing {
             Node next = getChild(activeNode, currentEdgeToken);
 
             if (next == null) {
-                // create a new leaf with LEAF_SENTINEL end
+                // Create a new leaf with LEAF_SENTINEL end.
                 Node leaf = new Node(pos, Node.LEAF_SENTINEL);
                 leaf.suffixIndex = pos - remainingSuffixCount + 1;
                 putChild(activeNode, currentEdgeToken, leaf);
@@ -211,15 +200,12 @@ public class OnlineSuffixTree implements IPMIndexing {
         return tokens;
     }
 
-    /**
-     * Aligns with Java regex semantics for empty patterns:
-     * reports matches at all N+1 boundaries when the pattern has zero tokens.
-     * Keeps exact path-length accounting when we finish mid-edge.
-     */
+    // Aligns with Java regex semantics for empty patterns:
+    // report matches at all N+1 boundaries when the pattern has zero tokens.
     private ArrayList<Integer> reportInternal(long[] patternTokens) {
         ArrayList<Integer> result = new ArrayList<>();
 
-        // empty pattern: report every boundary including the one after the last token
+        // Empty pattern: report every boundary including the one after the last token.
         if (patternTokens.length == 0) {
             int n = tokenStream.size();
             for (int i = 0; i <= n; i++) {
@@ -243,7 +229,7 @@ public class OnlineSuffixTree implements IPMIndexing {
             int edgeEnd   = next.effectiveEnd(leafEndValue);
             int edgeIndex = edgeStart;
 
-            // walk along this edge while tokens match
+            // Walk along this edge while tokens match.
             while (patternIndex < patternTokens.length && edgeIndex <= edgeEnd) {
                 if (patternTokens[patternIndex] != tokenStream.get(edgeIndex)) {
                     return new ArrayList<>();
@@ -252,7 +238,7 @@ public class OnlineSuffixTree implements IPMIndexing {
                 edgeIndex++;
             }
 
-            // if we consumed the entire pattern, collect answers under 'next'
+            // If we consumed the entire pattern, collect answers under next.
             if (patternIndex == patternTokens.length) {
                 int consumedOnThisEdge = edgeIndex - edgeStart;
                 int nextPathLength = pathLength + consumedOnThisEdge;
@@ -261,7 +247,7 @@ public class OnlineSuffixTree implements IPMIndexing {
                 return result;
             }
 
-            // otherwise, if we consumed the whole edge, descend to child
+            // Otherwise, if we consumed the whole edge, descend to the child.
             if (edgeIndex > edgeEnd) {
                 int consumedOnThisEdge = edgeEnd - edgeStart + 1;
                 pathLength += consumedOnThisEdge;
@@ -286,7 +272,7 @@ public class OnlineSuffixTree implements IPMIndexing {
             int currentPathLength = pathLengths.pop();
 
             if (!hasChildren(current)) {
-                // For leaves, the suffix start is the leaf's start position. Prefer recorded suffixIndex if present.
+                // For leaves, suffix start is the leaf start position; prefer recorded suffixIndex if present.
                 int start = (current.suffixIndex >= 0) ? current.suffixIndex : current.start;
                 if (start >= 0) {
                     current.suffixIndex = start;
@@ -321,12 +307,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         lastCreatedInternalNode = null;
     }
 
-    /**
-     * Optional compaction step to reduce memory after all insertions are complete.
-     * Trims all child maps to minimal capacity (or drops if leaf), clears construction-only pointers,
-     * and shrinks the token stream backing array to exact size.
-     * Invoke only when you will not insert more tokens.
-     */
+    // Optional compaction step to reduce memory after all insertions are complete.
     public void compactForQuerying() {
         tokenStream.shrinkToFit();
         trimDfs(root);
@@ -336,7 +317,7 @@ public class OnlineSuffixTree implements IPMIndexing {
     private void trimDfs(Node node) {
         if (node == null) return;
         if (!hasChildren(node)) {
-            node.children = null; // ensure leaves hold no ChildMap at all
+            node.children = null; // ensure leaves hold no ChildMap at all.
         } else {
             node.children.trimToSize();
             forEachChild(node, this::trimDfs);
@@ -359,16 +340,8 @@ public class OnlineSuffixTree implements IPMIndexing {
         return -2;
     }
 
-    // =========================
-    // === JOL memory reports ==
-    // =========================
+    // JOL memory reports.
 
-    /**
-     * Produce a memory footprint report for the suffix tree index using JOL.
-     *
-     * @param includeFootprintTable when true, append the full class histogram for the index root.
-     * @return human-readable report string in mebibytes
-     */
     public String jolMemoryReport(boolean includeFootprintTable) {
         StringBuilder sb = new StringBuilder(4_096);
 
@@ -405,7 +378,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         return sb.toString();
     }
 
-    /** Same report as {@link #jolMemoryReport(boolean)} plus the numeric total MiB. */
+    // Same report as jolMemoryReport plus the numeric total MiB.
     public utilities.MemoryUsageReport jolMemoryReportWithTotal(boolean includeFootprintTable) {
         String txt = jolMemoryReport(includeFootprintTable);
         long totalBytes = GraphLayout.parseInstance(this).totalSize();
@@ -421,10 +394,7 @@ public class OnlineSuffixTree implements IPMIndexing {
                 bytes / (1024.0 * 1024.0)));
     }
 
-    /**
-     * Compact, partitioned report to compare directly with HBI's partitioned JOL report.
-     * Returns exactly four lines: Total, Nodes, TokenStream, Mapper.
-     */
+    // Compact, partitioned report to compare with HBI's partitioned JOL report.
     public String jolMemoryReportPartitioned() {
         long totalBytes  = GraphLayout.parseInstance(this).totalSize();
         long nodesBytes  = GraphLayout.parseInstance(root).totalSize();
@@ -440,7 +410,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         return totalLine + "\n" + nodesLine + "\n" + streamLine + "\n" + mapLine;
     }
 
-    /** Same as {@link #jolMemoryReportPartitioned()} but also returns the numeric total MiB. */
+    // Same as jolMemoryReportPartitioned but also returns the numeric total MiB.
     public utilities.MemoryUsageReport jolMemoryReportPartitionedWithTotal() {
         String txt = jolMemoryReportPartitioned();
         long totalBytes = GraphLayout.parseInstance(this).totalSize();
@@ -448,14 +418,9 @@ public class OnlineSuffixTree implements IPMIndexing {
         return new utilities.MemoryUsageReport(txt, totalMiB);
     }
 
-    // =====================
-    // === Debug helpers ===
-    // =====================
+    // Debug helpers.
 
-    /**
-     * Debug: Walk the tree for the given query, printing traversed edges and the leaf starts
-     * under the matched node. Limits leaf printing to the tailWindow of the stream for focus.
-     */
+    // Walk the tree for the given query and print traversed edges and leaf starts.
     public void debugDumpForQuery(String query, int nGram, int tailWindow) {
         long[] patternTokens = mapQueryToTokens(query, nGram);
         System.out.printf("DEBUG[SuffixTree]: query=\"%s\" tokens=%d tailWindow=%d%n",
@@ -532,7 +497,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         forEachChild(node, child -> debugPrintLeavesDfs(child, tailCutoff, counter));
     }
 
-    /** Quick check: does the token stream match the query tokens at a given start? */
+    // Quick check: does the token stream match the query tokens at a given start?
     public boolean debugCheckAt(String query, int nGram, int start) {
         long[] tokens = mapQueryToTokens(query, nGram);
         int n = tokenStream.size();
@@ -552,7 +517,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         return true;
     }
 
-    /** Scan a range [from, to] and print all token-exact matches for the query. */
+    // Scan a range [from, to] and print all token-exact matches for the query.
     public void debugScanRange(String query, int nGram, int from, int to) {
         long[] tokens = mapQueryToTokens(query, nGram);
         int n = tokenStream.size();
@@ -572,15 +537,12 @@ public class OnlineSuffixTree implements IPMIndexing {
         }
     }
 
-    // =========================
-    // ==== Compact node type ==
-    // =========================
     private static final class Node {
-        // LAZY: null until first child is inserted
+        // Null until the first child is inserted.
         private ChildMap children;
         private Node suffixLink;
         private int start;
-        private int end;                 // explicit end or LEAF_SENTINEL
+        private int end;                 // explicit end or LEAF_SENTINEL.
         private int suffixIndex = -1;
 
         private static final int LEAF_SENTINEL = Integer.MIN_VALUE;
@@ -601,15 +563,13 @@ public class OnlineSuffixTree implements IPMIndexing {
             return effectiveEnd(leafEndValue) - start + 1;
         }
 
-        /** Release construction-only pointer to reduce memory after build. */
+        // Release construction-only pointer to reduce memory after build.
         private void dropConstructionOnlyPointers() {
             this.suffixLink = null;
         }
     }
 
-    // =========================
-    // === Child helpers =======
-    // =========================
+    // Child helpers.
     private static Node getChild(Node n, long key) {
         return (n.children == null) ? null : n.children.get(key);
     }
@@ -672,7 +632,7 @@ public class OnlineSuffixTree implements IPMIndexing {
             size = 0;
         }
 
-        /** Shrink the backing array to the exact logical size. Call after all insertions. */
+        // Shrink the backing array to the logical size. Call after all insertions.
         void shrinkToFit() {
             if (fixedCapacity) return; // preserve single-allocation guarantee
             if (data.length != size) {
@@ -692,9 +652,7 @@ public class OnlineSuffixTree implements IPMIndexing {
         }
     }
 
-    // ===========================================================
-    // === Compact child container with 4-inline fast path     ===
-    // ===========================================================
+    // Compact child container with a 4-inline fast path.
     private static final class ChildMap {
         // mode 0 empty, 1..4 number of inline entries, 5 upgraded hash table
         private byte mode = 0;
@@ -829,7 +787,7 @@ public class OnlineSuffixTree implements IPMIndexing {
             size = 0;
         }
 
-        /** Reduce arrays to the smallest power-of-two capacity that satisfies the load factor. */
+        // Reduce arrays to the smallest power-of-two capacity that satisfies the load factor.
         void trimToSize() {
             if (size == 0) {
                 initialise(4);

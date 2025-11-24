@@ -4,12 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Section 3: Matching Long Streaming Patterns (faithful structure).
- * We implement the three-phase logic to find occurrences of P in a text S of
- * length O(m) where m = |P| and m > B. For our offline call, P is fully known;
- * we mirror the phase structure to remain faithful to the paper.
- */
+// Matcher for long streaming patterns using the three-phase logic from the paper.
 public final class LongPatternMatcher {
 
     private LongPatternMatcher() {}

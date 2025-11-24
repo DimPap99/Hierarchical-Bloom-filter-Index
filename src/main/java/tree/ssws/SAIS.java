@@ -2,13 +2,7 @@ package tree.ssws;
 
 import java.util.Arrays;
 
-/**
- * SA-IS (Nong–Zhang–Chan) suffix array construction in O(n) time.
- *
- * Input: int[] s of length n with s[n-1] == 0 (unique smallest sentinel),
- *        and 0 <= s[i] <= K for some K (K can be >= n; still linear on a word RAM).
- * Output: suffix array sa of length n.
- */
+// SA-IS suffix array construction in O(n) time (Nong-Zhang-Chan).
 final class SAIS {
 
     private SAIS() {}
@@ -101,7 +95,7 @@ final class SAIS {
 
         int[] sa1;
         if (name + 1 == m) {
-            // already unique → directly place ranks
+            // Already unique; directly place ranks.
             sa1 = new int[m];
             for (int i = 0; i < m; i++) sa1[s1[i]] = i;
         } else {

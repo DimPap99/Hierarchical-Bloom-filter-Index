@@ -39,44 +39,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/**
- * MemoryBenchmark
- *
- * Build each index once on one dataset file and record retained memory in mebibytes (MiB),
- * measured using Java Object Layout, through GraphLayout.parseInstance(obj).totalSize().
- *
- * Output CSV columns:
- *
- *   window,
- *   window_power,
- *   window_length,
- *   tree_power,
- *   tree_length,
- *   ngram,
- *   fp_rate,
- *   hbi_mem_mib,
- *   suffix_core_mem_mib,
- *   suffix_total_mem_mib,
- *   suffix_tree_mem_mib,
- *   regex_mem_mib
- *
- * hbi_mem_mib is the retained size of the Hierarchical Bloom filter Index (HBI).
- *
- * suffix_total_mem_mib now keeps every byte reported by JOL, including the per-tree token remap
- * structures. This aligns the footprint with the actual implementation used in benchmarks.
- *
- * suffix_core_mem_mib subtracts the dictionary portion only (should be near-zero today) so legacy
- * comparisons that tracked “core” structures remain available.
- *
- * regexp_mem_mib is the retained size of a trivial RegexIndex baseline.
- *
- * Important
- * We no longer pass lambda expressions or method references into HbiConfiguration.
- * Instead we pass small named classes that implement Supplier. This avoids hidden
- * lambda classes in the object graph. Java Object Layout in modern Java crashes
- * when it tries to inspect hidden lambda classes. With these named classes, it
- * will see only ordinary classes and it can compute the total size.
- */
+// Build each index once on one dataset and record retained memory via JOL into a CSV.
 public final class MemoryBenchmark {
 
     private record TreeSetting(int power, int length) {}
@@ -199,10 +162,7 @@ public final class MemoryBenchmark {
         System.out.printf(Locale.ROOT, "Wrote memory results to %s%n", out);
     }
 
-    /**
-     * Build an HBI for the requested (ngram, fpRate) combination using named Supplier classes,
-     * so Java Object Layout never encounters hidden lambda implementations.
-     */
+    // Build an HBI for the requested (ngram, fpRate) combination using named Supplier classes.
     private static HBI newHbi(MemoryOptions options, TreeSetting treeSetting, int nGram, double fpRate) {
         final int windowLen  = options.windowLength();
         final int sigma      = options.alphabetSizeFor(nGram);
@@ -262,9 +222,7 @@ public final class MemoryBenchmark {
         return hbi;
     }
 
-    /**
-     * Create the streaming suffix baseline using the same window size and expected alphabet size.
-     */
+    // Create the streaming suffix baseline using the same window size and expected alphabet size.
     private static StreamingSlidingWindowIndex newSuffixIndex(MemoryOptions options, int nGram) {
         int windowSize = options.windowLength();
         // Optionally match HBI's n-gram for the suffix baseline if requested.
@@ -454,9 +412,7 @@ public final class MemoryBenchmark {
         }
     }
 
-    /**
-     * Supplier<Estimator> without lambdas, so JOL will not encounter a hidden lambda class.
-     */
+    // Supplier<Estimator> without lambdas, so JOL does not see hidden lambda classes.
     private static final class EstimatorFactory implements Supplier<Estimator> {
         private final int treeLen;
 
@@ -470,9 +426,7 @@ public final class MemoryBenchmark {
         }
     }
 
-    /**
-     * Supplier<Membership> without lambdas.
-     */
+    // Supplier<Membership> without lambdas.
     private static final class MembershipFactory implements Supplier<Membership> {
 
         private MembershipFactory() {
@@ -484,10 +438,7 @@ public final class MemoryBenchmark {
         }
     }
 
-    /**
-     * Supplier<PruningPlan> without lambdas.
-     * Stores the run time confidence and Bloom filter false positive rate as final fields.
-     */
+    // Supplier<PruningPlan> without lambdas, holding confidence and FP rate.
     private static final class PruningPlanFactory implements Supplier<PruningPlan> {
         private final double runConf;
         private final double fpRate;

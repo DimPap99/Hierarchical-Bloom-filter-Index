@@ -1,49 +1,31 @@
 package membership;
 
-/**
- * Dynamically sized 64-bit composite key without level.
- *
- * Layout (high → low):   [     interval     |      char      ]
- *                        63 … IVSHIFT ……………………………… 0
- *
- *   IV_BITS = maxLevel - 1            // deepest effective level has 2^(maxLevel-1) intervals
- *   CH_BITS = 64 - IV_BITS
- *
- * Throws if CH_BITS cannot accommodate the requested alphabet size.
- *
- * This variant does not encode the level:
- *   - pack(level, intervalIdx, ch) ignores the level
- *   - level(key) always returns 0
- *   - levelBits() returns 0
- */
+// 64-bit composite key without an explicit level field.
+// Layout (high to low): [ interval | char ].
 
 public final class Key64 implements LongKey {
 
-    // immutable layout
+    // Immutable layout.
     private final int  IV_BITS;
     private final int  CH_BITS;
     private final long IV_MASK;
     private final long CH_MASK;
     private final int  IV_SHIFT;
 
-    /** Build a mask with the lowest n bits set. Works for n in [0, 64]. */
+    // Build a mask with the lowest n bits set. Works for n in [0, 64].
     private static long mask64(int n) {
         if (n <= 0)  return 0L;
         if (n >= 64) return -1L;               // all ones
         return -1L >>> (64 - n);
     }
 
-    /** Bits required to encode values in [0, alphabetSize-1]. */
+    // Bits required to encode values in [0, alphabetSize-1].
     private static int bitsNeededForAlphabet(int alphabetSize) {
         if (alphabetSize <= 1) return 1;       // at least one bit
         return 32 - Integer.numberOfLeadingZeros(alphabetSize - 1);
     }
 
-    /**
-     * @param maxLevel  deepest tree level you plan to support (≥ 0)
-     *                  this class uses IV_BITS = maxLevel - 1 to match your existing convention
-     * @param alphabet  number of distinct token values that must fit in the char field
-     */
+    // maxLevel is the deepest tree level; alphabet is the number of distinct token values.
     public Key64(int maxLevel, int alphabet) {
         if (maxLevel < 0) {
             throw new IllegalArgumentException("maxLevel must be ≥ 0");
@@ -52,7 +34,7 @@ public final class Key64 implements LongKey {
             throw new IllegalArgumentException("alphabet must be ≥ 0");
         }
 
-        // no-level design: only interval and char are packed
+        // No-level design: only interval and char are packed.
         this.IV_BITS = Math.max(0, maxLevel - 1);  // deepest effective level has 2^(maxLevel-1) intervals
         if (IV_BITS > 63) {
             throw new IllegalArgumentException("interval field would need " + IV_BITS + " bits which does not fit in 64 bits");
@@ -76,7 +58,7 @@ public final class Key64 implements LongKey {
         this.IV_SHIFT = CH_BITS;
     }
 
-    /** Pack interval index and char. The level parameter is ignored by design. */
+    // Pack interval index and char. The level parameter is ignored.
     @Override
     public long pack(int level, int intervalIdx, int ch) {
         long ivPart = (Integer.toUnsignedLong(intervalIdx) & IV_MASK) << IV_SHIFT;
@@ -84,44 +66,42 @@ public final class Key64 implements LongKey {
         return ivPart | chPart;
     }
 
-    /** Extract level which is not encoded in this variant and therefore always zero. */
+    // Extract level, which is always zero in this variant.
     @Override
     public int level(long key) {
         return 0;
     }
 
-    /** Extract the interval index from the packed key. */
+    // Extract the interval index from the packed key.
     @Override
     public int interval(long key) {
         long iv = (key >>> IV_SHIFT) & IV_MASK;
         return (int) iv;
     }
 
-    /** Extract the char or token identifier from the packed key. */
+    // Extract the char or token identifier from the packed key.
     @Override
     public char ch(long key) {
         return (char) (key & CH_MASK);
     }
 
-    /** Number of bits reserved for the char field. */
+    // Number of bits reserved for the char field.
     public int charBits() {
         return CH_BITS;
     }
 
-    /** Number of bits reserved for the interval field. */
+    // Number of bits reserved for the interval field.
     public int intervalBits() {
         return IV_BITS;
     }
 
-    /** Always zero in this no-level design. */
+    // Always zero in this no-level design.
     public int levelBits() {
         return 0;
     }
 
-    /**
-     * Maximum number of distinct char values that can be represented for a given maxLevel.
-     * Clamped to Integer.MAX_VALUE to keep the original return type.
-     */
+    // Maximum number of distinct char values for a given maxLevel.
+    // Clamped to Integer.MAX_VALUE to keep the original return type.
     public static int getMaxPossibleChar(int maxLevel) {
         int ivBits = Math.max(0, maxLevel - 1);
         int chBits = 64 - ivBits;

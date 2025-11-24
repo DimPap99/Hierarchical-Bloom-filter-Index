@@ -377,15 +377,14 @@ public class CostFunctionMarkov extends AbstractCostFunction {
         return q;
     }
 
-    //COntext model is used to run the higher order chain. BEcause we are also doing IE this part get WAY too expensive in
-    //higher order chains (even order 2). So we limit the steps here and we fall back on the first order chain reduction. Those
-    //few steps on the higher order chain do give a better probability adjustment though
+    // Context model runs a higher order chain.
+    // Higher orders are expensive, so we limit steps and fall back to the first order chain.
 //    Avg overallRelError = 0.0090
 //    Avg MAPE            = 0.0235
 //    Avg RMSE (probes)   = 78.14
 //    Predicted optimal Lp matches actual best: 14/50 (28.00%)
-//    Predicted optimal Lp exactly ±1 level: 20/50 (40.00%)
-//    Predicted optimal Lp within {0,±1}: 34/50 (68.00%)
+//    Predicted optimal Lp exactly +/-1 level: 20/50 (40.00%)
+//    Predicted optimal Lp within {0,+/-1}: 34/50 (68.00%)
 //    Avg probe reduction (CF vs arbitrary): 299.00 over 15 patterns
 //    Avg probe reduction (arbitrary vs Lp=0): 640.86 over 43 patterns
 //    Mispredicted cases (>|1| off optimal): 16  with arbitrary comparison: 0  cf better: 0.00%  arbitrary better: 0.00%

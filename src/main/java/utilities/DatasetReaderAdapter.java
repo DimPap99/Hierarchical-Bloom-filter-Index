@@ -2,9 +2,7 @@ package utilities;
 
 import java.util.Iterator;
 
-/**
- * Adapter to use DatasetReader with the generic Reader<Character> interface.
- */
+// Adapter to use DatasetReader with the generic Reader<Character> interface.
 public final class DatasetReaderAdapter implements Reader<Character> {
     private final DatasetReader delegate;
     private Iterator<Character> it;
@@ -30,4 +28,3 @@ public final class DatasetReaderAdapter implements Reader<Character> {
         this.it = delegate.iterator();
     }
 }
-

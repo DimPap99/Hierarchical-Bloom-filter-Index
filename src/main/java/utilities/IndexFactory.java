@@ -15,9 +15,7 @@ import search.VerifierLinearLeafProbe;
 
 import java.util.function.Supplier;
 
-/**
- * Central place to construct indexes for benchmarks (HBI and Suffix baseline).
- */
+// Central factory for constructing indexes for benchmarks (HBI and suffix baselines).
 public final class IndexFactory {
 
     private IndexFactory() {}
@@ -74,7 +72,7 @@ public final class IndexFactory {
                                 String algorithm,
                                 double quantile,
                                 int policyBuckets) {
-        //Countsketch: ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
+        // CountSketch: epsilon=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64K.
         Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
         Verifier verifier = new VerifierLinearLeafProbe();

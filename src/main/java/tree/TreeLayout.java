@@ -1,15 +1,12 @@
 package tree;
 
-//JIT friendly helper for the layout of the tree
+// Helper for the layout of the tree.
 public class TreeLayout{
 
     private int levels;
     public int baseIntervalSize;
 
-    //when using an estimator we can change the effective root level as well as the effective leaf level
-    //we can do the pre emptively, assuming no distribution shift to discard known suboptimal levels close to the roots
-    //as well as close to the leafs in case we have ngrams. We can also do this as a post processing step after we finish inserting in the tree. Either
-    //way we can achieve memory savings as well as insertion speed up.
+    // When using an estimator we can change the effective root and leaf levels.
     private int effectiveRootLevel;
     private int effectiveLeafLevel;
 
@@ -20,10 +17,7 @@ public class TreeLayout{
         this.baseIntervalSize = leafSpan;
     }
 
-
-
-        //Size (in characters) of one interval on {@code level}. Essentially gives the size of a block when we divide
-        // the window by W/2^level intervals*/
+        // Size (in characters) of one interval on level.
         public int intervalSize(int level) {
             if (level < 0 || level >= levels)
                 throw new IllegalArgumentException("level " + level + " out of range");

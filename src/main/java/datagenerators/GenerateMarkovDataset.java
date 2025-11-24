@@ -6,12 +6,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 
-/**
- * Simple CLI entry point that produces a synthetic dataset using
- * {@link MarkovChainGenerator}. The generator writes the resulting
- * character stream to disk and prints a short summary so the caller
- * can confirm the configuration that was applied.
- */
+// CLI entry point for generating Markov-chain datasets.
+// Uses MarkovChainGenerator and writes the stream to disk.
 public final class GenerateMarkovDataset {
 
     private GenerateMarkovDataset() {

@@ -10,21 +10,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-/**
- * SuffixTree
- *
- * Compressed suffix tree built from an integer token sequence.
- * Build pipeline:
- *   1. Append sentinel smaller than any real token.
- *   2. Normalize tokens to a dense non-negative alphabet using a per-tree remap.
- *   3. Build suffix array in O(n) time using DC3 (Skew).
- *   4. Build Longest Common Prefix (LCP) with Kasai in O(n).
- *   5. Build explicit compressed suffix tree in O(n) from suffix array + LCP.
- *
- * Query:
- *   findOccurrences(long[] pattern) returns all start offsets in the original text
- *   (no sentinel) where 'pattern' occurs.
- */
+// Compressed suffix tree built from an integer token sequence.
 public final class SuffixTree {
 
     private final Node root;
@@ -41,28 +27,8 @@ public final class SuffixTree {
         this.originalLength = originalLength;
     }
 
-    /**
-     * Build a suffix tree from an integer token array. We:
-     *  - append a unique sentinel strictly smaller than any input token,
-     *  - create a dense non-negative alphabet via radix ranking,
-     *  - run DC3 / Skew to get the suffix array,
-     *  - run Kasai to get the LCP,
-     *  - build a compressed suffix tree in linear time.
-     */
-    /**
-     * Build a suffix tree from an integer token array that already obeys:
-     *   - All real tokens are >= 1.
-     *   - The integer 0 is globally reserved for the sentinel only.
-     *
-     * Construction steps in this optimized version:
-     *   1. Append SENTINEL (which must be 0) to the end of the array.
-     *   2. Run DC3 / Skew directly on the terminated array to get the suffix array.
-     *   3. Run Kasai on the same terminated array to get the LCP array.
-     *   4. Build the compressed suffix tree from suffix array + LCP.
-     *
-     * This skips the expensive rank-normalization and 64-bit radix prepass,
-     * because the caller guarantees that 0 is already the unique global minimum.
-     */
+    // Build a suffix tree from an integer token array that obeys:
+    // all real tokens >= 1 and 0 reserved as sentinel.
     public static SuffixTree build(long[] alphabetMappedText, int windowSize) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
@@ -89,36 +55,24 @@ public final class SuffixTree {
     }
 
 
-    /**
-     * Return the root node.
-     */
+    // Return the root node.
     public Node getRoot() {
         return root;
     }
 
-    /**
-     * Return a copy of the underlying text (with sentinel).
-     */
+    // Return a copy of the underlying text (with sentinel).
     public long[] getText() {
         return Arrays.copyOf(text, text.length);
     }
 
-    /**
-     * Return the logical text length, excluding the sentinel.
-     */
+    // Return the logical text length, excluding the sentinel.
     public int getOriginalLength() {
         return originalLength;
     }
 
     public long estimateTokenRemapBytes() { return 0L; }
 
-    /**
-     * Find all starting offsets where the pattern occurs in the original text.
-     * Pattern is an array of tokens from the same alphabet (without the sentinel).
-     * We descend the tree. If we finish matching the pattern in the middle of an edge,
-     * we gather all leaf suffix indices below that point. We filter out matches that
-     * would run past the original-length boundary.
-     */
+    // Find all starting offsets where the pattern occurs in the original text.
     public List<Integer> findOccurrences(long[] pattern) {
         if (pattern == null || pattern.length == 0) {
             return Collections.emptyList();
@@ -160,13 +114,7 @@ public final class SuffixTree {
         return collectOccurrences(current, pattern.length);
     }
 
-    /**
-     * Iteratively gather all leaves under 'node'. Each leaf's suffixIndex is a match start.
-     * We filter out matches that would extend beyond originalLength.
-     *
-     * We do this iteratively rather than recursively to avoid deep recursion overhead
-     * and Java Virtual Machine stack pressure on large repetitive inputs.
-     */
+    // Iteratively gather all leaves under node and filter by originalLength.
     private List<Integer> collectOccurrences(Node node, int patternLength) {
         if (node == null) {
             return Collections.emptyList();
@@ -442,8 +390,8 @@ public final class SuffixTree {
         // Promoted map for >2 children
         private Long2ObjectOpenHashMap<Edge> edgeMap = null;
 
-        // Leaf payload
-        private int suffixIndex = -1; // only meaningful for leaves
+        // Leaf payload; only meaningful for leaves.
+        private int suffixIndex = -1;
 
         private Node() {
             // no allocation up front
@@ -463,9 +411,7 @@ public final class SuffixTree {
             return suffixIndex;
         }
 
-        /**
-         * Return the edge starting with 'symbol', or null if none.
-         */
+        // Return the edge starting with symbol, or null if none.
         public Edge getEdge(long symbol) {
             if (edgeMap != null) {
                 return edgeMap.get(symbol);
@@ -479,9 +425,7 @@ public final class SuffixTree {
             return null;
         }
 
-        /**
-         * Insert or replace an outgoing edge under the given first symbol.
-         */
+        // Insert or replace an outgoing edge under the given first symbol.
         public void putEdge(long symbol, Edge e) {
             if (edgeMap != null) {
                 edgeMap.put(symbol, e);
@@ -509,10 +453,7 @@ public final class SuffixTree {
             edgeMap.put(symbol, e);
         }
 
-        /**
-         * An iterable view of all outgoing edges. Callers do not need to know if we are
-         * using inline slots or a map.
-         */
+        // Iterable view of all outgoing edges, regardless of storage mode.
         public Iterable<Edge> edgesIterable() {
             if (edgeMap != null) {
                 return edgeMap.values();
@@ -530,10 +471,6 @@ public final class SuffixTree {
         }
     }
 
-    /**
-     * Release internal structures eagerly so that detached trees relinquish memory sooner.
-     * Safe to call multiple times.
-     */
     public void release() {
         if (released) {
             return;

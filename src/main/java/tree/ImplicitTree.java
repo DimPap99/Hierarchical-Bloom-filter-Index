@@ -10,14 +10,8 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.function.IntFunction;
 
-
-
-/**
- * An implicit binary tree of Membership data structures filters that indexes
- * a contiguous fragment of the text stream.
- *
- * @param <M> concrete {@link Membership} implementation
- */
+// Implicit binary tree of membership filters that index a contiguous fragment of the text stream.
+// Parameter M is the concrete Membership implementation.
 public final class ImplicitTree< M extends Membership> {
 
     public int containCounter = 0;
@@ -35,7 +29,7 @@ public final class ImplicitTree< M extends Membership> {
     private final int capacity;
     public PruningPlan pruningPlan;
 //    public int treeIdx;
-    // Global position of the last appended character.  Starts at –1.
+    // Global position of the last appended character. Starts at -1.
     private long endPos = -1;
     public int id = 0;
 
@@ -94,16 +88,16 @@ public final class ImplicitTree< M extends Membership> {
 //        }
 //    }
 
-    /** Returns {@code true} once the tree’s root interval is full. */
+    // True once the root interval is full.
     public boolean isFull() {
         return buffer.length() >= capacity;
     }
 
     public int baseIntervalSize(){ return this.capacity; }
-    /** Inclusive global position of the last character held. */
+    // Inclusive global position of the last character held.
     public long endPos() { return endPos; }
 
-    //  Geometry helpers forwarded from TreeLayout
+    // Geometry helpers forwarded from TreeLayout.
     public int intervalSize(int level)      { return layout.intervalSize(level); }
     public int leftChild(int idx) { return layout.leftChild(idx); }
     public int rightChild(int idx){ return layout.rightChild(idx); }
@@ -111,7 +105,7 @@ public final class ImplicitTree< M extends Membership> {
     public int effectiveDepth(){
         return layout.getEffectiveLeafLevel();
     }
-    //  Expose per-level membership and level-count (read-only)
+    // Expose per-level membership and level-count.
     public M filterAtLevel(int level) { return levels.filter(level); }
 
     public int totalFilters(){return  levels.depth();}
@@ -195,7 +189,7 @@ public final class ImplicitTree< M extends Membership> {
 //            long key = this.codec.pack(child.level(), child.intervalIdx(), packedSymbol);
 //
 //            if (!this.contains(child.level(), key)) {
-//                // This child cannot possibly contain firstChar – skip it
+//                // This child cannot possibly contain firstChar; skip it.
 //                continue;
 //            }
 //
@@ -233,7 +227,7 @@ public final class ImplicitTree< M extends Membership> {
     public int[] snapshotVisitedPerLevel() {
         return java.util.Arrays.copyOf(visitedPerLevel, visitedPerLevel.length);
     }
-    /** Clear both the per-level visits and the aggregate Bloom counter */
+    // Clear both per-level visits and the aggregate Bloom counter.
     public void clearVisitCounters() {
         java.util.Arrays.fill(visitedPerLevel, 0);
         containCounter = 0;

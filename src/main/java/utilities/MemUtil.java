@@ -7,6 +7,7 @@ import tree.StreamBuffer;
 
 public class MemUtil {
 
+    // Detailed JOL report for an HBI instance, optionally including per-tree and class footprint.
     public String jolMemoryReport(boolean includePerTree, boolean includeFootprintTable, HBI hbi) {
         StringBuilder sb = new StringBuilder(16_384);
 
@@ -47,7 +48,7 @@ public class MemUtil {
         return sb.toString();
     }
 
-    /** Same as {@link #jolMemoryReport} but also returns the total MiB as a numeric value. */
+    // Like jolMemoryReport but also returns the total MiB value.
     public MemoryUsageReport jolMemoryReportWithTotal(boolean includePerTree, boolean includeFootprintTable, HBI hbi) {
         String txt = jolMemoryReport(includePerTree, includeFootprintTable, hbi);
         long totalBytes = GraphLayout.parseInstance(hbi).totalSize();
@@ -55,8 +56,9 @@ public class MemUtil {
         return new MemoryUsageReport(txt, totalMiB);
     }
 
+    // Partitioned report for trees, AlphabetMapper, estimators, and total HBI memory.
     public String jolMemoryReportPartitioned(HBI hbi) {
-        // Build a report; keep exactly four lines of results for easy parsing/printing.
+        // Build a short report with four lines for easier parsing.
         StringBuilder sb = new StringBuilder(1024);
 
         // 0) Collect and detach estimators to avoid double counting in the "trees" bucket.
@@ -67,13 +69,13 @@ public class MemUtil {
         }
 
         try {
-            // 1) Trees (excluding estimators)
+            // Trees (excluding estimators)
             long treesBytes = org.openjdk.jol.info.GraphLayout.parseInstance(hbi.trees).totalSize();
 
-            // 2) AlphabetMapper
+            // AlphabetMapper
             long alphabetBytes = 0;
 
-            // 3) Estimators (the ones that perform insertions)
+            // Estimators (the ones that perform insertions)
             long estimatorsBytes = 0L;
             if (!savedEstimators.isEmpty()) {
                 // Measure all estimator objects as independent roots.
@@ -86,10 +88,10 @@ public class MemUtil {
                 hbi.trees.get(i).estimator = savedEstimators.get(i);
             }
 
-            // 4) Grand total (entire HBI object graph)
+            // Grand total (entire HBI object graph)
             long totalBytes = org.openjdk.jol.info.GraphLayout.parseInstance(hbi).totalSize();
 
-            // Format as bytes and mebibytes (MiB = 1,048,576 bytes).
+            // Format as bytes and MiB.
             java.util.Locale L = java.util.Locale.ROOT;
             String totalLine      = String.format(L, "Total: %d B (%.3f MiB)", totalBytes,      totalBytes      / (1024.0 * 1024.0));
             String treesLine      = String.format(L, "Trees (excl. estimators): %d B (%.3f MiB)", treesBytes,   treesBytes     / (1024.0 * 1024.0));
@@ -113,7 +115,7 @@ public class MemUtil {
         }
     }
 
-    /** Same as {@link #jolMemoryReportPartitioned(HBI)} but also returns the total MiB as a numeric value. */
+    // Like jolMemoryReportPartitioned but also returns the total MiB value.
     public MemoryUsageReport jolMemoryReportPartitionedWithTotal(HBI hbi) {
         String txt = jolMemoryReportPartitioned(hbi);
         long totalBytes = org.openjdk.jol.info.GraphLayout.parseInstance(hbi).totalSize();
@@ -208,13 +210,13 @@ public class MemUtil {
         return totalLine + "\n" + treesLine + "\n" + alphabetLine + "\n" + estimLine;
     }
 
-    /** Aligns size up to the nearest multiple of 'alignment' (which must be a power of two). */
+    // Align size up to the nearest multiple of alignment (power of two).
     private static long alignUp(long size, int alignment) {
         long a = alignment;
         return (size + (a - 1)) & ~(a - 1);
     }
 
-    /** Align size upwards to the nearest multiple of 'alignment' (power of two), with overflow safety. */
+    // Align size upwards with overflow safety.
     private static long alignUpSafe(long size, int alignment) {
         if (size <= 0) return 0L;
         long a = alignment;
@@ -223,14 +225,14 @@ public class MemUtil {
         return aligned < 0 ? Long.MAX_VALUE : aligned;
     }
 
-    /** Safe addition that saturates at Long.MAX_VALUE (avoids wrap-around). */
+    // Safe addition that saturates at Long.MAX_VALUE.
     private static long safeAdd(long x, long y) {
         long r = x + y;
         if (((x ^ r) & (y ^ r)) < 0) return Long.MAX_VALUE;
         return r;
     }
 
-    /** Infer reference size (4 with compressed ordinary object pointers, else 8) from JOL VM details. */
+    // Infer reference size (4 with compressed oops, else 8) from JOL VM details.
     private static int inferReferenceSizeFromVmDetails() {
         try {
             String d = VM.current().details().toLowerCase(java.util.Locale.ROOT);
@@ -239,10 +241,7 @@ public class MemUtil {
         return 8;
     }
 
-    /**
-     * EXACT with Java Object Layout (JOL): sum of all membership filters across all trees.
-     * hbi is fast because the number of objects is O(number of levels), not O(window size).
-     */
+    // Exact JOL size of all membership filters across trees.
     public long jolExactMembershipBytes(HBI hbi) {
         java.util.ArrayList<Object> roots = new java.util.ArrayList<>();
         for (tree.ImplicitTree<membership.Membership> t : hbi.trees) {
@@ -255,11 +254,7 @@ public class MemUtil {
         if (roots.isEmpty()) return 0L;
         return GraphLayout.parseInstance(roots.toArray()).totalSize();
     }
-    /**
-     * EXACT with Java Object Layout (JOL): retained size of the trees list,
-     * after (1) detaching estimators and (2) making every StreamBuffer's ArrayList appear empty.
-     * hbi excludes the heavy per-symbol payload but counts all index structures exactly.
-     */
+    // Exact JOL size of tree structures, excluding payload and estimators.
     public long jolExactTreesNoPayload(HBI hbi) {
         // Detach estimators to avoid counting them here
         java.util.ArrayList<estimators.Estimator> saved = new java.util.ArrayList<>(hbi.trees.size());
@@ -286,16 +281,8 @@ public class MemUtil {
             }
         }
     }
-    /**
-     * HYBRID report (fast, robust):
-     *  - Membership filters: EXACT with JOL
-     *  - Tree skeleton (LevelDirectory shells, codecs/layouts): APPROX (tiny)
-     *  - StreamBuffer payload: APPROX (StreamBuffer shell + long[] payload)
-     *  - AlphabetMapper: EXACT with JOL
-     *  - Estimators: EXACT with JOL
-     *
-     * Prints five lines: Total / TreeStructures / StreamBuffer / AlphabetMapper / Estimators
-     */
+
+    // Hybrid report: exact membership and estimators, approximate shells and buffers.
     public String jolHybridMemoryReport(int approxIntegerBytes, HBI hbi) {
         // approxIntegerBytes retained for API compatibility; stream buffers are long-backed.
         // Exact membership bytes

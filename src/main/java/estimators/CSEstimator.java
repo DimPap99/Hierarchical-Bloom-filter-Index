@@ -2,12 +2,7 @@ package estimators;
 
 import search.Pattern;
 
-/**
- * Count-Sketch-backed estimator that approximates symbol frequencies while
- * conforming to the {@link Estimator} contract used by the index. The
- * implementation mirrors the HashMap estimator API but trades exact counts for
- * sub-linear space via Count Sketch.
- */
+
 public class CSEstimator implements Estimator {
 
     private static final int DEFAULT_WIDTH = 2048;

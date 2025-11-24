@@ -8,11 +8,7 @@ import java.util.AbstractMap;
 import java.util.Iterator;
 import java.util.Map;
 
-/**
- * Randomised dictionary backed by FastUtil's open-addressing hash map. It
- * delivers the expected constant-time behaviour required by the randomized
- * Kopelowitz-style maintenance of the online suffix tree.
- */
+// Randomized dictionary backed by FastUtil's Int2ObjectOpenHashMap.
 public final class DictHash<V> implements Dict<Integer, V> {
 
     private final Int2ObjectOpenHashMap<V> map;

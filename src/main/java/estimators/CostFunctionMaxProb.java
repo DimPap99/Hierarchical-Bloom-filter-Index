@@ -9,7 +9,7 @@ import java.util.HashSet;
 
 public class CostFunctionMaxProb extends AbstractCostFunction {
 
-    /** Per-pattern cache of level-local summaries that do not depend on the chosen base level Lp. */
+    // Per-pattern cache of level-local summaries that do not depend on the chosen base level.
     private static final class LpCostCache {
         final int width;
         final int r;

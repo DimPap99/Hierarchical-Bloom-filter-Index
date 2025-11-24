@@ -31,7 +31,7 @@ import static utilities.MathUtils.pruningLevel;
 
 public final class HBI implements IPMIndexing {
 
-    // Monotonic global id for new trees
+    // Monotonic global id for new trees.
     private int nextTreeId = 0;
 
     private static final int DEFAULT_BC_COST_ESTIM_ITER = 1_000_000;
@@ -81,19 +81,19 @@ public final class HBI implements IPMIndexing {
     private int lastPredictiveLp = -1;
     public boolean isRootAlg = false;
     public boolean activateEstim = false;
-    public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;//default policy is no policy
+    public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE; // default is no memory policy.
     public int pctEstimatorBuckets;
     private final int maxActiveTrees;
     private final HashSet<String> strhs = new HashSet<>();
     private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
-    // Markov config + snapshot lifecycle
-    private int  desiredMaxOrder = 3;   // 2 => first-order
-    private boolean markovDirty = false; // set true on insert; snapshot rebuilt lazily before query
+    // Markov configuration and snapshot lifecycle.
+    private int  desiredMaxOrder = 3;   // 2 means first-order.
+    private boolean markovDirty = false; // set true on insert; snapshot rebuilt lazily before query.
 
     private void ensureMarkovBuilder() {
         if (this.modelBuilder == null) {
             int sigma = Math.max(1, this.alphabetSize);
-            // maxOrder = context length + 1
+            // maxOrder = context length + 1.
             this.modelBuilder = new NgramModel.Builder(sigma, 3);
         }
     }
@@ -195,13 +195,13 @@ public final class HBI implements IPMIndexing {
         return lpOverride;
     }
 
-    /** Evict the oldest tree unconditionally. */
+    // Evict the oldest tree unconditionally.
     @Override
     public void expire() {
         trees.removeFirst();
     }
 
-    /** Stream a single character into the index. */
+    // Stream a single character into the index.
     @Override
     public void insert(String c) {
         long token = keyMapper.mapToLong(c);
@@ -300,23 +300,19 @@ public final class HBI implements IPMIndexing {
 
         this.lastPolicyQuantileKey = estimate.key;
         this.lastPolicyQuantileFrequency = estimate.frequency;
-        //this always happens
+        // This always happens for the current policy.
         double minp = latestTree.estimator.estimate(this.lastPolicyQuantileKey);
         int lp = pruningLevel(latestTree, 0.99, minp);
         latestTree.dropFiltersUpToLp(lp);
         if (this.memPolicy == Utils.MemPolicy.PREDICTIVE) {
             this.lastPredictiveLp = Math.max(0, Math.min(lp, latestTree.maxDepth() - 1));
         }
-        //clear samples
+        // Clear samples.
         this.pctEstimator.clear();
         // Additional policies (e.g., PREDICTIVE) can consume lastPolicyQuantileKey as needed.
     }
 
-    /**
-     * Force memory policy evaluation on the most recent tree even if no new
-     * insert arrives to trigger it naturally. Safe to call after finishing a
-     * bulk load so the last tree prunes according to the configured policy.
-     */
+    // Force memory policy evaluation on the most recent tree.
     public void forceApplyMemoryPolicy() {
         if (!memoryPolicyActive() || this.trees.isEmpty()) {
             return;
@@ -344,22 +340,20 @@ public final class HBI implements IPMIndexing {
         return false;
     }
     // Choose a target absolute seed span S from the pattern.
-// Heuristic: seed where children are ~4× the pattern length.
-// This keeps the descent to "pattern scale" short and stable.
+    // Heuristic: seed where children are about 4x the pattern length.
+    // This keeps the descent to pattern scale short and stable.
     private static int targetSeedSpanFor(search.Pattern p) {
         int m = Math.max(1, p.originalSz);
         return Math.max(64, 4 * m);
     }
 
     // Exact ceil(log2(x)) for positive integers.
-// Returns the smallest L such that 2^L >= x.
     private static int ilog2ceil(int x) {
         if (x <= 1) return 0;
         return 32 - Integer.numberOfLeadingZeros(x - 1);
     }
 
     // Exact ceil(log2(W/S)) without floating point.
-// Finds the smallest L with (2^L) * S >= W.
     private static int ceilLog2Ratio(int windowLength, int seedSpan) {
         long span = Math.max(1, seedSpan);
         int L = 0;
@@ -370,14 +364,8 @@ public final class HBI implements IPMIndexing {
         return L;
     }
 
-    /**
-     * Compute the per-tree seed level so that across all active trees
-     * you seed the SAME absolute interval size you would have used if
-     * the whole window were one monolithic tree.
-     *
-     * L_global = ceil(log2(W / S))
-     * L_tree   = clamp( L_global - ceil(log2(T)), [0, maxDepth-1] )
-     */
+    // Compute the per-tree seed level so that across all active trees
+    // you seed the same absolute interval size as a single tree over the whole window.
     private static int alignedSeedLevel(tree.ImplicitTree<?> tree,
                                         int windowLength,
                                         int numActiveTrees,

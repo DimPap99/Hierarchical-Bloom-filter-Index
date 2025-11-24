@@ -11,49 +11,43 @@ import java.util.function.LongToIntFunction;
 
 public final class HOPS {
 
-    /** Number of hash buckets (partitions). */
+    // Number of hash buckets (partitions).
     private final int bucketNum;
 
-    /** Optional: user’s current estimate of distinct keys (not required to operate). */
+    // Optional estimate of distinct keys (not required to operate).
     private final int effectiveSigma;
 
-    /** Seeds for bucket hash and priority hash (independent). */
+    // Seeds for bucket hash and priority hash (independent).
     private final long bucketSeed;
     private final long prioritySeed;
 
-    /** Fast path when bucketNum is a power of two. */
+    // Fast path when bucketNum is a power of two.
     private final boolean bucketsIsPow2;
     private final int bucketsMask; // valid only if power of two
 
-    /** Sentinel stored in repKey when a bucket has no representative (requires keys ≥ 0). */
+    // Sentinel stored in repKey when a bucket has no representative (requires keys >= 0).
     private static final long EMPTY_KEY = -1L;
 
-    /** Per-bucket state: representative key and its priority. */
+    // Per-bucket state: representative key and its priority.
     private final long[] repKey;    // representative key per bucket
     private final long[] repPrio;    // representative priority per bucket (lower is better)
 
-    /** Count of non-empty buckets (sample size). */
+    // Count of non-empty buckets (sample size).
     private int nonEmpty;
 
-    // Constructors
+    // Constructors.
 
-    /**
-     * Create with a given number of buckets. Seeds are random.
-     */
+    // Create with a given number of buckets. Seeds are random.
     public HOPS(int bucketNum) {
         this(bucketNum, 0 , new Random());
     }
 
-    /**
-     * Create with a given number of buckets and RNG for seeds.
-     */
+    // Create with a given number of buckets and RNG for seeds.
     public HOPS(int bucketNum, int effectiveSigma, Random rng) {
         this(bucketNum, effectiveSigma, rng.nextLong(), rng.nextLong());
     }
 
-    /**
-     * Create with explicit seeds (fully deterministic).
-     */
+    // Create with explicit seeds (fully deterministic).
     public HOPS(int bucketNum, int effectiveSigma, long bucketSeed, long prioritySeed) {
         if (bucketNum <= 0) throw new IllegalArgumentException("bucketNum must be > 0");
         this.bucketNum = bucketNum;
@@ -71,12 +65,7 @@ public final class HOPS {
         this.nonEmpty = 0;
     }
 
-    // Streaming update
-
-    /**
-     * Offer one key from the stream. O(1) time.
-     * Keeps the minimum-priority representative per bucket.
-     */
+    // Streaming update: offer one key and keep the minimum-priority representative per bucket.
     public void insert(long key) {
         final int b = bucketIndex(key);
         final long pr = priorityOf(key);
@@ -92,22 +81,22 @@ public final class HOPS {
         // else: do nothing
     }
 
-    /** @return number of non-empty buckets (size of the current sample). */
+    // Number of non-empty buckets (size of the current sample).
     public int sampleSize() {
         return nonEmpty;
     }
 
-    /** @return number of buckets (B). */
+    // Number of buckets (B).
     public int buckets() {
         return bucketNum;
     }
 
-    /** @return copy of seeds (bucket, priority) for reproducibility/merging. */
+    // Copy of seeds (bucket, priority) for reproducibility or merging.
     public long[] seeds() {
         return new long[]{bucketSeed, prioritySeed};
     }
 
-    /** Get a compact array of current representative keys (order arbitrary). */
+    // Get a compact array of current representative keys (order arbitrary).
     public long[] getRepresentatives() {
         long[] out = new long[nonEmpty];
         int j = 0;
@@ -119,17 +108,12 @@ public final class HOPS {
         return out;
     }
 
-    /**
-     * Estimate the frequency value at the given quantile using a frequency lookup.
-     * The lookup is invoked once per representative; negative returns are clipped to zero.
-     */
+    // Estimate the frequency value at the given quantile using a frequency lookup.
     public int estimateQuantile(LongToIntFunction frequencyLookup, double quantile) {
         return estimateQuantileWithKey(frequencyLookup, quantile).frequency;
     }
 
-    /**
-     * Estimate both the representative key and its frequency at the requested quantile.
-     */
+    // Estimate both the representative key and its frequency at the requested quantile.
     public QuantileEstimate estimateQuantileWithKey(LongToIntFunction frequencyLookup, double quantile) {
         Objects.requireNonNull(frequencyLookup, "frequencyLookup");
         if (quantile < 0.0 || quantile > 1.0) {
@@ -151,12 +135,12 @@ public final class HOPS {
         return new QuantileEstimate(chosen.key, chosen.frequency);
     }
 
-    /** Convenience overload that wraps an {@link Map} of exact counts. */
+    // Convenience overload that wraps a Map of exact counts.
     public int estimateQuantile(Map<Long, Integer> frequencyMap, double quantile) {
         return estimateQuantileWithKey(frequencyMap, quantile).frequency;
     }
 
-    /** Convenience overload that also returns the representative key. */
+    // Convenience overload that also returns the representative key.
     public QuantileEstimate estimateQuantileWithKey(Map<Long, Integer> frequencyMap, double quantile) {
         Objects.requireNonNull(frequencyMap, "frequencyMap");
         return estimateQuantileWithKey(key -> {
@@ -165,12 +149,7 @@ public final class HOPS {
         }, quantile);
     }
 
-
-
-    /**
-     * Get representatives and their (unsigned) priorities.
-     * Useful for debugging or for stable tie-breaking outside.
-     */
+    // Get representatives and their unsigned priorities.
     public List<Rep> getRepresentativesWithPriorities() {
         List<Rep> res = new ArrayList<>(nonEmpty);
         for (int i = 0; i < bucketNum; i++) {
@@ -181,7 +160,7 @@ public final class HOPS {
         return res;
     }
 
-    /** Clear the sample (keep same seeds and bucket count). */
+    // Clear the sample (keep same seeds and bucket count).
     public void clear() {
         Arrays.fill(repKey, EMPTY_KEY);
         Arrays.fill(repPrio, Long.MAX_VALUE);
@@ -189,13 +168,7 @@ public final class HOPS {
         nonEmpty = 0;
     }
 
-    // Mergeability
-
-    /**
-     * Merge another HOPS into this one IN-PLACE.
-     * Requires the SAME bucket count and SAME seeds (bucket & priority).
-     * For each bucket, keep the representative with the smaller priority.
-     */
+    // Merge another HOPS into this one in-place, assuming same bucket count and seeds.
     public void mergeFrom(HOPS other) {
         Objects.requireNonNull(other, "other");
         if (this.bucketNum != other.bucketNum) {
@@ -224,12 +197,9 @@ public final class HOPS {
         return repKey[bucketIndex] == EMPTY_KEY;
     }
 
-    //  hashing and comparisons
+    // Hashing and comparisons.
 
-    /**
-     * Bucket index h1(key) ∈ {0..B-1}.
-     * Uses SplitMix64 finalizer for mixing; maps to bucket via mask or unsigned mod.
-     */
+    // Bucket index h1(key) in {0..B-1}. Uses SplitMix64 and maps via mask or unsigned mod.
     private int bucketIndex(long key) {
         long z = key ^ bucketSeed;
         long h = mix64(z);
@@ -241,26 +211,18 @@ public final class HOPS {
         }
     }
 
-    /**
-     * Priority h2(key): 64-bit pseudo-uniform; lower is better. Deterministic for a given key+seed.
-     */
+    // Priority h2(key): 64-bit pseudo-uniform; lower is better for a given key and seed.
     private long priorityOf(long key) {
         long z = key ^ prioritySeed;
         return mix64(z);
     }
 
-    /**
-     * Unsigned comparison for 64-bit priorities.
-     * Returns true iff a < b in unsigned 64-bit ordering.
-     */
+    // Unsigned comparison for 64-bit priorities.
     private static boolean unsignedLessThan(long a, long b) {
         return (a ^ Long.MIN_VALUE) < (b ^ Long.MIN_VALUE);
     }
 
-    /**
-     * SplitMix64 finalizer (public domain).
-     * Source: Steele et al., "Fast Splittable Pseudorandom Number Generators", 2014.
-     */
+    // SplitMix64 finalizer (public domain).
     public static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -276,9 +238,7 @@ public final class HOPS {
         return sortedCounts[rank];
     }
 
-
-
-    /** Representative tuple for a bucket (key, priority, bucketIndex). */
+    // Representative tuple for a bucket (key, priority, bucketIndex).
     public static final class Rep {
         public final long key;
         public final long priority;
@@ -298,10 +258,7 @@ public final class HOPS {
         }
     }
 
-
-
-
-    /** Frequency summary for a sampled representative. */
+    // Frequency summary for a sampled representative.
     private static final class KeyFrequency {
         final long key;
         final int frequency;
@@ -312,9 +269,7 @@ public final class HOPS {
         }
     }
 
-    /**
-     * Quantile estimate containing both the sampled key (representative) and its frequency.
-     */
+    // Quantile estimate containing both the sampled key and its frequency.
     public static final class QuantileEstimate {
         public final long key;
         public final int frequency;

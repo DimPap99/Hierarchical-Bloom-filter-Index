@@ -8,14 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Maintains the logical sliding window and block layout described in Section&nbsp;5
- * of "Faster Sliding Window String Indexing in Streams". The stream is
- * partitioned into blocks of size {@code B = ceil(w/3)} (except possibly the
- * newest partial block). We keep only the suffix spanning at most the last
- * {@code w} tokens and expose helper views that make it easy to assemble
- * concatenations such as {@code bk-3 · bk-2} or {@code bk-2 · bk-1 · bk}.
- */
+// Maintains the sliding window and block layout for the stream.
 public final class WindowManager {
 
     public static final class BlockView {
@@ -98,10 +91,7 @@ public final class WindowManager {
         return globalPosition - windowStartGlobal;
     }
 
-    /**
-     * Append one token (by its mapped integer id) to the stream. Old blocks are
-     * trimmed so that at most {@code w} tokens remain materialised.
-     */
+    // Append one token (by its mapped integer id) and trim to the window.
     public void append(int token) {
         int globalIndex = totalInserted;
         ensureBlockFor(globalIndex);

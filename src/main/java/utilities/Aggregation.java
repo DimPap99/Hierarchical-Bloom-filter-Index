@@ -4,9 +4,7 @@ import utilities.BenchmarkEnums.IndexType;
 
 import java.util.EnumMap;
 
-/**
- * Aggregation helpers for benchmark stats to keep HBIDatasetBenchmarkMulti lean.
- */
+// Aggregates benchmark statistics across datasets.
 public final class Aggregation {
     private Aggregation() {}
 

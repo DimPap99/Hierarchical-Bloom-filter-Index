@@ -8,7 +8,7 @@ public final class PatternPruner {
         double logProd = 0.0;               // work in log-space to avoid underflow
         for (double p : pHat) {
             double term = 1.0 - Math.pow(1.0 - p, b);  // 1 - (1-p)^b
-            if (term <= 0.0)            // numerical guard (shouldn’t happen)
+            if (term <= 0.0)            // numerical guard (should not happen)
                 return -a;              // forces caller to increase b
             logProd += Math.log(term);
         }
@@ -27,7 +27,7 @@ public final class PatternPruner {
         if (Arrays.stream(pHat).anyMatch(p -> p <= 0.0 || p >= 1.0))
             throw new IllegalArgumentException("all pHat must lie in (0,1)");
 
-        // --- 1. find a finite upper bound bHigh with F(bHigh) > a ----------
+        // Step 1: find a finite upper bound bHigh with F(bHigh) > a.
         double bLow  = 0.0;              // F(0+) = 0 < a
         double bHigh = 1.0;
         while (FminusA(bHigh, pHat, a) < 0.0) {
@@ -36,7 +36,7 @@ public final class PatternPruner {
                 throw new IllegalStateException("excessive bHigh (>1e12)");
         }
 
-        // --- 2. bisection ---------------------------------------------------
+        // Step 2: bisection.
         double fLow  = -a;               // F(0+) - a  < 0
         double fHigh = FminusA(bHigh, pHat, a); //  > 0 by construction
 
@@ -44,7 +44,7 @@ public final class PatternPruner {
             double bMid = 0.5 * (bLow + bHigh);
             double fMid = FminusA(bMid, pHat, a);
 
-            // convergence criteria -----------------------------------------
+            // Convergence criteria.
             if (Math.abs(fMid)   <= epsAbs ||
                     (bHigh - bLow)   <= epsRel * bMid) {
                 return bMid;
@@ -60,7 +60,7 @@ public final class PatternPruner {
         }
     }
 
-    // ----------------- quick demo ------------------------------------------
+    // Quick demo.
     public static void main(String[] args) {
         double[] pHat = {0.12, 0.033, 0.004, 0.44, 0.003, 0.014};  // pattern of length r = 3
         double   a    = 0.99;                  // desired confidence

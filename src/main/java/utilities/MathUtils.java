@@ -10,7 +10,7 @@ public final class  MathUtils {
         throw new AssertionError("MathUtils must not be instantiated");
     }
 
-    // h(b) = 1 - (1-p)^block, with block = W / 2^L */
+    // h(b) = 1 - (1-p)^block, with block = W / 2^L.
     public static double h_b(int width, int lvl, double prob){
         int blockLen = width >> lvl;                 // W / 2^L
         return 1.0 - Math.pow(1.0 - prob, blockLen);
@@ -22,7 +22,7 @@ public final class  MathUtils {
     }
 
 
-    // q = h + beta*(1-h) — Bloom YES prob for one symbol at level L */
+    // q = h + beta*(1-h), Bloom YES probability for one symbol at level L.
     public static double q_yes(double prob, int width, int lvl, double bfFp){
         double h = h_b(width, lvl, prob);
         return h + bfFp * (1.0 - h);
@@ -36,16 +36,12 @@ public final class  MathUtils {
         int childLevel = parentLevel + 1;
         double hParent = h_b(width, parentLevel, prob);      // 1 - (1-p)^(W/2^L)
         double hChild  = h_b(width, childLevel,  prob);      // 1 - (1-p)^(W/2^(L+1))
-        double qParent = q_yes(prob, width, parentLevel, beta); // β + (1-β)*hParent
+        double qParent = q_yes(prob, width, parentLevel, beta); // beta + (1-beta)*hParent
         // Conditional child YES given "parent YES"
         return beta + (1.0 - beta) * (hChild / qParent);
     }
 
-    /**
-     * Expected probes per node (tail sum):
-     * H = 1 + q1 + q1*q2 + ... + q1*...*q_{r-1}
-     * Probe order = as given in probs[].
-     */
+    // Expected probes per node (tail sum) for the given probe order.
     public static double expectedProbesPerNode(double[] probs,
                                                long[] keySeq,
                                                double bloomFp,
@@ -95,7 +91,7 @@ public final class  MathUtils {
         }
         return Math.max(0.0, Math.min(1.0, f));
     }
-    /** Empirical CDF of a value x from an ascending array a: fraction of entries ≤ x. */
+    // Empirical CDF of a value x from an ascending array a: fraction of entries <= x.
     private static double empiricalCdfLE(int[] a, int x) {
         if (a.length == 0) return 1.0;
         int lo = 0, hi = a.length; // search first index > x
@@ -107,12 +103,12 @@ public final class  MathUtils {
     }
 
 
-    // Can the children of level L still host a pattern of length r? */
+    // Can the children of level L still host a pattern of length r?
     public static boolean childCanHost(int width, int level, int patternLength){
         return (width >> (level + 1)) >= patternLength;
     }
 
-    // Alpha→Lp mapping for a single p
+    // Alpha to Lp mapping for a single p.
     public static int pruningLevel(ImplicitTree<?> tree, double conf, double prob){
         double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob); // > 0
         double val    = Math.log(tree.baseIntervalSize() / bAlpha);

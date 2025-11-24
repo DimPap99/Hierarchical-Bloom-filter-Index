@@ -10,16 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Online suffix tree façade with prepend + rollback as in the CPM 2024 paper.
- *
- * Implementation details:
- * - Maintains a suffix tree over rev(S3) using an append-at-tail Ukkonen core with
- *   a logical reversal mapping (charAt). Physically, we append to the right; logically,
- *   this is equivalent to prepending on the left.
- * - Query-time transactional insertion rev(P)$rev(S3): split at the locus, add a '$' child,
- *   enumerate occurrences from v excluding '$', then rollback via a write-log.
- */
+// Online suffix tree with prepend and rollback, wrapping a reversed Ukkonen core.
 public interface OnlineSuffixTreePrepend {
 
     final class InsertResult {
@@ -56,7 +47,7 @@ public interface OnlineSuffixTreePrepend {
 
     final class RandomizedKopelowitzStyle implements OnlineSuffixTreePrepend {
 
-        // Physical storage; logical text is reversed (charAt maps logical→physical).
+        // Physical storage; logical text is reversed (charAt maps logical to physical).
         private final IntArrayList text = new IntArrayList();
 
         // Ukkonen active point

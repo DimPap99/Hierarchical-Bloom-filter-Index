@@ -7,10 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.IntFunction;
 
-
-/**
- * Owns one {@link Membership} structure per tree level.
- */
+// Owns one Membership filter per tree level.
 public final class LevelDirectory<M extends Membership> {
 
     private final List<M> levelFilters;

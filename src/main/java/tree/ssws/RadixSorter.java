@@ -5,18 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * RadixSorter
- *
- * Helper for:
- *  - Integer Least Significant Digit radix sort (stable)
- *  - Rank transform
- *  - Parallel radix sort of (key,index) where key is 64-bit unsigned
- *
- * The sortParallel version below has been optimized so that it only
- * processes as many 8-bit passes as are actually needed for the
- * observed key range, instead of unconditionally doing 8 passes.
- */
+// RadixSorter: helpers for LSD radix sort, rank transform, and parallel 64-bit sort.
 public final class RadixSorter {
 
     private static final int RADIX = 256;      // 8 bits per pass
@@ -26,10 +15,7 @@ public final class RadixSorter {
         // utility
     }
 
-    /**
-     * Stable Least Significant Digit radix sort in-place on an int[].
-     * Handles negative values by offsetting them so bucket indices stay >= 0.
-     */
+    // Stable LSD radix sort in-place on an int[], handling negatives via offset.
     public static void sortInPlace(int[] values) {
         if (values == null || values.length <= 1) {
             return;
@@ -78,9 +64,7 @@ public final class RadixSorter {
         }
     }
 
-    /**
-     * Returns a sorted copy of values using sortInPlace logic.
-     */
+    // Returns a sorted copy of values using sortInPlace logic.
     public static int[] sortedCopy(int[] values) {
         if (values == null) {
             return null;
@@ -90,16 +74,7 @@ public final class RadixSorter {
         return copy;
     }
 
-    /**
-     * Stable Least Significant Digit radix sort for (key,index) pairs.
-     * Reorders both arrays in parallel so that keys[] is sorted as
-     * unsigned 64-bit integers and indices[] follows the same order.
-     *
-     * Optimization:
-     *   We detect how many bytes of significance there actually are
-     *   across all keys and only do that many byte passes, instead of
-     *   always doing 8 passes unconditionally.
-     */
+    // Stable LSD radix sort for (key,index) pairs, treating keys as unsigned 64-bit.
     public static void sortParallel(long[] keys, int[] indices) {
         if (keys == null || indices == null) {
             throw new IllegalArgumentException("keys and indices must be non-null");

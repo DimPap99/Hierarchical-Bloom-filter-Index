@@ -1,9 +1,6 @@
 package sswsi.staticds;
 
-/**
- * Sparse table for range-maximum queries returning the index of the maximum.
- * Preprocessing O(n log n), queries O(1), space O(n log n).
- */
+// Sparse table for range-maximum queries returning the index of the maximum.
 public final class RMQSparseTable {
     private final int n;
     private final int[] log2;

@@ -16,10 +16,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.function.Supplier;
 
-/**
- * Indexing-only benchmark: streams a dataset through the HBI index and measures
- * the time to “slide” the window without running any queries.
- */
+// Indexing-only benchmark: measure time to slide the window with no queries.
 public final class TrackIndexingSpeed {
 
     private static final Path DEFAULT_DATA_FILE = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt");

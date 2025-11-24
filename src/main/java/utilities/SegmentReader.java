@@ -10,17 +10,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-/**
- * SegmentReader is to String what DatasetReader is to Character:
- * it streams a file and yields segments split by a delimiter character (e.g., '\n').
- *
- * Features:
- *  - Works with large files using a BufferedReader and an internal char[] buffer.
- *  - Supports switching between dataset file and one-or-many queries files.
- *  - Optionally includes the delimiter at the end of each returned segment.
- *  - Optionally skips empty segments (useful if consecutive delimiters should not produce empty strings).
- *  - Handles Windows CRLF ("\r\n") seamlessly when delimiter == '\n' (strips trailing '\r' from the segment).
- */
+// SegmentReader streams text split by a delimiter (e.g. '\n'), with optional query-mode switching.
 public class SegmentReader implements Iterable<String>, AutoCloseable {
 
     private final String datasetPath;
@@ -41,10 +31,7 @@ public class SegmentReader implements Iterable<String>, AutoCloseable {
     private final boolean includeDelimiterInResult;
     private final boolean skipEmptySegments;
 
-    /**
-     * Original constructor: one dataset file + one queries file.
-     * Keeps full backward compatibility.
-     */
+    // Constructor for one dataset file + one queries file (backwards compatible).
     public SegmentReader(String datasetPath,
                          String queriesFilePath,
                          char delimiter,
@@ -60,11 +47,7 @@ public class SegmentReader implements Iterable<String>, AutoCloseable {
         this.skipEmptySegments = skipEmptySegments;
     }
 
-    /**
-     * NEW constructor: one dataset file + MANY query files.
-     * The list is copied defensively. You can still call setQueryMode()
-     * or setQueryMode(i) to pick which query file to stream.
-     */
+    // Constructor for one dataset file plus multiple query files.
     public SegmentReader(String datasetPath,
                          List<String> queriesFilePaths,
                          char delimiter,
@@ -80,17 +63,7 @@ public class SegmentReader implements Iterable<String>, AutoCloseable {
         this.skipEmptySegments = skipEmptySegments;
     }
 
-    /**
-     * Switch to "query mode".
-     *
-     * If this SegmentReader was built with a list of query files,
-     * we switch to the FIRST query file in that list.
-     *
-     * If it was built with a single queriesFilePath, we switch to that.
-     *
-     * This matches the old behavior so existing code that just calls
-     * setQueryMode() keeps working.
-     */
+    // Switch to query mode; picks the first query file or the single queriesFilePath.
     public void setQueryMode() {
         if (queriesFilePaths != null && !queriesFilePaths.isEmpty()) {
             switchTo(queriesFilePaths.get(0));
@@ -99,17 +72,7 @@ public class SegmentReader implements Iterable<String>, AutoCloseable {
         }
     }
 
-    /**
-     * NEW:
-     * Switch to a specific query file by index in the list passed to the
-     * (datasetPath, List<String> queriesFilePaths, ...) constructor.
-     *
-     * This lets you iterate through multiple different query sets,
-     * e.g. uniform / rare / missing, without rebuilding the reader.
-     *
-     * If this SegmentReader was NOT built with a list, idx must be 0,
-     * and we fall back to the single queriesFilePath.
-     */
+    // Switch to a specific query file by index in the list constructor.
     public void setQueryMode(int idx) {
         if (queriesFilePaths != null) {
             if (idx < 0 || idx >= queriesFilePaths.size()) {
@@ -127,9 +90,7 @@ public class SegmentReader implements Iterable<String>, AutoCloseable {
         }
     }
 
-    /**
-     * Go back to streaming the dataset itself.
-     */
+    // Go back to streaming the dataset.
     public void resetToDataset() {
         switchTo(datasetPath);
     }

@@ -7,9 +7,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Parsed options for HBIDatasetBenchmarkMulti, extracted for reuse.
- */
+// Parsed options for HBIDatasetBenchmarkMulti.
 public record MultiBenchmarkOptions(
         Path dataRoot,
         Path queryRoot,
@@ -31,6 +29,7 @@ public record MultiBenchmarkOptions(
         int warmupRuns,
         int runs,
         String algorithm,
+        boolean strides,
         boolean runSuffixTreeBaseline,
         boolean runHbi,
         boolean runSuffix,
@@ -89,6 +88,7 @@ public record MultiBenchmarkOptions(
         boolean reinsertPerWorkload = false;
         boolean baselinesMatchPrimaryNgram = false;
         String algorithm = "bs"; // default algorithm
+        boolean strides = true; // default to strides enabled
         boolean collectStats = false; // default off; enable via --collect-stats=true
 
         for (int i = 0; i < args.length; i++) {
@@ -132,6 +132,7 @@ public record MultiBenchmarkOptions(
                 case "warmup" -> warmupRuns = Integer.parseInt(value);
                 case "runs" -> runs = Integer.parseInt(value);
                 case "algorithm", "algo" -> algorithm = value;
+                case "strides", "use-strides" -> strides = Boolean.parseBoolean(value);
                 case "suffix-tree", "run-suffix-tree", "regex", "run-regex" -> runSuffixTreeBaseline = Boolean.parseBoolean(value);
                 case "run-hbi" -> runHbi = Boolean.parseBoolean(value);
                 case "run-suffix" -> runSuffix = Boolean.parseBoolean(value);
@@ -276,6 +277,7 @@ public record MultiBenchmarkOptions(
                 warmupRuns,
                 runs,
                 algorithm,
+                strides,
                 runSuffixTreeBaseline,
                 runHbi,
                 runSuffix,

@@ -1,6 +1,6 @@
 package tree;
 
-/** Grow-only text store with constant-time random access backed by a fixed {@code long[]} capacity. */
+// Grow-only text store with constant-time random access backed by a fixed long[] capacity.
 public final class StreamBuffer {
 
     private static final long[] EMPTY = new long[0];

@@ -11,9 +11,7 @@ import utilities.Utils;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/**
- * Immutable configuration for constructing {@link HBI} instances.
- */
+// Immutable configuration for constructing HBI instances.
 public final class HbiConfiguration {
 
     private final SearchAlgorithm searchAlgorithm;

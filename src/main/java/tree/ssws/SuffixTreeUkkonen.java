@@ -7,66 +7,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * SuffixTreeUkkonen
- *
- * Suffix tree over an integer alphabet with a unique sentinel appended.
- *
- * Public contract
- *
- *   SuffixTreeUkkonen.build(int[] tokens)
- *     Build a compressed suffix tree for the given integer token array.
- *     A unique sentinel value (-1) is appended automatically. The caller
- *     must guarantee that no real token is -1.
- *
- *   findOccurrences(int[] pattern)
- *     Return all start offsets where "pattern" occurs in the original text
- *     (that is, before the sentinel was appended). Offsets are 0-based.
- *
- * Implementation notes
- *
- *   This version uses Ukkonen's online O(n) suffix tree algorithm rather
- *   than the naive quadratic "insert every suffix" builder. We maintain:
- *
- *     - activeNode, activeEdgeIdx, activeLength
- *     - remainingSuffixCount
- *     - lastNewInternalNode (to stitch suffix links)
- *     - one global EndRef leafEndRef so all leaf edges extend in O(1)
- *
- *   Each Edge stores a substring of the global text array by [start, end),
- *   where 'end' is represented by EndRef. EndRef is a tiny mutable integer
- *   holder. Internal edges get their own fixed EndRef, leaf edges share
- *   the global leafEndRef so that they "grow" as we append characters.
- *
- *   After construction we run a depth-first traversal to assign each leaf's
- *   suffixIndex (the starting offset of that suffix in the terminated text).
- *
- *   Querying with findOccurrences works by walking the pattern down edges,
- *   then collecting leaves below the match point. That is O(m + occ) in
- *   expected time, where m is the pattern length and occ is the number of
- *   reported matches.
- */
+// Suffix tree over an integer alphabet with a unique sentinel appended.
 public final class SuffixTreeUkkonen {
 
-    /**
-     * Sentinel value appended to every text. Must be strictly smaller than
-     * any real token identifier that AlphabetMapper emits.
-     */
+    // Sentinel value appended to every text. Must be smaller than any real token.
     private static final int SENTINEL = -1;
 
-    /**
-     * Root of the suffix tree.
-     */
+    // Root of the suffix tree.
     private final Node root;
 
-    /**
-     * The full text including the sentinel.
-     */
+    // Full text including the sentinel.
     private final int[] text;
 
-    /**
-     * Length of the original text before appending the sentinel.
-     */
+    // Length of the original text before appending the sentinel.
     private final int originalLength;
 
     private SuffixTreeUkkonen(Node root, int[] text, int originalLength) {
@@ -75,11 +28,7 @@ public final class SuffixTreeUkkonen {
         this.originalLength = originalLength;
     }
 
-    /**
-     * Build a suffix tree for the given integer token array using Ukkonen's algorithm.
-     * The builder appends a unique sentinel so that all suffixes are distinct and every
-     * suffix corresponds to exactly one leaf.
-     */
+    // Build a suffix tree for the given integer token array using Ukkonen's algorithm.
     public static SuffixTreeUkkonen build(int[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
@@ -96,42 +45,22 @@ public final class SuffixTreeUkkonen {
         return new SuffixTreeUkkonen(builtRoot, terminated, alphabetMappedText.length);
     }
 
-    /**
-     * Return the root node of the suffix tree.
-     */
+    // Return the root node.
     public Node getRoot() {
         return root;
     }
 
-    /**
-     * Return a defensive copy of the underlying text, including the sentinel.
-     */
+    // Return a defensive copy of the underlying text, including the sentinel.
     public int[] getText() {
         return Arrays.copyOf(text, text.length);
     }
 
-    /**
-     * Return the number of original symbols (without the sentinel).
-     */
+    // Return the number of original symbols (without the sentinel).
     public int getOriginalLength() {
         return originalLength;
     }
 
-    /**
-     * Find all starting indices where 'pattern' occurs in the original text.
-     * Pattern is an array of integer tokens in the same alphabet as 'text'
-     * (without involving the sentinel).
-     *
-     * The return value is a list of 0-based starting offsets into the original
-     * text (before the sentinel). These offsets are filtered so that any match
-     * that would run past the original text length is discarded.
-     *
-     * Time complexity
-     *   Walking the pattern down the tree costs O(m), where m = pattern.length,
-     *   because we never recompare a given pattern position.
-     *   Gathering leaves under the match point costs O(occ) where occ is how
-     *   many matches we report.
-     */
+    // Find all starting indices where pattern occurs in the original text.
     public List<Integer> findOccurrences(int[] pattern) {
         if (pattern == null || pattern.length == 0) {
             return Collections.emptyList();
@@ -144,7 +73,7 @@ public final class SuffixTreeUkkonen {
             int symbol = pattern[patternIndex];
             Edge edge = current.edges.get(symbol);
             if (edge == null) {
-                // No outgoing edge that starts with this symbol
+                // No outgoing edge that starts with this symbol.
                 return Collections.emptyList();
             }
 
@@ -161,31 +90,20 @@ public final class SuffixTreeUkkonen {
                 patternIndex++;
             }
 
-            // If we consumed the entire pattern (patternIndex == pattern.length),
-            // then every leaf reachable below this edge's child is an occurrence.
-            // Even if we stopped in the middle of the edge, there is no branching
-            // inside an edge label in a compressed suffix tree, so the subtree
-            // below edge.child still represents exactly those suffixes that start
-            // with our matched pattern prefix.
+            // If we consumed the entire pattern, every leaf below this child is an occurrence.
             if (patternIndex == pattern.length) {
                 return collectOccurrences(edge.getChild(), pattern.length);
             }
 
-            // Otherwise we matched the whole edge but the pattern still has
-            // remaining symbols. Descend to the child node and continue.
+            // Otherwise we matched the whole edge and still have pattern left; descend.
             current = edge.getChild();
         }
 
-        // If we exit the while loop naturally, we matched the entire pattern
-        // exactly at some explicit node. Collect occurrences from there.
+        // If we exit the loop naturally, we matched the entire pattern at a node.
         return collectOccurrences(current, pattern.length);
     }
 
-    /**
-     * Depth first collection of all suffix positions under a node.
-     * We only report starting indices that are valid in the original text
-     * (that is, strictly before originalLength and not running past it).
-     */
+    // Depth-first collection of all suffix positions under a node, filtered by originalLength.
     private List<Integer> collectOccurrences(Node node, int patternLength) {
         if (node == null) {
             return Collections.emptyList();
@@ -198,8 +116,7 @@ public final class SuffixTreeUkkonen {
     private void collect(Node node, int patternLength, List<Integer> out) {
         if (node.isLeaf()) {
             int index = node.suffixIndex;
-            // Filter out suffixes that start beyond the original range or
-            // that would cause the match to run into the sentinel.
+            // Filter out suffixes that start beyond the original range or hit the sentinel.
             if (index >= 0 && index + patternLength <= originalLength) {
                 out.add(index);
             }
@@ -210,26 +127,14 @@ public final class SuffixTreeUkkonen {
         }
     }
 
-    /**
-     * Node in the suffix tree.
-     *
-     * Each node has:
-     *   - a mapping from first symbol to outgoing Edge
-     *   - an optional suffix link that Ukkonen's algorithm uses internally
-     *   - a suffixIndex which is only meaningful for leaves
-     *
-     * After construction:
-     *   - internal nodes have suffixIndex == -1
-     *   - leaves have suffixIndex >= 0, giving the start position of their suffix
-     */
+    // Node in the suffix tree.
     public static final class Node {
         private final Map<Integer, Edge> edges = new HashMap<>();
 
-        // suffixIndex is meaningful for leaves
+        // suffixIndex is meaningful for leaves.
         private int suffixIndex = -1;
 
-        // suffixLink is used during construction. It is not needed for queries,
-        // but we keep it here as it does not hurt correctness.
+        // suffixLink is used during construction, not needed for queries.
         private Node suffixLink = null;
 
         private Node() {
@@ -254,19 +159,7 @@ public final class SuffixTreeUkkonen {
         }
     }
 
-    /**
-     * Edge in the suffix tree.
-     *
-     * We store edges in the classical implicit form:
-     *   start: index in 'text' where this edge's label begins (inclusive)
-     *   endRef: reference wrapper for the end index (exclusive)
-     *   child: child node reached by this edge
-     *
-     * For leaf edges, all leaves created in the current phase share the same
-     * EndRef so their effective label automatically stretches as we append
-     * more symbols. For internal edges, we snapshot the end index into a
-     * dedicated EndRef at the moment we create the split.
-     */
+    // Edge in the suffix tree stored in implicit [start, end) form.
     public static final class Edge {
         private final int start;
         private final EndRef endRef;

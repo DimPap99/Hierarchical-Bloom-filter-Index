@@ -6,10 +6,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Collects optional runtime statistics for {@link HBI} without touching the hot path
- * when instrumentation is disabled.
- */
+// Optional runtime statistics for HBI.
+// Keeps the hot path clean when instrumentation is disabled.
 public final class HbiStats {
 
     private final List<Integer> lpLevels = new ArrayList<>();
@@ -108,8 +106,7 @@ public final class HbiStats {
     }
 
     public void recordMinCostLpTime(long durationNanos) {
-        // Record CF minCost Lp timing when stats collection is enabled,
-        // regardless of experiment mode. This keeps overhead opt‑in via collectStats.
+        // Record CF minCost Lp timing only when stats collection is enabled.
         if (!collectStats) {
             return;
         }
@@ -131,7 +128,7 @@ public final class HbiStats {
         return (totalLpTimeNanos / 1_000_000.0) / queryCount;
     }
 
-    /** Average chosen Lp level across queries (current algorithm). */
+    // Average chosen Lp level across queries (current algorithm).
     public double averageChosenLp() {
         if (lpLevels.isEmpty()) return 0.0;
         long sum = 0;
@@ -139,7 +136,7 @@ public final class HbiStats {
         return sum * 1.0 / lpLevels.size();
     }
 
-    /** Average chosen Lp level for CF min-cost (if recorded). */
+    // Average chosen Lp level for CF min-cost (if recorded).
     public double averageCfChosenLp() {
         if (cfLpLevels.isEmpty()) return 0.0;
         long sum = 0;

@@ -6,10 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-/**
- * Command-line helper that materialises the adversarial workloads discussed in the
- * evaluation doc. Running this class recreates both datasets under data/adversarial.
- */
+// CLI helper that regenerates adversarial datasets under data/adversarial.
 public final class GenerateAdversarialDatasets {
 
     private static final int WINDOW_POWER = 21;

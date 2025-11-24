@@ -11,17 +11,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Helpers to run benchmarks in "segments" mode (one token per line).
- * Extracted from HBIDatasetBenchmarkMulti for reuse and modularity.
- */
+// Helpers to run benchmarks in segments mode (one token per line).
 public final class SegmentModeRunner {
 
     private SegmentModeRunner() {}
 
-    /**
-     * Build the index in segments mode by sliding an n-gram window over tokenized lines.
-     */
+    // Build the index in segments mode by sliding an n-gram window over tokenized lines.
     public static MultiQueryExperiment.InsertStats insertDatasetSegments(String datasetPath,
                                                                         IPMIndexing index,
                                                                         int nGram) throws Exception {
@@ -49,7 +44,7 @@ public final class SegmentModeRunner {
         long durationMs = System.currentTimeMillis() - startWallMs;
         double avgInsertMsPerSymbol = insertionEvents == 0 ? 0.0 : (durationMs / (double) insertionEvents);
         MultiQueryExperiment.InsertStats stats = new MultiQueryExperiment.InsertStats(durationMs, avgInsertMsPerSymbol);
-        // Append a single terminator token for online suffix tree only, after measuring insert time.
+        // Append a single terminator token for the suffix tree only, after measuring insert time.
         if (index instanceof PMIndex.SuffixTreeIndex) {
             try {
                 index.insert("$");
@@ -60,9 +55,7 @@ public final class SegmentModeRunner {
         return stats;
     }
 
-    /**
-     * Execute queries from files in segments mode.
-     */
+    // Execute queries from files in segments mode.
     public static MultiQueryExperiment.MultiRunResult runQueriesSegments(String datasetPath,
                                                                          List<MultiQueryExperiment.QueryWorkload> workloads,
                                                                          IPMIndexing index,

@@ -6,11 +6,8 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.Random;
 
-/**
- * Utility builder that synthesises sequences from a variable-order Markov chain over a configurable
- * character domain. The generator keeps the {@link NgramModel.Model} snapshot in sync with the
- * emitted stream so the resulting cost function can reuse the exact chain statistics.
- */
+// Builds sequences from a variable-order Markov chain over a character domain.
+// Keeps an NgramModel snapshot in sync with the emitted stream.
 public final class MarkovChainGenerator {
 
     private MarkovChainGenerator() {

@@ -3,15 +3,15 @@ package estimators;
 import java.util.*;
 import java.util.function.LongUnaryOperator;
 
-/** BottomKSampler: keeps the k smallest priorities (lower is better). */
+// Keeps the k smallest priorities (lower is better).
 public final class BottomKSampler {
 
     private final int k;
     private final long prioritySeed;
 
-    // Max-heap by unsigned priority (largest at root = current threshold)
+    // Max-heap by unsigned priority (largest at root is current threshold).
     private final PriorityQueue<Entry> heap;
-    // Keys currently in the heap (uniqueness guard)
+    // Keys currently in the heap (uniqueness guard).
     private final HashSet<Long> inHeap;
 
     public BottomKSampler(int k, long seed) {
@@ -22,7 +22,7 @@ public final class BottomKSampler {
         this.inHeap = new HashSet<>(k * 2);
     }
 
-    /** Offer one key occurrence; ensures each key appears at most once in the kept set. */
+    // Offer one key occurrence; each key is kept at most once.
     public void offer(long key) {
         if (inHeap.contains(key)) return; // already represented; duplicates do nothing
 
@@ -50,7 +50,7 @@ public final class BottomKSampler {
         return out;
     }
 
-    /** Current threshold t unsinged. New keys must have priority < t to enter; Long.MAX_VALUE if not full. */
+    // Current unsigned threshold; Long.MAX_VALUE if not full.
     public long thresholdUnsigned() {
         if (heap.size() < k) return Long.MAX_VALUE;
         return heap.peek().priority;
@@ -59,7 +59,7 @@ public final class BottomKSampler {
     public int size() { return heap.size(); }
     public int capacity() { return k; }
 
-    // ---------- internals ----------
+    // Internals.
 
     private long priorityOf(long key) {
         long z = key ^ prioritySeed;
@@ -70,7 +70,7 @@ public final class BottomKSampler {
         return (a ^ Long.MIN_VALUE) < (b ^ Long.MIN_VALUE);
     }
 
-    /** SplitMix64 finalizer (Steele et al. 2014). */
+    // SplitMix64 finalizer.
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -78,13 +78,13 @@ public final class BottomKSampler {
         return z ^ (z >>> 31);
     }
 
-    /** Heap entry */
+    // Heap entry.
     private static final class Entry {
         final long key;
         final long priority;
         Entry(long key, long priority) { this.key = key; this.priority = priority; }
 
-        // Comparator: unsigned priority descending → max-heap
+        // Comparator: unsigned priority descending
         static final Comparator<Entry> BY_UNSIGNED_PRIORITY_DESC =
                 (a, b) -> Long.compareUnsigned(b.priority, a.priority);
     }

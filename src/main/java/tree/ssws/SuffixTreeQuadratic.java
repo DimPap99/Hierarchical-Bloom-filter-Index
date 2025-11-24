@@ -7,12 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Minimal suffix tree representation that keeps the API surface compatible with the
- * Farach-Colton construction while relying on a simple quadratic builder for now. Tokens
- * are assumed to be integers produced by the {@link utilities.AlphabetMapper}; a unique
- * sentinel value is appended during construction to preserve suffix uniqueness.
- */
+// Minimal suffix tree representation with a quadratic builder for small texts.
 public final class SuffixTreeQuadratic {
 
     private static final int SENTINEL = -1;

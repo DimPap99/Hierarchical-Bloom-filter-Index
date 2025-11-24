@@ -15,13 +15,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * Streaming sliding-window index inspired by the SSWSI hierarchy. The implementation keeps
- * the amortised update policy from the paper (power-of-two segments, log-structured merges)
- * and exposes multi-stage querying: occurrences fully contained in segments, occurrences
- * crossing a single boundary, and occurrences that require the on-demand suffix rebuild for
- * the tail region.
- */
+// Streaming sliding-window index inspired by the SSWSI hierarchy.
+// Uses power-of-two segments with log-structured merges and multi-stage querying.
 public class StreamingSlidingWindowIndex implements IPMIndexing {
 
     private final int windowSize;
@@ -117,8 +112,6 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
         SuffixTree tree = SuffixTree.build(tokens, windowSize);
-//        SuffixTree.compactForQuerying(tree.getRoot());
-
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
     }
 
@@ -154,7 +147,7 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
 
         left.prev = left.next = null;
         right.prev = right.next = null;
-        segmentCount--; // two segments became one
+        segmentCount--; // two segments became one.
 
         releaseBoundary(leftLeftBoundary);
         releaseBoundary(leftRightBoundary);
@@ -218,8 +211,6 @@ public class StreamingSlidingWindowIndex implements IPMIndexing {
         Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);
         left.rightBoundary = boundary;
         right.leftBoundary = boundary;
-//        SuffixTree.compactForQuerying(boundary.tree.getRoot());
-
     }
 
     @Override

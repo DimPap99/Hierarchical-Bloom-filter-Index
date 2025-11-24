@@ -20,11 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
 
-/**
- * Simple driver that benchmarks both the refactored HBI and the legacy RegexIndex
- * on the same data / query workload. Command-line switches allow overriding the
- * default dataset, query file, and tuning knobs without editing the source.
- */
+// Simple driver to benchmark HBI versus RegexIndex on the same workload.
 public final class Main {
 
     private static final Path DEFAULT_DATA_FILE = Path.of("/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/pg2701.txt");

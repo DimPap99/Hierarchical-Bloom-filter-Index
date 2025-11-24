@@ -7,20 +7,8 @@ import utilities.*;
 import java.io.IOException;
 import java.util.ArrayList;
 
+// Experiment runner that mirrors Experiment.run but uses SegmentReader.
 public class ExperimentSegments {
-
-    /**
-     * Run an experiment identical in outcome to Experiment.run, but using SegmentReader.
-     *
-     * @param inputFilePath     path to the dataset file
-     * @param queriesFilePath   path to the queries file
-     * @param index             the index implementing IPMIndexing
-     * @param Ngram             the N-gram length (window size for emitted tokens)
-     * @param verbose           whether to print per-query debug outputs
-     * @param queryResults      whether to collect PatternResult statistics from the index
-     * @return ExperimentRunResult containing query and insert durations, optional per-query results, and average query length
-     * @throws IOException on I/O problems opening or reading the files
-     */
     public static ExperimentRunResult run(String inputFilePath,
                                           String queriesFilePath,
                                           IPMIndexing index,

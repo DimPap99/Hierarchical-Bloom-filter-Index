@@ -18,7 +18,7 @@ import java.util.stream.IntStream;
 
 public class ConfidenceExperiment {
 
-    /** Default file locations for convenience. */
+    // Default file locations for this experiment.
     private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
     private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/10.uniform.txt";
 
@@ -37,10 +37,7 @@ public class ConfidenceExperiment {
     // size of base alphabet for one symbol. We raise it to NGRAMS in main
     private static int ALPHABET = 130000;
 
-    /** ---------------------------------------
-     *  Data structures for accuracy reporting
-     *  ---------------------------------------
-     */
+    // Data structures for accuracy reporting.
     private record PatternRow(
             int runIdx,
             int lp, int cfLp,
@@ -81,11 +78,7 @@ public class ConfidenceExperiment {
         }
     }
 
-    /**
-     * NEW helper:
-     * Read queries file into memory as strings, trimming blank lines.
-     * We use this in "segments" mode, and it mirrors how Experiment.run reads queries for "chars" mode.
-     */
+    // Helper: read queries as trimmed non-empty lines.
     private static List<String> loadQueries(String queriesFile) throws IOException {
         List<String> lines = Files.readAllLines(Path.of(queriesFile), StandardCharsets.UTF_8);
         ArrayList<String> out = new ArrayList<>(lines.size());
@@ -97,22 +90,7 @@ public class ConfidenceExperiment {
         return out;
     }
 
-    /**
-     * NEW helper:
-     * In "segments" mode, run the streaming experiment where each symbol is a whole line / packet record.
-     *
-     * This is conceptually ProcessStream.run(...) but modified to:
-     *   1. collect PatternResult objects (index.getLatestStats()) so summarizeRun(...) still works
-     *   2. compute avgQueryLen the same way ConfidenceExperiment expects it
-     *
-     * Important details for "segments" mode:
-     *   - We treat the dataset as a sequence of tokens (Strings), one per segment.
-     *   - We slide a RingBuffer<String> of length NGRAMS over those tokens.
-     *   - Each time the buffer is full, we call index.insert(currentNgramAsString).
-     *   - Every WINDOW_LEN tokens we run ALL queries.
-     *   - A query line from the queries file is assumed to be "tok0 tok1 tok2 ...".
-     *     We split by spaces, and build new Pattern(splitArray, NGRAMS).
-     */
+    // Run the streaming experiment in "segments" mode where each symbol is a line/token.
     private static ExperimentRunResult runStreamingSegments(
             String datasetPath,
             String queriesPath,
@@ -219,19 +197,7 @@ public class ConfidenceExperiment {
         );
     }
 
-    /**
-     * NEW helper:
-     * Issue the full query workload for "segments" mode.
-     *
-     * For each query line:
-     *   - split the line on spaces to get an array of tokens
-     *   - build Pattern(splitArray, ngram)
-     *   - ask the index to report()
-     *   - if collectResults is true, read index.getLatestStats() and append to outList
-     *
-     * This mirrors runQueryLoad(...) in ProcessStream, but now we are explicitly
-     * accumulating PatternResult objects so that summarizeRun(...) still works.
-     */
+    // Issue the full query workload for "segments" mode and optionally collect PatternResult.
     private static long runQueryLoadSegments(
             IPMIndexing index,
             List<String> queries,
@@ -269,13 +235,10 @@ public class ConfidenceExperiment {
         return System.currentTimeMillis() - start;
     }
 
-    /**
-     * Helper from your original code to manage cost model accuracy accounting.
-     * I am leaving summarizeRun(...) and PatternAccuracy exactly the same.
-     */
+    // Helper to manage cost model accuracy accounting.
 
     public static void main(String[] args) throws IOException {
-        System.out.println("Starting experiment…");
+        System.out.println("Starting experiment...");
 
         // Default mode is character streaming, which is your current behavior
         String mode = "segments";//modes are chars/segments
@@ -291,7 +254,7 @@ public class ConfidenceExperiment {
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf(
-                "Window=%d, Tree=%d, σ=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
+                "Window=%d, Tree=%d, sigma=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
                 WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode);
 
         // Per-run summaries for runs_summary.csv
@@ -563,13 +526,13 @@ public class ConfidenceExperiment {
                 predictedMatchRate * 100.0);
         System.out.printf(
                 Locale.ROOT,
-                "Predicted optimal Lp exactly ±1 level: %d/%d (%.2f%%)%n",
+                "Predicted optimal Lp exactly +/-1 level: %d/%d (%.2f%%)%n",
                 predictedStrictOne,
                 evaluatedPatterns,
                 predictedNearRate * 100.0);
         System.out.printf(
                 Locale.ROOT,
-                "Predicted optimal Lp within {0,±1}: %d/%d (%.2f%%)%n",
+                "Predicted optimal Lp within {0,+/-1}: %d/%d (%.2f%%)%n",
                 predictedWithinOneInclusive,
                 evaluatedPatterns,
                 predictedNearInclusiveRate * 100.0);
@@ -683,7 +646,7 @@ public class ConfidenceExperiment {
         if (s.minRow != null && s.maxRow != null && verbose) {
             System.out.printf(
                     Locale.ROOT,
-                    "  ↳ minRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)   maxRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)%n",
+                    "  -> minRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)   maxRelErr=%.4f (Lp=%d cf=%d act=%d est=%.1f)%n",
                     s.minRow.relError,
                     s.minRow.lp,
                     s.minRow.cfLp,

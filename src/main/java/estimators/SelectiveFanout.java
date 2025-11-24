@@ -1,33 +1,29 @@
 package estimators;
 
-/**
- * Centralised helper for adapting the branching multiplier when we operate in a selective regime.
- * The toggle is static on purpose so experiments can opt in without plumbing additional parameters.
- */
+
+
 public final class SelectiveFanout {
     private static final double MIN_MULT = 1.0;
     private static final double MAX_MULT = 2.0;
     private static final double DEPTH_WEIGHT = 0.4;
     private static final double FEAS_WEIGHT = 0.4;
-    private static final double COST_WEIGHT = 0.2;
+private static final double COST_WEIGHT = 0.2;
     private static volatile boolean selectiveRegimeEnabled = Boolean.getBoolean("hbi.selectiveRegime");
 
     private SelectiveFanout() {}
 
-    /** Enable or disable the adaptive selective regime heuristics. */
+    // Enable or disable the selective regime heuristics.
     public static void setSelectiveRegimeEnabled(boolean enabled) {
         selectiveRegimeEnabled = enabled;
     }
 
-    /** Returns whether the selective regime is active. */
+    // Returns whether the selective regime is active.
     public static boolean isSelectiveRegimeEnabled() {
         return selectiveRegimeEnabled;
     }
 
-    /**
-     * Computes the branching multiplier for the given parent level.
-     * When selective mode is disabled we fall back to the historical "always two children" assumption.
-     */
+    // Compute the branching multiplier for the given parent level.
+    // When disabled, we always use two children.
     static double multiplier(int parentLevel,
                              int startLevel,
                              int descLimit,
@@ -50,9 +46,7 @@ public final class SelectiveFanout {
         return MIN_MULT + (MAX_MULT - MIN_MULT) * score;
     }
 
-    /**
-     * Normalises the relative expected probe cost between parent and child so that cheaper children push the score up.
-     */
+    // Normalize relative expected probe cost between parent and child.
     static double costEfficiencyScore(double parentCost, double childCost) {
         if (childCost <= 0.0) {
             return 0.0;
@@ -74,4 +68,3 @@ public final class SelectiveFanout {
         return value;
     }
 }
-

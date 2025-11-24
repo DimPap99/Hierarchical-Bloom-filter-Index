@@ -6,14 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-/**
- * Generate Zipf-distributed synthetic datasets and write them
- * under:
- *   <project-root>/data/<family>/<i>/<i>_<family>.txt
- *
- * For example, for i = 1 and family = wzipf_21_e13 the output is:
- *   .../data/wzipf_21_e13/1/1_wzipf_21_e13.txt
- */
+// Generate Zipf-distributed synthetic datasets under data/<family>/<i>/<i>_<family>.txt.
 public class GenerateDatasets {
 
     public static void main(String[] args) throws IOException {

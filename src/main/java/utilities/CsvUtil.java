@@ -9,10 +9,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 
-public class CsvUtil {
+    public class CsvUtil {
     private CsvUtil() {}
 
-    /** Configuration for CSV formatting. */
+    // Configuration for CSV formatting.
     public static final class Config {
         private final char delimiter;
         private final char quote;
@@ -28,7 +28,7 @@ public class CsvUtil {
             this.charset = Objects.requireNonNull(charset, "charset");
         }
 
-        /** Default configuration: comma, double quote, platform line separator, do not always quote, UTF-8. */
+        // Default configuration: comma, double quote, platform line separator, no forced quoting, UTF-8.
         public static Config defaults() {
             return new Config(',', '"', System.lineSeparator(), false, StandardCharsets.UTF_8);
         }
@@ -40,45 +40,43 @@ public class CsvUtil {
         public Config withCharset(Charset charset)      { return new Config(this.delimiter, this.quote, this.lineSeparator, this.alwaysQuote, charset); }
     }
 
-    /* =========================================================
-       Public convenience methods
-       ========================================================= */
+    // Public convenience methods for writing CSV.
 
-    /** Write a single row to a file. */
+    // Write a single row to a file.
     public static void writeRow(Path file, List<?> row) throws IOException {
         writeRows(file, List.of(row), Config.defaults());
     }
 
-    /** Write a single row to a file with custom configuration. */
+    // Write a single row to a file with custom configuration.
     public static void writeRow(Path file, List<?> row, Config config) throws IOException {
         writeRows(file, List.of(row), config);
     }
 
-    /** Write multiple rows (list of lists) to a file. */
+    // Write multiple rows (list of lists) to a file.
     public static void writeRows(Path file, List<? extends List<?>> rows) throws IOException {
         writeRows(file, rows, Config.defaults());
     }
 
-    /** Write multiple rows (list of lists) to a file with custom configuration. */
+    // Write multiple rows (list of lists) to a file with custom configuration.
     public static void writeRows(Path file, List<? extends List<?>> rows, Config config) throws IOException {
         try (BufferedWriter bw = Files.newBufferedWriter(file, config.charset)) {
             writeRows(bw, rows, config);
         }
     }
 
-    /** Write multiple rows to an OutputStream (for example, servlet response). */
+    // Write multiple rows to an OutputStream.
     public static void writeRows(OutputStream out, List<? extends List<?>> rows, Config config) throws IOException {
         try (Writer w = new BufferedWriter(new OutputStreamWriter(out, config.charset))) {
             writeRows(w, rows, config);
         }
     }
 
-    /** Write a single row to an existing Writer (you control closing). */
+    // Write a single row to an existing Writer (caller closes).
     public static void writeRow(Writer writer, List<?> row, Config config) throws IOException {
         writeRows(writer, List.of(row), config);
     }
 
-    /** Write multiple rows to an existing Writer (you control closing). */
+    // Write multiple rows to an existing Writer (caller closes).
     public static void writeRows(Writer writer, List<? extends List<?>> rows, Config config) throws IOException {
         Objects.requireNonNull(writer, "writer");
         Objects.requireNonNull(rows, "rows");
@@ -91,24 +89,24 @@ public class CsvUtil {
         writer.flush();
     }
 
-    /** Build a CSV string from a single row. */
+    // Build a CSV string from a single row.
     public static String toCsvLine(List<?> row) {
         return toCsvLine(row, Config.defaults());
     }
 
-    /** Build a CSV string from a single row with custom configuration. */
+    // Build a CSV string from a single row with custom configuration.
     public static String toCsvLine(List<?> row, Config config) {
         StringBuilder sb = new StringBuilder();
         writeOneRowToBuilder(sb, row, config);
         return sb.toString();
     }
 
-    /** Build a CSV string for all rows. */
+    // Build a CSV string for all rows.
     public static String toCsv(List<? extends List<?>> rows) {
         return toCsv(rows, Config.defaults());
     }
 
-    /** Build a CSV string for all rows with custom configuration. */
+    // Build a CSV string for all rows with custom configuration.
     public static String toCsv(List<? extends List<?>> rows, Config config) {
         StringBuilder sb = new StringBuilder();
         try {
@@ -123,21 +121,19 @@ public class CsvUtil {
         return sb.toString();
     }
 
-    /** Varargs convenience: write rows given as separate lists. */
+    // Varargs convenience: write rows given as separate lists.
     @SafeVarargs
     public static void writeRows(Path file, Config config, List<?>... rows) throws IOException {
         writeRows(file, List.of(rows), config);
     }
 
-    /** Varargs convenience: write rows with default configuration. */
+    // Varargs convenience: write rows with default configuration.
     @SafeVarargs
     public static void writeRows(Path file, List<?>... rows) throws IOException {
         writeRows(file, List.of(rows), Config.defaults());
     }
 
-    /* =========================================================
-       Internal helpers
-       ========================================================= */
+    // Internal helpers.
 
     private static void writeOneRow(Writer writer, List<?> row, Config config) throws IOException {
         Objects.requireNonNull(row, "row");
@@ -155,7 +151,7 @@ public class CsvUtil {
         }
     }
 
-    /** Convert any object to a field string; null becomes empty. */
+    // Convert any object to a field string; null becomes empty.
     private static String stringify(Object value) {
         if (value == null) return "";
         // Special case Character to avoid printing numeric code points accidentally
@@ -163,12 +159,7 @@ public class CsvUtil {
         return String.valueOf(value);
     }
 
-    /**
-     * Apply CSV quoting rules:
-     * - Always quote if config.alwaysQuote is true.
-     * - Otherwise, quote only if the field contains delimiter, quote, or newline.
-     * - Double any inner quote characters.
-     */
+    // Apply CSV quoting rules and double inner quote characters when quoting.
     private static String quoteIfNeeded(String field, Config config) {
         boolean containsDelimiter = field.indexOf(config.delimiter) >= 0;
         boolean containsQuote = field.indexOf(config.quote) >= 0;
@@ -179,7 +170,5 @@ public class CsvUtil {
             return config.quote + doubled + config.quote;
         }
         return field;
-        // If you want to also quote leading/trailing spaces (a conservative choice),
-        // you could treat startsWith(' ') or endsWith(' ') as a reason to quote.
     }
 }

@@ -10,9 +10,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/**
- * IO helpers for listing datasets and query files, and parsing pattern lengths.
- */
+// IO helpers for datasets, queries, and pattern lengths.
 public final class BenchmarkIO {
     private BenchmarkIO() {}
 

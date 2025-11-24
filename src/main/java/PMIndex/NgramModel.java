@@ -2,25 +2,11 @@ package PMIndex;
 
 import java.util.*;
 
-/**
- * Variable-order n-gram model with dense, prebuilt context-state operator for a chosen order.
- *
- * Let order t = maxOrder - 1. For t = 0 there is no context (unigram only).
- * For t >= 1 we construct a first-order Markov chain over the σ^t context states.
- * We expose:
- *  - PI[v]                 : unigram probabilities over symbols (length σ)
- *  - T[u][v]               : first-order symbol->symbol matrix (for t=1 fallback), shape [σ][σ]
- *  - ORDER                 : t (context length)
- *  - CTX_CARD              : number of contexts = σ^t  (0 if t == 0)
- *  - P0_CTX[ctx]           : initial distribution over contexts (length CTX_CARD)
- *  - PNEXT[ctx][v]         : P(next = v | context = ctx), shape [CTX_CARD][σ]
- *  - NEXT_CTX[ctx][v]      : next context index after appending v, shape [CTX_CARD][σ]
- *
- * No smoothing; pure MLE from the stream. Use Builder.resetChain() to break dependencies across documents.
- */
+// Variable-order n-gram model with a prebuilt context-state operator.
+// No smoothing; pure MLE from the stream.
 public final class NgramModel {
 
-    // ========= Utilities =========
+    // Utilities.
 
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
@@ -62,7 +48,7 @@ public final class NgramModel {
         return (int) acc;
     }
 
-    // ========= Immutable snapshot =========
+    // Immutable snapshot.
 
     public static final class Model {
         public final int sigma;
@@ -75,11 +61,11 @@ public final class NgramModel {
         private final Map<Long, Integer> symbolToIndex;
         private final long[] indexToSymbol;
 
-        // First-order fallback (always filled)
+        // First-order fallback (always filled).
         public final double[] PI;                        // length σ
         public final double[][] T;                       // [σ][σ]
 
-        // Context-state operator for ORDER >= 1
+        // Context-state operator for ORDER >= 1.
         public final int CTX_CARD;                       // = σ^ORDER, 0 if ORDER==0
         public final double[] P0_CTX;                    // length CTX_CARD, null if ORDER==0
         public final double[][] PNEXT;                   // [CTX_CARD][σ], null if ORDER==0
@@ -127,7 +113,7 @@ public final class NgramModel {
             return indexToSymbol[idx];
         }
 
-        /** Aggregated first-order transition probabilities derived from the observed contexts. */
+        // Aggregated first-order transition probabilities derived from the observed contexts.
         public double[][] aggregatedFirstOrder() {
             return T;
         }
@@ -137,7 +123,7 @@ public final class NgramModel {
             return PI[v];
         }
 
-        /** Hashed backoff conditional (kept for compatibility). */
+        // Hashed backoff conditional (kept for compatibility).
         public double P_cond(long[] keySeq, int pos) {
             int v = symbolIndex(keySeq[pos]);
             if (v < 0) return 0.0;
@@ -179,11 +165,11 @@ public final class NgramModel {
         // Keep the original sparse structures for compatibility
         private final List<Map<Long, Map<Integer, Long>>> ctxMaps;
 
-        // Dense context-state structures for ORDER >= 1
-        private final int CTX_CARD;                // = σ^ORDER, 0 if ORDER==0
+        // Dense context-state structures for ORDER >= 1.
+        private final int CTX_CARD;                // = sigma^ORDER, 0 if ORDER==0
         private final long[] ctxOcc;               // occurrences of each context (for P0), length CTX_CARD
-        private final long[][] nextCounts;         // [CTX_CARD][σ] counts for PNEXT rows
-        private final int[][] nextCtx;             // [CTX_CARD][σ] deterministic next context indices
+        private final long[][] nextCounts;         // [CTX_CARD][sigma] counts for PNEXT rows
+        private final int[][] nextCtx;             // [CTX_CARD][sigma] deterministic next context indices
 
         // Small history of previous symbol ids
         private final ArrayDeque<Integer> hist = new ArrayDeque<>();
@@ -201,13 +187,13 @@ public final class NgramModel {
             this.ORDER = maxOrder - 1;
             this.uni = new long[sigma];
 
-            // sparse structures
+            // Sparse structures.
             this.ctxMaps = new ArrayList<>(Math.max(0, maxOrder - 1));
             for (int t = 1; t <= maxOrder - 1; t++) {
                 ctxMaps.add(new HashMap<>());
             }
 
-            // dense context-state scaffolding
+            // Dense context-state scaffolding.
             if (ORDER >= 1) {
                 this.CTX_CARD = powIntChecked(sigma, ORDER);
                 this.ctxOcc = new long[CTX_CARD];
@@ -274,7 +260,7 @@ public final class NgramModel {
             if (hist.size() > ORDER) hist.removeFirst();
         }
 
-        /** Optional: break dependencies between segments. */
+        // Optional: break dependencies between segments.
         public void resetChain() { hist.clear(); }
 
         private int ensureSymbolIndex(long symbol) {
@@ -290,7 +276,7 @@ public final class NgramModel {
             return next;
         }
 
-        /** DO NOT call during query time. */
+        // Build the immutable model; not for query time.
         public Model build() {
             // Trim symbol arrays to the actually used range, but keep sigma slots for convenience
             long[] uniTrim = uni;

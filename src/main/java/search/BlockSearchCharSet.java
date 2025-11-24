@@ -7,13 +7,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 
-/**
- * BlockSearchCharSet:
- * A block search strategy that uses Bloom-filter style membership tests
- * over node intervals, with pruning plan awareness (lp),
- * and fallback logic to ensure we actually test the first token
- * when needed.
- */
+// Block search strategy that uses Bloom-style membership tests over node intervals.
+// Aware of pruning level and always tests the first token when needed.
 public class BlockSearchCharSet implements SearchAlgorithm {
 
     public Estimator estimator;
@@ -100,7 +95,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         boolean[] matchedArr = new boolean[limit];
         Arrays.fill(matchedArr, false);
 
-        // ---- 1. Force-check token 0, ignoring lp pruning ----
+        // Force-check token 0, ignoring lp pruning.
         long firstTok = tokens[0];
         long hi = Integer.toUnsignedLong(intervalIdx);
         long lo0 = firstTok;
@@ -112,7 +107,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
             // Hard "no" at the very first symbol:
             // pattern cannot start at this interval boundary.
             // consumed == 0, not complete.
-            return new Probe(0, /*complete*/ false, /*testedFirst*/ true);
+            return new Probe(0, false, true);
         }
         int prefixCount = 1;
         int consumedChars;
@@ -154,7 +149,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                     if (!c0) {
                         // prefix breaks at j
                         consumedChars = charactersMatched(prefixCount, pattern);
-                        return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+                        return new Probe(consumedChars, false, true);
                     }
 
                     matchedArr[j] = true;
@@ -163,7 +158,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
 
                 // All tokens 0..i-1 were present.
                 consumedChars = charactersMatched(prefixCount, pattern);
-                return new Probe(consumedChars, /*complete*/ false, /*testedFirst*/ true);
+                return new Probe(consumedChars, false, true);
 
             }
 
@@ -180,7 +175,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
 
         consumedChars = charactersMatched(matchedArr.length, pattern);
 
-        return new Probe(consumedChars, /*complete*/ true, /*testedFirst*/ testedFirst);
+        return new Probe(consumedChars, true, testedFirst);
     }
 
     private int charactersMatched(int matchedTokens, Pattern pattern) {

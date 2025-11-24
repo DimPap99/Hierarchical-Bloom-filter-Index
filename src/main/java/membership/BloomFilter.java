@@ -65,9 +65,7 @@ public class BloomFilter implements Membership {
         return Math.round(-(m / (double) k) * Math.log(1.0 - rho));
     }
 
-    // =========================================================
-    // === Carter–Wegman modulo p = 2^61 - 1 (unchanged core) ===
-    // =========================================================
+    // Carter-Wegman modulo p = 2^61 - 1
     private static final long P61  = (1L << 61) - 1;
     private static final long MASK = P61;
 
@@ -105,7 +103,7 @@ public class BloomFilter implements Membership {
         return y >= P61 ? y - P61 : y;
     }
 
-    /** Single-word h1/h2 (fast path you already had). */
+    // Single-word hash.
     private long h1(long key) {
         long x = fold61(key);
         long lo = a1 * x, hi = Math.multiplyHigh(a1, x);
@@ -121,7 +119,7 @@ public class BloomFilter implements Membership {
         return y >= P61 ? y - P61 : y;
     }
 
-    /** NEW: two-word polynomial (no array allocation). */
+    // Two-word polynomial hash.
     private long h1(long k0, long k1) {
         long h = mulAdd61(b1, a1, fold61(k0));
         return mulAdd61(h,  a1, fold61(k1));
@@ -131,7 +129,7 @@ public class BloomFilter implements Membership {
         return mulAdd61(h,  a2, fold61(k1));
     }
 
-    /** NEW: variable-length polynomial over 64-bit chunks. */
+    // Variable-length polynomial over 64-bit chunks.
     private long h1(long[] chunks) {
         long h = b1;
         for (int i = 0; i < chunks.length; i++) {
@@ -147,7 +145,7 @@ public class BloomFilter implements Membership {
         return h;
     }
 
-    // -------- uniform index + stride (same as before) --------
+    // Uniform index and stride.
     private static long umulh(long x, long y) {
         long x0 = x & 0xFFFFFFFFL, x1 = x >>> 32;
         long y0 = y & 0xFFFFFFFFL, y1 = y >>> 32;
@@ -174,11 +172,9 @@ public class BloomFilter implements Membership {
         return 1 + (int) hi; // [1, m-1]
     }
 
-    // ======================
-    // === PUBLIC API =======
-    // ======================
+    // Public API.
 
-    /** Fast path: single 64-bit key (unchanged). */
+    // Single 64-bit key.
     public void insert(long key) {
         long y1 = h1(key);
         long y2 = h2(key);
@@ -189,7 +185,7 @@ public class BloomFilter implements Membership {
         }
     }
 
-    /** Fast path: single 64-bit key (unchanged). */
+    // Single 64-bit key.
     public boolean contains(long key) {
         long y1 = h1(key);
         long y2 = h2(key);
@@ -201,7 +197,7 @@ public class BloomFilter implements Membership {
         return true;
     }
 
-    /** NEW: two-chunk key without allocating an array. */
+    // Two-word key without array allocation.
     public void insert(long k0, long k1) {
         long y1 = h1(k0, k1);
         long y2 = h2(k0, k1);
@@ -212,7 +208,7 @@ public class BloomFilter implements Membership {
         }
     }
 
-    /** NEW: two-chunk key without allocating an array. */
+    // Two-word key without array allocation.
     public boolean contains(long k0, long k1) {
         long y1 = h1(k0, k1);
         long y2 = h2(k0, k1);
@@ -224,10 +220,8 @@ public class BloomFilter implements Membership {
         return true;
     }
 
-    /**
-     * NEW: variable-length key as 64-bit chunks.
-     * Order matters: we hash chunks[0], then chunks[1], … using a CW polynomial.
-     */
+    // Variable-length key as 64-bit chunks.
+    // Chunks are hashed in order.
     public void insert(long[] keyChunks) {
         if (keyChunks == null || keyChunks.length == 0)
             throw new IllegalArgumentException("keyChunks must be non-empty");

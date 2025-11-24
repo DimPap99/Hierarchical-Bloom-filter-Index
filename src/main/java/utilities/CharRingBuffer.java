@@ -15,7 +15,7 @@ public final class CharRingBuffer extends RingBuffer<Character> {
         super.append(c);
     }
 
-    // Current window as a plain String (length ≤ k).
+    // Current window as a plain String (length <= k).
     public String view() {
         if (isEmpty()) return "";
 

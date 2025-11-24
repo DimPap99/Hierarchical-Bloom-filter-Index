@@ -1,13 +1,6 @@
 package membership;
 
-/**
- * KeyPackingService
- *
- * Bit layout of one 64-bit word:
- *   [ interval field (IV_BITS) in the high bits | symbol field (CH_BITS) in the low bits ]
- *
- * Configure once, validate against alphabet size, then pack or unpack.
- */
+// Packs and unpacks composite keys into one or two 64-bit words.
 public final class KeyPackingService {
 
     // Configuration
@@ -17,7 +10,7 @@ public final class KeyPackingService {
     private final long CH_MASK;
     private final int  IV_SHIFT;
 
-    // Public container, thin wrapper over long[]
+    // Public container, thin wrapper over long[].
     public static final class Key {
         private final long[] words;
 
@@ -41,7 +34,7 @@ public final class KeyPackingService {
         }
     }
 
-    /** Build from maximum level and alphabet size; deepest effective level is maxLevel-1 with 2^{maxLevel-1} intervals */
+    // Build from maximum level and alphabet size; deepest effective level is maxLevel-1.
     public KeyPackingService(int maxLevel, int alphabetSize) {
         if (maxLevel < 0)  throw new IllegalArgumentException("maxLevel must be nonnegative");
         if (alphabetSize < 0) throw new IllegalArgumentException("alphabetSize must be nonnegative");
@@ -62,7 +55,7 @@ public final class KeyPackingService {
         this.IV_SHIFT = CH_BITS;
     }
 
-    /** Direct constructor when you already know how many high bits go to the interval field */
+    // Direct constructor when you already know how many high bits go to the interval field.
     public KeyPackingService(int intervalBits, int alphabetSize, boolean directBits) {
         if (!directBits) throw new IllegalArgumentException("use directBits=true for this constructor");
         if (intervalBits < 0 || intervalBits > 63) throw new IllegalArgumentException("intervalBits must be in [0, 63]");
@@ -79,11 +72,8 @@ public final class KeyPackingService {
     }
 
 
-    /**
-     * always accepts one int and one long and returns a Key
-     * If both fields fit the configured split it returns a one-word Key
-     * Otherwise it returns a two-word Key {hi, lo} with hi = interval as unsigned 64 bit and lo = symbol as 64 bit
-     */
+    // Always accepts one int and one long and returns a Key.
+    // Returns one word when both fields fit, otherwise two words {hi, lo}.
     public Key packAuto(int intervalIdx, long symbolCode) {
         if (fitsOneWord(intervalIdx, symbolCode)) {
             long word = packWord(intervalIdx, symbolCode);
@@ -96,20 +86,20 @@ public final class KeyPackingService {
     }
 
 
-    /** Pack into one word without allocation; caller can use this to fill their own arrays */
+    // Pack into one word without allocation; caller can fill their own arrays.
     public long packWord(int intervalIdx, long symbolCode) {
         long ivPart = (Integer.toUnsignedLong(intervalIdx) & IV_MASK) << IV_SHIFT;
         long chPart = symbolCode & CH_MASK;
         return ivPart | chPart;
     }
 
-    /** Validate against level then pack into one word Key */
+    // Validate against level then pack into a one-word Key.
     public Key packAtLevel(int level, int intervalIdx, long symbolCode) {
         validateLevelIndex(level, intervalIdx);
         return new Key(new long[]{ packWord(intervalIdx, symbolCode) });
     }
 
-    // -------- unpacking for one-word keys --------
+    // Unpacking for one-word keys.
 
     public int  interval(Key key) { ensureOneWord(key); return intervalFromWord(key.word0()); }
     public long symbol  (Key key) { ensureOneWord(key); return symbolFromWord  (key.word0()); }
@@ -117,12 +107,12 @@ public final class KeyPackingService {
     public int  intervalFromWord(long word) { return (int) ((word >>> IV_SHIFT) & IV_MASK); }
     public long symbolFromWord  (long word) { return (word & CH_MASK); }
 
-    // -------- helpers --------
+    // Helpers.
 
     public boolean fitsOneWord(int intervalIdx, long symbolCode) {
-        // interval fits if its unsigned value uses at most IV_BITS bits
+        // Interval fits if its unsigned value uses at most IV_BITS bits.
         boolean intervalFits = (Integer.toUnsignedLong(intervalIdx) >>> IV_BITS) == 0;
-        // symbol fits if its unsigned value uses at most CH_BITS bits
+        // Symbol fits if its unsigned value uses at most CH_BITS bits.
         boolean symbolFits   = (symbolCode >>> CH_BITS) == 0;
         return intervalFits && symbolFits;
     }
@@ -157,7 +147,7 @@ public final class KeyPackingService {
         if (key.size() != 1) throw new IllegalArgumentException("operation requires a one-word key");
     }
 
-    // Introspection, if you need them in tests or logs
+    // Introspection helpers for tests or logs.
     public int  intervalBits()  { return IV_BITS; }
     public int  symbolBits()    { return CH_BITS; }
     public int  intervalShift() { return IV_SHIFT; }

@@ -17,44 +17,24 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/**
- * HBIDatasetBenchmark
- *
- * This benchmark compares HBI versus SuffixTreeIndex on the same dataset and query set.
- *
- * We now support two streaming modes, exactly like in ConfidenceExperiment:
- *
- *   mode = "chars"
- *     Treat the dataset file as one continuous character stream.
- *     Build n-grams of characters. Queries are substrings, exactly like Experiment.run().
- *
- *   mode = "segments"
- *     Treat the dataset file as one token per line (for example one packet per line).
- *     Each token is a logical "symbol". We slide a RingBuffer<String> of length NGRAMS
- *     over those symbols to build patterns. We index those patterns in HBI or SuffixTreeIndex.
- *     Queries are sequences of tokens separated by spaces.
- *
- * You can pick the mode via --mode chars or --mode segments at runtime.
- *
- * Everything else in this benchmark (timing, result comparison, averages) is preserved.
- */
+// Benchmark comparing HBI and SuffixTreeIndex for one dataset and query set.
 public class HBIDatasetBenchmark {
 
-    /** Default input paths and parameters. Change these as you like. */
+    // Default input paths and parameters.
     private static final String DEFAULT_DATA_FILE =
             "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/w21/3/3_W21.txt";
 
     private static final String DEFAULT_QUERY_FILE =
-            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/3/160.uniform.txt";
+            "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/w21/3/20.uniform.txt";
 
     private static final int WINDOW_LEN       = 1 << 21;
     private static final int TREE_LEN         = 1 << 21;
     private static final int ALPHABET_BASE    = 130000;
     private static final double DEFAULT_FP_RATE = 0.25;
-    private static final int DEFAULT_RUNS     = 2;
+    private static final int DEFAULT_RUNS     = 10;
     private static final double Confidence = 0.99;
-    private static final boolean USE_STRIDES  = true;
-    private static int NGRAMS                 = 8;
+    private static final boolean USE_STRIDES  = false;
+    private static int NGRAMS                 = 2;
 
     private record BenchmarkOptions(String mode,
                                      String dataFile,
@@ -122,10 +102,7 @@ public class HBIDatasetBenchmark {
         }
     }
 
-    /**
-     * Utility method from your original code.
-     * Compare match results across two indexes for each query.
-     */
+    // Compare match results across two indexes for each query.
     public static void compared(ArrayList<ArrayList<Integer>> arr1,
                                 ArrayList<ArrayList<Integer>> arr2) {
 
@@ -176,10 +153,7 @@ public class HBIDatasetBenchmark {
         }
     }
 
-    /**
-     * Normalize a reported match list so benchmarks can compare indexes fairly.
-     * We skip null entries, sort ascending, and drop duplicates.
-     */
+    // Normalize a match list for fair comparison (skip nulls, sort, deduplicate).
     private static List<Integer> normalizeMatches(List<Integer> raw) {
         if (raw == null || raw.isEmpty()) {
             return Collections.emptyList();
@@ -207,10 +181,7 @@ public class HBIDatasetBenchmark {
         return deduped;
     }
 
-    /**
-     * Helper for "segments" mode only.
-     * We read queries as lines and trim blanks. Same logic as ConfidenceExperiment.loadQueries.
-     */
+    // Helper for "segments" mode: read queries as trimmed non-empty lines.
     private static List<String> loadQueries(String queriesFile) throws IOException {
         List<String> lines = Files.readAllLines(Path.of(queriesFile), StandardCharsets.UTF_8);
         ArrayList<String> out = new ArrayList<>(lines.size());
@@ -335,14 +306,7 @@ public class HBIDatasetBenchmark {
         );
     }
 
-    /**
-     * Helper for runSegmentsMode.
-     * Execute ALL queries (segments mode interpretation) against index, collect matches,
-     * and measure wall clock time in milliseconds.
-     *
-     * allQueryMatches grows one entry per query. Each entry is the match result
-     * list returned by index.report(pat).
-     */
+    // Run all queries in segments mode, collect matches, and return elapsed ms.
     private static long runAllQueriesSegments(
             IPMIndexing index,
             List<String> queries,
@@ -371,13 +335,9 @@ public class HBIDatasetBenchmark {
         return System.currentTimeMillis() - start;
     }
 
-    /**
-     * Build a fresh HBI with the configured parameters.
-     * This is unchanged structurally from your code, except for:
-     *  - we keep NGRAMS as the last constructor parameter so it respects your chosen n-gram size
-     */
+    // Build a fresh HBI with the configured parameters.
     private static HBI newHbi(double conf, int alphabet, double fpRate) {
-        //ε=0.05, δ=7.5e-4 → w=2048, d=8 → ~64 K
+        // eps=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64 K
         SelectiveFanout.setSelectiveRegimeEnabled(true);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
@@ -413,7 +373,7 @@ public class HBIDatasetBenchmark {
         int warmupRuns = options.warmupRuns();
         int runs = options.runs();
 
-        System.out.println("Benchmark starting…");
+        System.out.println("Benchmark starting...");
         System.out.println("Mode: " + mode);
 
         System.out.println("N-gram: " + NGRAMS);

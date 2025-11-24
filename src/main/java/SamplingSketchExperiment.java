@@ -27,11 +27,10 @@ import java.util.Random;
 
 import static estimators.HOPS.mix64;
 
-    public class SamplingSketchExperiment {
+// Experiment harness for sampling sketches using HOPS and BottomK.
+public class SamplingSketchExperiment {
 
-        // =========================
-        //  Experiment configuration
-        // =========================
+        // Experiment configuration.
 
         private enum Dist {UNIFORM, ZIPF}
         private enum DatasetMode { SEGMENTS, WORDS, CHARS }
@@ -83,19 +82,14 @@ import static estimators.HOPS.mix64;
             }
         }
 
-        // =========================
-        //  Core utilities
-        // =========================
+        // Core utilities.
 
-        /**
-         * Percent error on values using max(1, truth) to avoid division by zero.
-         */
+        // Percent error on values using max(1, truth) to avoid division by zero.
         private static double percentValueError(int est, int truth) {
             int denom = Math.max(1, truth);
             return Math.abs(est - truth) / (double) denom;
         }
-        /** Suite-A/B CSV header in the exact order you’ve been using. */
-        // --- replace suiteACsvHeader() with this ---
+        // Suite-A/B CSV header matching the existing analysis order.
         private static List<?> suiteACsvHeader() {
             return List.of(
                     "dataset","dataset_mode","stream_len","alphabet","buckets_configured",
@@ -529,7 +523,7 @@ import static estimators.HOPS.mix64;
                     "  --trials <int>           Number of trials (default 50)\n" +
                     "  --verbose <bool>         Per-trial logging (default false)\n" +
                     "  --auto-design <bool>     Enable Chebyshev auto-design (default true)\n" +
-                    "  --distinct <int>         Override distinct guess D̂ (default depends on stream)\n" +
+                    "  --distinct <int>         Override distinct guess Dhat (default depends on stream)\n" +
                     "  --rank-eps <list>        Target rank epsilon(s) (default 0.05)\n" +
                     "  --delta <double>         Convenience shorthand when using a single delta_q\n" +
                     "  --delta-q <list>         Comma-separated delta_q values (default 0.05,0.075,0.01)\n" +
@@ -543,7 +537,7 @@ import static estimators.HOPS.mix64;
         }
 
 
-        /** Write rows to CSV with append semantics; auto-writes header if file is new/empty. */
+        // Write rows to CSV with append semantics and auto header.
         private static void writeSuiteACsv(Path out, List<TrialResult> rs) throws IOException {
             if (rs == null || rs.isEmpty()) return;
 
@@ -648,18 +642,14 @@ import static estimators.HOPS.mix64;
             return sb.toString();
         }
 
-        /**
-         * Empirical CDF F_m(x) from an ascending array 'a': proportion of entries <= x.
-         */
+        // Empirical CDF F_m(x) from ascending array a: proportion of entries <= x.
         private static double empiricalCdfLeft(int[] a, int x) {
             int idx = upperBound(a, x) - 1; // last index with a[i] <= x
             if (idx < 0) return 0.0;
             return (idx + 1) / (double) a.length;
         }
 
-        /**
-         * Upper bound: first index with a[i] > x in ascending 'a'.
-         */
+        // Upper bound: first index with a[i] > x in ascending a.
         private static int upperBound(int[] a, int x) {
             int lo = 0, hi = a.length;
             while (lo < hi) {
@@ -670,9 +660,7 @@ import static estimators.HOPS.mix64;
             return lo;
         }
 
-        /**
-         * Holds per-item timing results in nanoseconds.
-         */
+        // Holds per-item timing results in nanoseconds.
         private static final class PerItemCost {
             final double nsPerInsertMPQ;
             final double nsPerInsertBK;
@@ -687,11 +675,7 @@ import static estimators.HOPS.mix64;
             }
         }
 
-        /**
-         * Measure per-item costs for MPQ (HOPS) and Bottom-k on the given stream.
-         * We time only the insert loops for update cost, and we time the close-time
-         * steps separately. We include a short warm-up to let the JIT compile.
-         */
+        // Measure per-item costs for MPQ (HOPS) and Bottom-k on the given stream.
         private static PerItemCost measurePerItemCosts(
                 ArrayList<Long> stream,
                 int buckets,
@@ -749,18 +733,14 @@ import static estimators.HOPS.mix64;
             return new PerItemCost(nsPerInsertMPQ, nsPerInsertBK, closeNsPerItemMPQ, closeNsPerItemBK);
         }
 
-        /**
-         * DKW rank epsilon for confidence 1-delta over n samples.
-         */
+        // DKW rank epsilon for confidence 1 - delta over n samples.
         private static double dkwRankEpsilon(int n, double delta) {
             if (n <= 0) return 1.0;
             if (delta <= 0.0 || delta >= 1.0) throw new IllegalArgumentException("delta must be in (0,1)");
             return Math.sqrt(Math.log(2.0 / delta) / (2.0 * n));
         }
 
-        /**
-         * Sorted array (ascending) of exact per-key counts.
-         */
+        // Sorted array (ascending) of exact per-key counts.
         private static int[] sortedCounts(HashMap<Long, Integer> freq) {
             int[] a = new int[freq.size()];
             int i = 0;
@@ -769,11 +749,7 @@ import static estimators.HOPS.mix64;
             return a;
         }
 
-        /**
-         * Value at quantile p from an ascending array 'a' using the left-continuous definition:
-         * return the smallest x such that empirical CDF ≥ p.
-         * p=0 returns a[0]; p in (0,1] maps to index ceil(p*m)-1 with m=a.length.
-         */
+        // Value at quantile p from ascending array a using the left-continuous definition.
         private static int valueAtQuantile(int[] a, double p) {
             if (a.length == 0) return 0;
             if (p <= 0.0) return a[0];
@@ -792,14 +768,7 @@ import static estimators.HOPS.mix64;
         //  One trial (truth + samplers)
         // =========================
 
-        /**
-         * Run one MPQ-vs-Bottom-k vs Truth quantile experiment and return detailed results.
-         * Reports both value errors and rank errors, plus guarantee checks.
-         */
-        /**
-         * Run one MPQ-vs-Bottom-k vs Truth quantile experiment and return detailed results.
-         * Reports both value errors and rank errors, plus guarantee checks.
-         */
+        // Run one MPQ vs Bottom-k vs truth quantile experiment and return detailed results.
         private static TrialResult runExperiment(
                 List<Long> prebuiltStream,
                 long streamLen,
@@ -879,7 +848,7 @@ import static estimators.HOPS.mix64;
                 }
 
                 if (design.impossible) {
-                    System.out.printf("NOTE: With Dhat=%d, the tightest DKW rank band at delta_q=%.3f is eps≈%.5f%n",
+                    System.out.printf("NOTE: With Dhat=%d, the tightest DKW rank band at delta_q=%.3f is eps~=%.5f%n",
                             DhatUsed, delta, epsAch);
                 }
             }
@@ -947,18 +916,18 @@ import static estimators.HOPS.mix64;
 
                 System.out.printf("True  x_p = %d%n", xTrue);
 
-                System.out.printf("MPQ   nb=%d, x̂_p=%d, value error=%.3f%%, achieved percentile=%.5f, rank error=%.5f%n",
+                System.out.printf("MPQ   nb=%d, xhat_p=%d, value error=%.3f%%, achieved percentile=%.5f, rank error=%.5f%n",
                         nbMPQ, xMPQ, 100.0 * percentValueError(xMPQ, xTrue), pAchMPQ, rankErrMPQ);
-                System.out.printf("MPQ   DKW eps=%.5f ⇒ rank band [%.5f, %.5f], value band [%d, %d] ⇒ %s%n",
+                System.out.printf("MPQ   DKW eps=%.5f => rank band [%.5f, %.5f], value band [%d, %d] => %s%n",
                         epsMPQ, pLoMPQ, pHiMPQ, xLoMPQ, xHiMPQ, mpqInDKWValueBand ? "INSIDE" : "OUTSIDE");
                 if (design != null) {
-                    System.out.printf("MPQ   occupancy LB check: observed nb=%d, LB(n_b)=%d ⇒ %s%n",
+                    System.out.printf("MPQ   occupancy LB check: observed nb=%d, LB(n_b)=%d => %s%n",
                             nbMPQ, nLB, occLBMet ? "OK" : "LOW");
                 }
 
-                System.out.printf("BK    nb=%d, x̂_p=%d, value error=%.3f%%, achieved percentile=%.5f, rank error=%.5f%n",
+                System.out.printf("BK    nb=%d, xhat_p=%d, value error=%.3f%%, achieved percentile=%.5f, rank error=%.5f%n",
                         nbBK, xBK, 100.0 * percentValueError(xBK, xTrue), pAchBK, rankErrBK);
-                System.out.printf("BK    DKW eps=%.5f ⇒ rank band [%.5f, %.5f], value band [%d, %d] ⇒ %s%n",
+                System.out.printf("BK    DKW eps=%.5f => rank band [%.5f, %.5f], value band [%d, %d] => %s%n",
                         epsBK, pLoBK, pHiBK, xLoBK, xHiBK, bkInDKWValueBand ? "INSIDE" : "OUTSIDE");
             }
 
@@ -1001,9 +970,7 @@ import static estimators.HOPS.mix64;
         //  Trial result and summary
         // =========================
 
-        /**
-         * Immutable result for one trial with both value/rank diagnostics, guarantees, costs, and design knobs.
-         */
+        // Immutable result for one trial with diagnostics, guarantees, costs, and design knobs.
         private static final class TrialResult {
             // Metadata
             final String datasetLabel;
@@ -1157,21 +1124,7 @@ import static estimators.HOPS.mix64;
         }
 
 
-        /** Print averages and guarantee satisfaction rates over many trials. */
-        /**
-         * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
-         */
-        /**
-         * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
-         * NOW ALSO prints the average achieved epsilon (DKW band half-width) for MPQ and BK.
-         */
-        /**
-         * Print averages and guarantee satisfaction rates over many trials, including per-item costs.
-         * Now also prints:
-         *  - avg achieved percentile p̂ (MPQ and BK)
-         *  - avg rank error |p̂ - p| (MPQ and BK) with clearer labels
-         *  - avg achieved epsilon from DKW (epsMPQ, epsBK)
-         */
+        // Print averages and guarantee satisfaction rates over many trials, including per-item costs.
         private static void summarize(List<TrialResult> rs, double p, double delta) {
             int T = rs.size();
             if (T == 0) return;
@@ -1183,8 +1136,8 @@ import static estimators.HOPS.mix64;
 
             // rank stuff
             double avgRankErrMPQ = 0, avgRankErrBK = 0;
-            double avgPAchMPQ    = 0, avgPAchBK    = 0; // achieved percentiles p̂
-            double avgEpsMPQ     = 0, avgEpsBK     = 0; // DKW half-widths ε
+            double avgPAchMPQ    = 0, avgPAchBK    = 0; // achieved percentiles phat
+            double avgEpsMPQ     = 0, avgEpsBK     = 0; // DKW half-widths eps
 
             double insideMPQ = 0, insideBK = 0;
             double occOK = 0, occTotal = 0;
@@ -1280,17 +1233,17 @@ import static estimators.HOPS.mix64;
                     avgValErrMPQ, avgValErrBK);
 
             // Achieved percentile and rank error
-            System.out.printf("Avg achieved percentile p̂:        MPQ=%.5f, BK=%.5f\n",
+            System.out.printf("Avg achieved percentile phat:      MPQ=%.5f, BK=%.5f\n",
                     avgPAchMPQ, avgPAchBK);
-            System.out.printf("Avg RANK error |p̂−p|:             MPQ=%.5f, BK=%.5f\n",
+            System.out.printf("Avg RANK error |phat-p|:           MPQ=%.5f, BK=%.5f\n",
                     avgRankErrMPQ, avgRankErrBK);
 
             // Certified epsilon from DKW given nb per trial
-            System.out.printf("Avg certified DKW ε (half-width):  MPQ=%.5f, BK=%.5f\n",
+            System.out.printf("Avg certified DKW eps (half-width):  MPQ=%.5f, BK=%.5f\n",
                     avgEpsMPQ, avgEpsBK);
 
             // Band success
-            System.out.printf("Inside DKW→value band:             MPQ=%.1f%% of trials, BK=%.1f%% of trials\n",
+            System.out.printf("Inside DKW->value band:            MPQ=%.1f%% of trials, BK=%.1f%% of trials\n",
                     rateMPQ, rateBK);
 
             if (!Double.isNaN(rateOcc)) {
@@ -1308,9 +1261,7 @@ import static estimators.HOPS.mix64;
         }
 
 
-        /**
-         * Print Suite-A CSV header (exactly the columns you asked for).
-         */
+        // Print Suite-A CSV header.
         private static void printSuiteACsvHeader() {
             System.out.println(
                     "dataset,dataset_mode,stream_len,alphabet,buckets_configured,source_dist,zipf_exponent,quantile_target,dataset_ngram," +
@@ -1324,9 +1275,7 @@ import static estimators.HOPS.mix64;
             );
         }
 
-        /**
-         * Print one Suite-A CSV row for a single trial result.
-         */
+        // Print one Suite-A CSV row for a single trial result.
         private static void printSuiteACsvRow(List<?> row) {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < row.size(); i++) {

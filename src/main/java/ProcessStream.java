@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
 
+// Generic streaming driver that can use different reader modes.
 public class ProcessStream {
 
 

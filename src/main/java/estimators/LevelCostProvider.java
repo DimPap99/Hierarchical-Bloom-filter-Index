@@ -2,9 +2,7 @@ package estimators;
 
 import tree.ImplicitTree;
 
-/**
- * Supplies cost estimates for a given tree level.
- */
+// Supplies cost estimates for a given tree level.
 public interface LevelCostProvider {
 
     double costAtLevel(ImplicitTree<?> tree,
@@ -14,4 +12,3 @@ public interface LevelCostProvider {
                        double bloomFp,
                        int stopLp);
 }
-

@@ -2,28 +2,13 @@ package tree.ssws;
 
 import java.util.Arrays;
 
-/**
- * SuffixArrayBuilder
- *
- * Provides:
- *   - buildSuffixArray(int[] text): DC3 / Skew linear time suffix array construction
- *   - buildLcpArray(int[] text, int[] sa): Kasai's Longest Common Prefix in linear time
- *
- * Performance improvements:
- *   We reuse a per-thread Dc3Workspace to avoid allocating fresh large
- *   scratch arrays (sample, sa12, rank12, mod0, buffer, count) on every call.
- *   This significantly reduces garbage collector pressure if you build
- *   many suffix arrays repeatedly (for example in a sliding window index).
- */
+// Builds suffix arrays and LCP arrays for integer-mapped text using DC3 and Kasai.
 final class SuffixArrayBuilder {
 
     private SuffixArrayBuilder() {
     }
 
-    /**
-     * Small reusable workspace for DC3 / skew.
-     * We store and reuse scratch arrays here instead of reallocating them every build.
-     */
+    // Small reusable workspace for DC3 / skew.
     private static final class Dc3Workspace {
         int[] sample;
         int[] sa12;
@@ -59,19 +44,11 @@ final class SuffixArrayBuilder {
         }
     }
 
-    /**
-     * One workspace per thread. This saves us from frequent allocation
-     * in streaming / repeated builds, but does not require changing the
-     * public method signatures.
-     */
+    // One workspace per thread to avoid repeated allocations.
     private static final ThreadLocal<Dc3Workspace> TLS_WORKSPACE =
             ThreadLocal.withInitial(() -> new Dc3Workspace(16, 32));
 
-    /**
-     * Build the suffix array of "text" using DC3 / Skew.
-     * "text" must be a non-negative integer alphabet and must already
-     * include a globally smallest sentinel at the end.
-     */
+    // Build the suffix array of text using DC3 / Skew.
     static int[] buildSuffixArray(int[] text) {
         if (text == null) {
             throw new IllegalArgumentException("text must be non-null");
@@ -107,16 +84,7 @@ final class SuffixArrayBuilder {
         return sa;
     }
 
-    /**
-     * A lightly modified DC3 / Skew that uses (and reuses) a Dc3Workspace.
-     * The core algorithm is the same:
-     *
-     *   1. Sort mod-1 and mod-2 suffixes by 3-character tuple
-     *   2. Assign ranks (names)
-     *   3. Recurse if ranks are not unique
-     *   4. Sort mod-0 suffixes by (first char, rank of following suffix)
-     *   5. Merge
-     */
+    // DC3 / Skew using a reusable workspace.
     private static void skewWithWorkspace(int[] s,
                                           int[] sa,
                                           int n,
@@ -245,15 +213,7 @@ final class SuffixArrayBuilder {
         }
     }
 
-    /**
-     * suffixLessOrEqual:
-     * Compare two suffixes in O(1) using precomputed ranks.
-     *
-     * If left % 3 == 1:
-     *   compare (s[left], rank12[left+1])
-     * else (left % 3 == 2):
-     *   compare (s[left], s[left+1], rank12[left+2])
-     */
+    // Compare two suffixes in O(1) using precomputed ranks.
     private static boolean suffixLessOrEqual(int left,
                                              int right,
                                              int[] s,
@@ -274,11 +234,7 @@ final class SuffixArrayBuilder {
         }
     }
 
-    /**
-     * radixPass:
-     * Stable counting sort of 'source' into 'dest' using key s[index + offset].
-     * We reuse the provided "count" array to avoid new allocations.
-     */
+    // Stable counting sort of source into dest using key s[index + offset].
     private static void radixPass(int[] source,
                                   int[] dest,
                                   int[] s,
@@ -318,12 +274,7 @@ final class SuffixArrayBuilder {
         }
     }
 
-    /**
-     * countingSort:
-     * Stable counting sort for the mod-0 suffixes array.
-     * Sorts "source" by key[index + offset], writes result to "dest".
-     * Uses/reuses the shared "count" array.
-     */
+    // Stable counting sort for the mod-0 suffixes array using the shared count array.
     private static void countingSort(int[] source,
                                      int[] dest,
                                      int length,

@@ -3,7 +3,7 @@ package search;
 import tree.ImplicitTree;
 import java.util.*;
 
-/** DFS over the Bloom hierarchy that yields _candidate_ intervals. */
+// DFS over the Bloom hierarchy that yields candidate intervals.
 public final class IntervalScanner implements Iterator<CandidateRange> {
 
     private final Deque<Frame> stack = new ArrayDeque<>();
@@ -24,7 +24,7 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
         this.positionOffset = positionOffset;
     }
 
-    /** Initialise the scanner with the starting level for the DFS walk. */
+    // Initialise the scanner with the starting level for the DFS walk.
     public void seedLevel(int level) {
         stack.clear();
         this.seedLevel = Math.max(0, level);

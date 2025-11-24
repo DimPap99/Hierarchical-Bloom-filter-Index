@@ -120,7 +120,7 @@ public class Pattern{
 
 
 
-    /* ------- private copy of your helper so callers don't see it ------- */
+    // Private copy of prefix helper, not exposed to callers.
     private int[] prefixFunction() {
         int[] pi = new int[this.text.length];
         int k = 0;

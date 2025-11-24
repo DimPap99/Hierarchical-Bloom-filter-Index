@@ -14,11 +14,8 @@ public final class CountSketch {
     private final boolean widthIsPow2;
     private final int widthMask;       // valid only if width is power of two
 
-
-    /**
-     * Create with explicit width (columns), depth (rows), and random seed.
-     * Prefer power-of-two width for speed and slightly cleaner hashing.
-     */
+    // Create with explicit width (columns), depth (rows), and random seed.
+    // Prefer power-of-two width for speed.
     public CountSketch(int width, int depth, long seed) {
         if (width <= 0 || depth <= 0) throw new IllegalArgumentException("width and depth must be > 0");
         this.width = width;
@@ -28,7 +25,7 @@ public final class CountSketch {
         this.widthIsPow2 = isPowerOfTwo(width);
         this.widthMask = widthIsPow2 ? (width - 1) : 0;
 
-        // Derive per-row seeds deterministically from the global seed
+        // Derive per-row seeds deterministically from the global seed.
         this.rowSeeds = new long[depth];
         long s = seed ^ 0x9E3779B97F4A7C15L;
         for (int i = 0; i < depth; i++) {
@@ -37,18 +34,12 @@ public final class CountSketch {
         }
     }
 
-    /**
-     * Create with explicit width/depth and a random seed from java.util.Random.
-     */
+    // Create with explicit width/depth and a random seed from java.util.Random.
     public CountSketch(int width, int depth) {
         this(width, depth, new Random().nextLong());
     }
 
-    /**
-     * Factory based on target additive-error epsilon (ε) and failure probability delta (δ).
-     * width  ≈ ceil_to_pow2( 3 / ε^2 )
-     * depth  ≈ ceil( ln(1/δ) )
-     */
+    // Factory based on target additive-error epsilon and failure probability delta.
     public static CountSketch fromEpsDelta(double epsilon, double delta, long seed) {
         if (!(epsilon > 0.0) || !(delta > 0.0) || delta >= 1.0) {
             throw new IllegalArgumentException("epsilon must be > 0 and delta in (0,1)");
@@ -58,19 +49,16 @@ public final class CountSketch {
         int d = (int)Math.ceil(Math.log(1.0 / delta));
         d = Math.max(1, d);
         return new CountSketch(w, d, seed);
-        // Note: constants (3 and 1) are practical; you can scale for tighter bounds.
+        // Constants (3 and 1) are practical; can be tuned.
     }
 
     public static CountSketch fromEpsDelta(double epsilon, double delta) {
         return fromEpsDelta(epsilon, delta, new Random().nextLong());
     }
 
-    // ---------- Public API ----------
+    // Public API.
 
-    /**
-     * Update the sketch by 'delta' occurrences of 'item'.
-     * Overloads provided for int, long, String, and byte[] keys.
-     */
+    // Update the sketch by delta occurrences of item.
     public void update(int item, long delta) {
 
         updateHash(hashInt(item), delta);
@@ -90,26 +78,19 @@ public final class CountSketch {
         updateHash(hashBytes(item), delta);
     }
 
-    /**
-     * Convenience: increment by +1.
-     */
+    // Convenience: increment by 1.
     public void add(int item)    { update(item, 1L); }
     public void add(long item)   { update(item, 1L); }
     public void add(String item) { update(item, 1L); }
     public void add(byte[] item) { update(item, 1L); }
 
-    /**
-     * Point query estimate for a key. Unbiased. Returns a long (median of signed row estimates).
-     */
+    // Point query estimate for a key (median of signed row estimates).
     public long estimate(int item)    { return estimateHash(hashInt(item)); }
     public long estimate(long item)   { return estimateHash(hashLong(item)); }
     public long estimate(String item) { return estimateHash(hashString(item)); }
     public long estimate(byte[] item) { return estimateHash(hashBytes(item)); }
 
-    /**
-     * Merge another CountSketch in-place (must have same width, depth, and seeds).
-     * Useful for parallel aggregation.
-     */
+
     public void mergeInPlace(CountSketch other) {
         requireSameShape(other);
         for (int i = 0; i < depth; i++) {
@@ -121,20 +102,20 @@ public final class CountSketch {
         }
     }
 
-    /** Reset all counters to zero. */
+    // Reset all counters to zero.
     public void clear() {
         for (int i = 0; i < depth; i++) {
             Arrays.fill(table[i], 0L);
         }
     }
 
-    /** @return number of rows (depth). */
+    // Number of rows (depth).
     public int depth() { return depth; }
 
-    /** @return number of columns (width). */
+    // Number of columns (width).
     public int width() { return width; }
 
-    /** @return read-only snapshot of internal table (defensive copy). */
+    // Read-only snapshot of internal table (defensive copy).
     public long[][] snapshot() {
         long[][] cp = new long[depth][];
         for (int i = 0; i < depth; i++) {
@@ -159,14 +140,14 @@ public final class CountSketch {
     }
 
     private long estimateHash(long h) {
-        // Collect per-row signed bucket values
+        // Collect per-row signed bucket values.
         long[] vals = new long[depth];
         for (int row = 0; row < depth; row++) {
             int bucket = bucket(h, row);
             int sign = sign(h, row);
             vals[row] = sign * table[row][bucket];
         }
-        // Median across rows (robust to outliers)
+        // Median across rows (robust to outliers).
         Arrays.sort(vals);
         int mid = depth >>> 1; // floor(depth/2)
         if ((depth & 1) == 1) {
@@ -177,27 +158,27 @@ public final class CountSketch {
         }
     }
 
-    //  Hashing: bucket and sign per row
+    // Hashing: bucket and sign per row.
 
     private int bucket(long itemHash, int row) {
         long h = mix64(itemHash ^ rowSeeds[row]);
         if (widthIsPow2) {
             return (int)(h & widthMask);
         } else {
-            // keep non-negative and modulo width
+            // Keep non-negative and modulo width.
             long u = h & 0x7fffffffffffffffL;
             return (int)(u % width);
         }
     }
 
     private int sign(long itemHash, int row) {
-        // independent hash for sign: use a disjoint tweak
+        // Independent hash for sign: use a disjoint tweak.
         long h = mix64((itemHash + 0x9E3779B97F4A7C15L) ^ ~rowSeeds[row]);
-        // use highest bit to choose ±1
+        // Use highest bit to choose +/-1.
         return ((h >>> 63) == 0) ? +1 : -1;
     }
 
-    // ---------- Item hashing to 64-bit base hash ----------
+    // Item hashing to 64-bit base hash.
 
     private long hashInt(int x) {
         long z = (long)x ^ seed;
@@ -210,7 +191,7 @@ public final class CountSketch {
     }
 
     private long hashString(String s) {
-        // Simple deterministic mixing over UTF-16 chars; sufficient with SplitMix finalization.
+        // Deterministic mixing over UTF-16 chars; sufficient with SplitMix finalization.
         long z = seed ^ 0xD6E8FEB86659FD93L;
         for (int i = 0; i < s.length(); i++) {
             z = mix64(z ^ s.charAt(i));
@@ -226,11 +207,7 @@ public final class CountSketch {
         return z;
     }
 
-
-    /**
-     * SplitMix64 finalizer (public domain). Good 64-bit avalanche.
-     * See: Steele et al., "Fast Splittable Pseudorandom Number Generators" (2014).
-     */
+    // SplitMix64 finalizer (public domain).
     private static long mix64(long z) {
         z += 0x9E3779B97F4A7C15L;
         z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;

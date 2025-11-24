@@ -5,21 +5,7 @@ import org.apache.commons.codec.digest.MurmurHash3;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 
-/**
- * StringKeyMapper
- *
- * Chooses the hash width from a target collision probability epsilon and the expected
- * number of distinct tokens n using the birthday bound
- *
- *   M  >=  n(n - 1) / (2 * -ln(1 - epsilon))
- *   bits = ceil(log2(M))
- *
- * If bits <= 31 it maps to int, otherwise to long.
- * You can choose Apache Commons Codec MurmurHash3 or Carter–Wegman universal hashing.
- *
- * NOTE: If requiredBits > 31, mapToInt(String) will still return a 31-bit value (best-effort)
- * and print a one-time warning with the implied collision probability for 31 bits.
- */
+// Chooses hash width from epsilon and n (birthday bound) and maps strings via Murmur3 or Carter-Wegman.
 public final class StringKeyMapper {
 
     public enum Algo { MURMUR3_APACHE, CARTER_WEGMAN }
@@ -36,7 +22,7 @@ public final class StringKeyMapper {
 
     private boolean warnedOnce = false;
 
-    // ---- Carter–Wegman state (only used when algo == CARTER_WEGMAN) ----
+    // Carter-Wegman state (only used when algo == CARTER_WEGMAN).
     private static final long P61  = (1L << 61) - 1;
     private static final long MASK = P61;
 
@@ -44,7 +30,7 @@ public final class StringKeyMapper {
     private final long cwA1, cwB1;
     private final long cwA2, cwB2;
 
-    /** Construct with expected distinct tokens n and target collision probability epsilon. Uses Murmur by default. */
+    // Construct with expected distinct tokens n and target epsilon; uses Murmur by default.
     public StringKeyMapper(long expectedDistinct, double epsilon) {
         this(expectedDistinct, epsilon, Algo.MURMUR3_APACHE);
 
@@ -56,7 +42,7 @@ public final class StringKeyMapper {
         return StringKeyMapper.Algo.CARTER_WEGMAN;
     }
 
-    /** Same as above but lets you pick the hashing algorithm. */
+    // Construct with explicit hashing algorithm choice.
     public StringKeyMapper(long expectedDistinct, double epsilon, Algo algo) {
         if (expectedDistinct < 0) throw new IllegalArgumentException("expectedDistinct must be nonnegative");
         if (!(epsilon > 0.0 && epsilon < 1.0)) throw new IllegalArgumentException("epsilon must be in (0, 1)");
@@ -66,7 +52,7 @@ public final class StringKeyMapper {
         this.requiredBits = bitsForEpsilon(expectedDistinct, epsilon);
         this.use32bit = requiredBits <= 31;
 
-        // Build masks once
+        // Build masks once.
         if (requiredBits >= 64) {
             this.mask64 = -1L; // all bits
         } else {
@@ -77,11 +63,11 @@ public final class StringKeyMapper {
         } else {
             this.mask32 = 0; // not used when !use32bit
         }
-        this.mask32BestEffort = 0x7FFFFFFF; // always safe 31-bit positive mask
+        this.mask32BestEffort = 0x7FFFFFFF; // always safe 31-bit positive mask.
 
         this.algo = algo;
 
-        // Seed Carter–Wegman parameters only if requested
+        // Seed Carter-Wegman parameters only if requested.
         if (algo == Algo.CARTER_WEGMAN) {
             SecureRandom rng = new SecureRandom();
 
@@ -98,16 +84,12 @@ public final class StringKeyMapper {
         }
     }
 
-    /** Return true if this mapper will produce int identifiers while honoring epsilon (i.e., requiredBits <= 31). */
+    // True if this mapper will produce int identifiers while honoring epsilon (requiredBits <= 31).
     public boolean is32bit() { return use32bit; }
 
-    /** The number of hash bits chosen from epsilon and n. */
+    // Number of hash bits chosen from epsilon and n.
     public int requiredBits() { return requiredBits; }
-
-    /**
-     * Map a string to an int. If requiredBits <= 31, masks exactly to requiredBits.
-     * If requiredBits > 31, prints a one-time warning and returns a best-effort 31-bit value.
-     */
+    // Map a string to an int, honoring requiredBits when <= 31.
     public int mapToInt(String s) {
         long h64 = hash64(s);
 
@@ -125,12 +107,12 @@ public final class StringKeyMapper {
                 );
                 warnedOnce = true;
             }
-            // best-effort: always non-negative 31-bit id
+            // Best-effort: always non-negative 31-bit id.
             return (int) (h64 & (long) mask32BestEffort);
         }
     }
 
-    /** Map a string to a long in the range [0, 2^{requiredBits}-1]. Always valid and honors epsilon. */
+    // Map a string to a long in the range [0, 2^{requiredBits}-1].
     public long mapToLong(String s) {
         if (!warnedOnce && this.verbose) {
             double err31 = birthdayCollisionProbability(this.expectedDistinct, 63);
@@ -146,10 +128,7 @@ public final class StringKeyMapper {
         return h64 & mask64;
     }
 
-    /**
-     * Produce two independent 64-bit hashes for the same string.
-     * Useful for double hashing in Bloom filters. Unmasked (caller decides use).
-     */
+    // Produce two independent 64-bit hashes for the same string (for double hashing).
     public long[] mapToTwoLongs(String s) {
         if (algo == Algo.MURMUR3_APACHE) {
             byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
@@ -161,12 +140,12 @@ public final class StringKeyMapper {
         }
     }
 
-    /** Convenience: estimated collision probability for the configured (epsilon-derived) bit width. */
+    // Estimated collision probability for the configured bit width.
     public double collisionProbability() {
         return birthdayCollisionProbability(expectedDistinct, requiredBits);
     }
 
-    /* ====================== hashing backends ====================== */
+    // Hashing backends.
 
     private long hash64(String s) {
         if (algo == Algo.MURMUR3_APACHE) {
@@ -179,7 +158,7 @@ public final class StringKeyMapper {
         }
     }
 
-    // Carter–Wegman polynomial over UTF-8 then affine a*x + b modulo 2^61 - 1
+    // Carter-Wegman polynomial over UTF-8 then affine a*x + b modulo 2^61 - 1.
     private static long cwHashUtf8To61(String s, long a, long b) {
         long h = b;
         for (int i = 0, len = s.length(); i < len; i++) {
@@ -234,9 +213,9 @@ public final class StringKeyMapper {
         return s >= P61 ? s - P61 : s;
     }
 
-    /* ====================== birthday bound helpers ====================== */
+    // Birthday bound helpers.
 
-    /** Collision probability for n distinct items in a space of 2^{bits}. */
+    // Collision probability for n distinct items in a space of 2^{bits}.
     public static double birthdayCollisionProbability(long n, int bits) {
         if (n <= 1) return 0.0;
         if (bits <= 0) return 1.0;
@@ -258,9 +237,7 @@ public final class StringKeyMapper {
         // P = 1 - exp(-x); use -expm1(-x) for accuracy when x is small
         return -Math.expm1(-x);
     }
-
-
-    /** Bits required so that collision probability <= epsilon for n items. */
+    // Bits required so that collision probability <= epsilon for n items.
     public static int bitsForEpsilon(long n, double epsilon) {
         if (n <= 1) return 1;
         if (!(epsilon > 0.0 && epsilon < 1.0)) {

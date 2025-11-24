@@ -4,12 +4,7 @@ import java.security.SecureRandom;
 import java.util.Objects;
 import java.util.SplittableRandom;
 
-/**
- * Deterministic 64-bit string hasher with randomly-sampled seeds. The implementation builds on the
- * FNV-1a mix combined with additional avalanching so the output can be safely truncated or combined
- * with other hashes. The goal is not cryptographic security but maintaining a uniformly distributed
- * token domain with negligible collision probability across the active window.
- */
+// Deterministic 64-bit string hasher with randomly-sampled seeds (not cryptographic).
 public final class UniversalStringHasher {
 
     private static final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
@@ -36,9 +31,7 @@ public final class UniversalStringHasher {
         return new UniversalStringHasher(offset, xor);
     }
 
-    /**
-     * Creates a hasher with deterministic seeds derived from {@code seed}. Useful for testing.
-     */
+    // Creates a hasher with deterministic seeds derived from seed (useful for tests).
     public static UniversalStringHasher withSeed(long seed) {
         SplittableRandom random = new SplittableRandom(seed);
         long offset = mix(FNV_OFFSET_BASIS ^ random.nextLong());
