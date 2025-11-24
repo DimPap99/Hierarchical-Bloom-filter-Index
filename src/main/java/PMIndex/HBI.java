@@ -24,9 +24,11 @@ import utilities.*;
 
 import java.util.*;
 import java.util.function.IntFunction;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import static utilities.MathUtils.pruningLevel;
+import static utilities.MathUtils.pruningLevelBloom;
 
 
 public final class HBI implements IPMIndexing {
@@ -47,6 +49,8 @@ public final class HBI implements IPMIndexing {
     private final int treeLength;
     public int alphabetSize;
     public final double fpRate;
+    // Toggle to keep levels below nGram and use token-length descent; default preserves current behaviour.
+    public boolean keepSubNgramLevels = false;
 
 
 
@@ -114,6 +118,11 @@ public final class HBI implements IPMIndexing {
         this.alphabetSize = config.alphabetSize();
         this.fpRate = config.fpRate();
         this.searchAlgo = config.searchAlgorithm();
+        if (this.searchAlgo instanceof search.BlockSearch bs) {
+            bs.setUseTokenLengthGuard(this.keepSubNgramLevels);
+        } else if (this.searchAlgo instanceof search.BlockSearchCharSet bscs) {
+            bscs.setUseTokenLengthGuard(this.keepSubNgramLevels);
+        }
         this.estimatorFac = config.estimatorSupplier();
         this.membershipFac = config.membershipSupplier();
         this.pruningPlanFac = config.pruningPlanSupplier();
@@ -302,7 +311,8 @@ public final class HBI implements IPMIndexing {
         this.lastPolicyQuantileFrequency = estimate.frequency;
         // This always happens for the current policy.
         double minp = latestTree.estimator.estimate(this.lastPolicyQuantileKey);
-        int lp = pruningLevel(latestTree, 0.99, minp);
+
+        int lp = pruningLevelBloom(latestTree, 0.99, minp, this.fpRate);
         latestTree.dropFiltersUpToLp(lp);
         if (this.memPolicy == Utils.MemPolicy.PREDICTIVE) {
             this.lastPredictiveLp = Math.max(0, Math.min(lp, latestTree.maxDepth() - 1));
@@ -333,6 +343,18 @@ public final class HBI implements IPMIndexing {
 
     public int getLastPolicyQuantileFrequency() {
         return lastPolicyQuantileFrequency;
+    }
+
+    public void releaseEstimatorsMatching(Predicate<Estimator> predicate) {
+        if (predicate == null) {
+            return;
+        }
+        for (ImplicitTree<Membership> tree : this.trees) {
+            Estimator estimator = tree.estimator;
+            if (estimator != null && predicate.test(estimator)) {
+                tree.estimator = null;
+            }
+        }
     }
 
     @Override
@@ -651,7 +673,7 @@ public final class HBI implements IPMIndexing {
         int totalLevels = Integer.SIZE - Integer.numberOfLeadingZeros(treeLength);
         int levels = 1;
         int span = Math.max(1, treeLength);
-        int target = Math.max(1, nGram);
+        int target = this.keepSubNgramLevels ? 1 : Math.max(1, nGram);
 
         while (levels < totalLevels && span % 2 == 0 && span / 2 >= target) {
             span /= 2;

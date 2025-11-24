@@ -14,6 +14,7 @@ public class BlockSearchCharSet implements SearchAlgorithm {
     public Estimator estimator;
     public int currentOffset;
     private boolean strides;
+    private boolean useTokenLengthGuard = false;
 
     @Override
     public CandidateRange search(Frame f, Pattern p, ImplicitTree tree, Deque<Frame> stack, int positionOffset) {
@@ -30,13 +31,16 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                 p.charStartLp,
                 currentIntervalSize);
         this.currentOffset = positionOffset;
+        int requiredSpan = useTokenLengthGuard ? tokens.length : p.size;
+        requiredSpan = Math.max(1, requiredSpan);
+        boolean canDescend = f.level() + 1 < tree.maxDepth();
 
         if (probe.consumed() == 0) {
             this.currentOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
             return null;
         } else {
             //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-            if (probe.complete() && childrenIntervalSize >= p.size) {
+            if (probe.complete() && canDescend && childrenIntervalSize >= requiredSpan) {
                 //we just generate children as theres a chance that the pattern is in both of them
                 tree.generateChildren(f, stack, positionOffset, tree.id);
                 return null;
@@ -80,6 +84,10 @@ public class BlockSearchCharSet implements SearchAlgorithm {
     @Override
     public boolean usesStrides() {
         return strides;
+    }
+
+    public void setUseTokenLengthGuard(boolean useTokenLengthGuard) {
+        this.useTokenLengthGuard = useTokenLengthGuard;
     }
 
     Probe probe(ImplicitTree tree,

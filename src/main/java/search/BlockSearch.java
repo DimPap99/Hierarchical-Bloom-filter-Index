@@ -9,6 +9,7 @@ public class BlockSearch implements SearchAlgorithm{
     public Estimator estimator;
     public int currentOffset;
     private boolean strides;
+    private boolean useTokenLengthGuard = false;
 
     @Override
     public CandidateRange search(Frame f,
@@ -46,6 +47,10 @@ public class BlockSearch implements SearchAlgorithm{
                 tokens,
                 currentIntervalSize);
 
+        int requiredSpan = useTokenLengthGuard ? tokens.length : p.size;
+        requiredSpan = Math.max(1, requiredSpan);
+        boolean canDescend = f.level() + 1 < tree.maxDepth();
+
         if (probe.consumed() == 0) {
             // Bloom said "no match at this interval's left edge"
             // We know everything up to globalEnd is dead
@@ -53,10 +58,9 @@ public class BlockSearch implements SearchAlgorithm{
             return null;
         }
 
-        boolean canDescend = f.level() + 1 < tree.maxDepth();
-
         if (probe.complete()
-                && childrenIntervalSize >= p.size
+                && canDescend
+                && childrenIntervalSize >= requiredSpan
                 ) {
 
             tree.generateChildren(f, stack, positionOffset, tree.id);
@@ -82,6 +86,10 @@ public class BlockSearch implements SearchAlgorithm{
     @Override
     public boolean usesStrides() {
         return strides;
+    }
+
+    public void setUseTokenLengthGuard(boolean useTokenLengthGuard) {
+        this.useTokenLengthGuard = useTokenLengthGuard;
     }
 
     Probe probe(ImplicitTree tree,
