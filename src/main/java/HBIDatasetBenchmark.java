@@ -338,7 +338,7 @@ public class HBIDatasetBenchmark {
     // Build a fresh HBI with the configured parameters.
     private static HBI newHbi(double conf, int alphabet, double fpRate) {
         // eps=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64 K
-        SelectiveFanout.setSelectiveRegimeEnabled(true);
+        SelectiveFanout.setSelectiveRegimeEnabled(false);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = () -> new BloomFilter();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);

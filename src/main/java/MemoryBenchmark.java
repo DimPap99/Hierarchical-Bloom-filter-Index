@@ -235,7 +235,7 @@ public final class MemoryBenchmark {
                                                      MemoryOptions options,
                                                      TreeSetting treeSetting,
                                                      int ngram,
-                                                     double fpRate) throws IOException {
+                                                    double fpRate) throws IOException {
         HBI hbi = newHbi(options, treeSetting, ngram, fpRate);
         hbi.strides = USE_STRIDES;
         if (options.isSegmentsMode()) {
@@ -250,6 +250,7 @@ public final class MemoryBenchmark {
         if (options.memPolicy() != Utils.MemPolicy.NONE) {
             hbi.forceApplyMemoryPolicy();
         }
+//        discardHashMapEstimators(hbi);//used for to drop hashmap estim. in practice we only use cssketch so its kept
 
         GraphLayout layout = GraphLayout.parseInstance(hbi);
         long bytes = layout.totalSize();
@@ -285,8 +286,8 @@ public final class MemoryBenchmark {
 
         GraphLayout layout = GraphLayout.parseInstance(suffix);
         long layoutBytes = layout.totalSize();
-        long dictBytes = suffix.estimateTokenDictionaryBytes();
-        long remapBytes = suffix.estimateSuffixTreeRemapBytes();
+        long dictBytes = suffix.estimateTokenDictionaryBytes();//we fully count it so this is always 0 in reality
+        // long remapBytes = suffix.estimateSuffixTreeRemapBytes();
         long totalBytes = layoutBytes;
         long coreBytes = Math.max(0L, layoutBytes - dictBytes);
         double coreMiB = coreBytes / 1_048_576d;
@@ -304,13 +305,13 @@ public final class MemoryBenchmark {
                 coreBytes,
                 coreMiB,
                 suffixNgram);
-        System.out.printf(Locale.ROOT,
-                "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
-                remapBytes,
-                remapBytes / 1_048_576d,
-                suffixNgram);
+//        System.out.printf(Locale.ROOT,
+//                "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
+//                0,
+//                0 / 1_048_576d,
+//                suffixNgram);
 
-        return new SuffixMeasurement(totalBytes, coreBytes, totalMiB, coreMiB, remapBytes, remapBytes / 1_048_576d, suffixNgram);
+        return new SuffixMeasurement(totalBytes, coreBytes, totalMiB, coreMiB, 0, 0, suffixNgram);
     }
 
     private static RegexMeasurement buildAndMeasureRegex(Path datasetFile,
@@ -338,6 +339,13 @@ public final class MemoryBenchmark {
                 mib);
 
         return new RegexMeasurement(bytes, mib);
+    }
+
+    private static void discardHashMapEstimators(HBI hbi) {
+        if (hbi == null) {
+            return;
+        }
+        hbi.releaseEstimatorsMatching(estimator -> estimator instanceof HashMapEstimator);
     }
 
     private static SuffixTreeMeasurement buildAndMeasureSuffixTree(Path datasetFile,
@@ -422,7 +430,7 @@ public final class MemoryBenchmark {
 
         @Override
         public Estimator get() {
-            return new CSEstimator(2048, 8, 1);//HashMapEstimator(treeLen);
+            return new HashMapEstimator(treeLen);
         }
     }
 
@@ -482,27 +490,39 @@ public final class MemoryBenchmark {
             Integer windowLength = null;
             Integer treeLength = null;
             Integer windowPower = 21;
-            Integer treePower = 21;
+            Integer treePower = 20;
             List<Integer> treePowerList = null;
             Integer alphabetBase = 150;
             String mode = "chars";
 
             Integer defaultNgram = 8;
             List<Integer> ngramList = null;
-
-            double fpRate = 0.15;
+            //WITH POLICY
+            //1:25.690
+            //2:30.856
+            //3: 33.127
+            //4: 33.965
+            //6: 33.127
+            //8: 33.127
+            // NO POLICY:
+            //1: 26.01
+            // 2: 33.920
+            // 4: 33.920
+            // 6: 33.082
+            // 8: 33.082 MiB
+            double fpRate = 0.2;
             List<Double> fpRates = null;
             String fpListArg = null;
             String fpGridArg = null;
 
             double runConfidence = 0.99;
-            double rankEpsTarget = 0.025;
+            double rankEpsTarget = 0.05;
             double deltaQ = 0.05;
             double deltaSamp = 0.05;
-            double quantile = 0.05;
+            double quantile = 0.2;
             boolean reuseSuffix = true;
             boolean suffixMatchNgram = false;
-            Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE;
+            Utils.MemPolicy memPolicy = Utils.MemPolicy.REACTIVE;
             Integer policyBuckets = null;
 
             for (int i = 0; i < args.length; i++) {
@@ -583,7 +603,7 @@ public final class MemoryBenchmark {
                 throw new IllegalArgumentException("p must be in (0,1)");
             }
 
-            if (defaultNgram == null) defaultNgram = 8;
+            if (defaultNgram == null) defaultNgram = 3;
             if (ngramList == null) {
                 ngramList = List.of(defaultNgram);
             } else {
@@ -736,7 +756,7 @@ public final class MemoryBenchmark {
         Utils.HopsDesignResult policyDesignFor(int ngram) {
             if (memPolicy == Utils.MemPolicy.NONE) return null;
             int distinctEstimate = Math.max(1, alphabetSizeFor(ngram));
-            return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, deltaQ, deltaSamp);
+            return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, 0.01, 0.02);
         }
 
         int ngram() {

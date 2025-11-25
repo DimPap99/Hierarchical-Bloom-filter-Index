@@ -77,7 +77,13 @@ public final class IntCountSketch {
 
     // Point query estimate for a key (median of signed row estimates).
     public long estimate(int item)    { return estimateHash(hashInt(item)); }
-    public long estimate(long item)   { return estimateHash(hashLong(item)); }
+    public long estimate(long item)   {
+
+        long hash =  hashLong(item);
+        long estimation = estimateHash(hash);
+
+        return estimation;
+    }
     public long estimate(String item) { return estimateHash(hashString(item)); }
     public long estimate(byte[] item) { return estimateHash(hashBytes(item)); }
 
