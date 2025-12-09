@@ -146,9 +146,9 @@ public final class BenchmarkOrchestrator {
                     // Warmups
                     for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                         if (options.runHbi()) {
-
+                            //testing to improve CF. Keep it as false to have the original behavior
                             boolean enableSelective = false;//(ng >= 6) || isCaidaWindow(options.window());
-                            SelectiveFanout.setSelectiveRegimeEnabled(enableSelective);
+                            SelectiveFanout.setSelectiveRegimeEnabled(false);
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
