@@ -531,7 +531,7 @@ public final class MemoryBenchmark {
             Integer policyBuckets = null;
             String sswsiMode = null, sswsiBuilder = null, sswsiDict = null;  // SswsiSettings.DEFAULT when not given
             int minPatternLength = 0;
-            membership.FilterKind filter = membership.FilterKind.BLOOM;
+            membership.FilterKind filter = membership.FilterKind.DEFAULT;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -806,7 +806,7 @@ public final class MemoryBenchmark {
             String policyToken = memPolicy.name().toLowerCase(Locale.ROOT);
             // The suffix n-gram and the SSWSI setting, so runs that differ only in those keep separate files.
             String suffixToken = (minPatternLength > 0 ? "_minpat" + minPatternLength : "")
-                    + (filter != membership.FilterKind.BLOOM ? "_" + filter.label() : "")
+                    + (filter != membership.FilterKind.DEFAULT ? "_" + filter.label() : "")
                     + (suffixMatchNgram ? "_suffix-match" : "") + "_sswsi-" + sswsi.label();
             if (multiCombos) {
                 return Path.of("memory_%s_%s_multi%s.csv".formatted(window, policyToken, suffixToken));

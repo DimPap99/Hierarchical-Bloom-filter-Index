@@ -1,7 +1,6 @@
 import PMIndex.*;
 import search.*;
 import estimators.*;
-import membership.BloomFilter;
 import membership.Membership;
 import utilities.*;
 
@@ -340,7 +339,7 @@ public class HBIDatasetBenchmark {
         // eps=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64 K
         SelectiveFanout.setSelectiveRegimeEnabled(false);
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
-        Supplier<Membership> memFactory = () -> new BloomFilter();
+        Supplier<Membership> memFactory = membership.FilterKind.DEFAULT.supplier();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier v = new VerifierLinearLeafProbe();
 

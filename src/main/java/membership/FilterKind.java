@@ -10,6 +10,10 @@ public enum FilterKind {
     // membership.BlockedBloomFilter: all k bits of a key in one 64- or 512-bit block, sized for the same rate.
     BLOCKED;
 
+    // The default everywhere a filter is not chosen explicitly: faster inserts and queries in every benchmark
+    // scenario, with the same probes and answers (hbi-optimizations.md, Section 2).
+    public static final FilterKind DEFAULT = BLOCKED;
+
     public Supplier<Membership> supplier() {
         return switch (this) {
             case BLOOM -> BloomFilter::new;
@@ -22,7 +26,7 @@ public enum FilterKind {
     }
 
     public static FilterKind parse(String value) {
-        if (value == null) return BLOOM;
+        if (value == null) return DEFAULT;
         return switch (value.trim().toLowerCase(Locale.ROOT)) {
             case "bloom", "standard" -> BLOOM;
             case "blocked" -> BLOCKED;

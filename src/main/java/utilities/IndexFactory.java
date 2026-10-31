@@ -84,7 +84,7 @@ public final class IndexFactory {
     public record HbiTuning(int minPatternLength, membership.FilterKind filter, long seed,
                             search.BlockSearch.Options searchOptions, boolean kmpVerification) {
         public static final HbiTuning DEFAULT =
-                new HbiTuning(0, membership.FilterKind.BLOOM, 1L, search.BlockSearch.Options.DEFAULT, false);
+                new HbiTuning(0, membership.FilterKind.DEFAULT, 1L, search.BlockSearch.Options.DEFAULT, false);
     }
 
     public static HBI createHbi(int windowLength,

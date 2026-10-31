@@ -147,11 +147,13 @@ class BloomFilterTest {
         for (int i = 0; i < (1 << 14); i++) sb.append((char) ('a' + random.nextInt(26)));
         String text = sb.toString();
         int w = 1 << 14;
+        for (FilterKind kind : FilterKind.values())
         for (int n : new int[]{1, 2}) {
+            IndexFactory.HbiTuning tuning = new IndexFactory.HbiTuning(0, kind, 1L, search.BlockSearch.Options.DEFAULT, false);
             HBI plain = IndexFactory.createHbi(w, w, Math.min((int) Math.pow(26, n), w), 0.2, 0.99,
-                    Utils.MemPolicy.NONE, n, "bs");
+                    Utils.MemPolicy.NONE, n, "bs", 0.05, 0, tuning);
             HBI mixed = IndexFactory.createHbi(w, w, Math.min((int) Math.pow(26, n), w), 0.2, 0.99,
-                    Utils.MemPolicy.NONE, n, "bs");
+                    Utils.MemPolicy.NONE, n, "bs", 0.05, 0, tuning);
             for (int i = 0; i + n <= text.length(); i++) {
                 String gram = text.substring(i, i + n);
                 plain.insert(gram);

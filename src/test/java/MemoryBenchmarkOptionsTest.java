@@ -52,10 +52,11 @@ class MemoryBenchmarkOptionsTest {
                 o.csvOutputFile().toString());
         assertThrows(IllegalArgumentException.class,
                 () -> MemoryBenchmark.MemoryOptions.parse(concat(base, "--min-pattern-length", "-1")));
-        MemoryBenchmark.MemoryOptions blocked = MemoryBenchmark.MemoryOptions.parse(concat(base, "--filter", "blocked"));
-        assertEquals(membership.FilterKind.BLOCKED, blocked.filter());
-        assertTrue(blocked.csvOutputFile().toString().endsWith("_blocked_sswsi-amortized-dc3-fks.csv"),
-                blocked.csvOutputFile().toString());
+        assertEquals(membership.FilterKind.BLOCKED, MemoryBenchmark.MemoryOptions.parse(base).filter());
+        MemoryBenchmark.MemoryOptions bloom = MemoryBenchmark.MemoryOptions.parse(concat(base, "--filter", "bloom"));
+        assertEquals(membership.FilterKind.BLOOM, bloom.filter());
+        assertTrue(bloom.csvOutputFile().toString().endsWith("_bloom_sswsi-amortized-dc3-fks.csv"),
+                bloom.csvOutputFile().toString());
     }
 
     private static String[] concat(String[] a, String... b) {

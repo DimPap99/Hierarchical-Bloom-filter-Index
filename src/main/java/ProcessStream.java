@@ -5,7 +5,6 @@ import PMIndex.RegexIndex;
 import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
-import membership.BloomFilter;
 import membership.Membership;
 import search.*;
 import utilities.*;
@@ -194,7 +193,7 @@ public class ProcessStream {
     // Helper to construct HBI similar to ConfidenceExperiment/HBIDatasetBenchmark
     private static HBI newHbi(int windowLen, int treeLen, int alphabet, double fpRate, double conf, int ngrams) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(treeLen);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = membership.FilterKind.DEFAULT.supplier();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier verifier = new VerifierLinearLeafProbe();
         return new HBI(HbiConfiguration.builder()

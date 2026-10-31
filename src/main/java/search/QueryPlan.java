@@ -2,8 +2,8 @@ package search;
 
 import estimators.Estimator;
 
-// The order in which one query tests its tokens against a node's filter (hbi-optimizations.md, Section 6; used
-// with BlockSearch.Options.queryPlan). Built once per query from the pattern: each distinct token once, with the
+// The order in which one query tests its tokens against a node's filter used
+// with BlockSearch.Options.queryPlan). Built once per query from the pattern -> each distinct token once, with the
 // smallest offset (in tree positions from the start of an occurrence) at which it occurs, optionally rarest first by
 // a frequency sketch. Block Search walks the plan in order and stops at the first token that tests negative; with
 // moveToFront that token goes first for every later node, at every level and in every tree of the query.

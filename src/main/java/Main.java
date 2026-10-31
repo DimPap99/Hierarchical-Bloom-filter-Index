@@ -6,7 +6,6 @@ import PMIndex.RegexIndex;
 import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
-import membership.BloomFilter;
 import membership.Membership;
 import search.BlockSearch;
 import search.MostFreqPruning;
@@ -79,7 +78,7 @@ public final class Main {
 
     private static HBI newHbi(CliOptions options, int alphabetSize, double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.treeLength);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = membership.FilterKind.DEFAULT.supplier();
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, DEFAULT_FP_RATE);
         Verifier verifier = new VerifierLinearLeafProbe();
 

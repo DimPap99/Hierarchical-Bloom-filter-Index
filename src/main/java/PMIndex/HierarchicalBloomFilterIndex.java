@@ -299,7 +299,7 @@ public final class HierarchicalBloomFilterIndex {
         private ProvisioningPolicy policy = ProvisioningPolicy.NONE;
         private long seed = 1L;
         private int minPatternLength;
-        private boolean blockedFilters;
+        private boolean blockedFilters = true;
 
         private Builder() {
         }
@@ -376,7 +376,7 @@ public final class HierarchicalBloomFilterIndex {
         /**
          * Use blocked Bloom filters: all bits of a key in one 64-bit word (one 512-bit block below a rate of about
          * 0.15), so a lookup is one memory access instead of several. Sized for the same false positive rate, with
-         * up to about 1% more bits. Default false.
+         * up to about 1% more bits. Default true; false selects the standard filter.
          */
         public Builder blockedFilters(boolean blockedFilters) {
             this.blockedFilters = blockedFilters;

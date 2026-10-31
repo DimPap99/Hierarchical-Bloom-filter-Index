@@ -72,7 +72,7 @@ public record MultiBenchmarkOptions(
         int minQueryLength = 0;
         int maxQueryLength = 0;
         int minPatternLength = 0;
-        membership.FilterKind filter = membership.FilterKind.BLOOM;
+        membership.FilterKind filter = membership.FilterKind.DEFAULT;
         long seed = IndexFactory.HbiTuning.DEFAULT.seed();
         boolean queryPlan = false, sketchOrder = false, moveToFront = false, neighbourCheck = false;
         boolean kmpVerification = false;

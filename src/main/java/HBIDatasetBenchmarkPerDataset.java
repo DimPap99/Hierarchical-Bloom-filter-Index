@@ -6,7 +6,6 @@ import PMIndex.OnlineSuffixTree;
 import estimators.CSEstimator;
 import estimators.CostFunctionDefaultRoot;
 import estimators.Estimator;
-import membership.BloomFilter;
 import membership.Membership;
 import search.*;
 
@@ -583,7 +582,7 @@ public final class HBIDatasetBenchmarkPerDataset {
     private static HBI newHbi(BenchmarkOptions options) {
         int alphabetSize = options.alphabetSize();
         Supplier<Estimator> estFactory = () -> new CSEstimator(options.treeLength(), 5, 16384);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = membership.FilterKind.DEFAULT.supplier();
         Verifier verifier = new VerifierLinearLeafProbe();
 
         // Choose search/pruning/cost by algorithm

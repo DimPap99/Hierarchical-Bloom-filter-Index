@@ -3,7 +3,6 @@ import PMIndex.HbiConfiguration;
 import estimators.CostFunctionMarkov;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
-import membership.BloomFilter;
 import membership.Membership;
 import search.BlockSearch;
 import search.Verifier;
@@ -84,7 +83,7 @@ public final class TrackIndexingSpeed {
 
     private static HBI newHbi(CliOptions options, int alphabetSize) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(options.treeLength);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = membership.FilterKind.DEFAULT.supplier();
         Verifier verifier = new VerifierLinearLeafProbe();
 
         HbiConfiguration configuration = HbiConfiguration.builder()

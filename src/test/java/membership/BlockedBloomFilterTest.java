@@ -113,6 +113,8 @@ class BlockedBloomFilterTest {
         assertThrows(IllegalArgumentException.class, () -> new BlockedBloomFilter().insert(new long[0]));
         assertEquals(FilterKind.BLOCKED, FilterKind.parse("Blocked"));
         assertEquals(FilterKind.BLOOM, FilterKind.parse("bloom"));
+        assertEquals(FilterKind.BLOCKED, FilterKind.DEFAULT);
+        assertEquals(FilterKind.DEFAULT, FilterKind.parse(null));
         assertInstanceOf(BlockedBloomFilter.class, FilterKind.BLOCKED.supplier().get());
         assertThrows(IllegalArgumentException.class, () -> FilterKind.parse("cuckoo"));
     }

@@ -42,3 +42,16 @@ AGENTS.md
 
 ### Thesis manuscript (kept out of the repository) ###
 thesis/
+
+### Network traces and the datasets built from them (regenerate with datagenerators.*; see README) ###
+data/traces/
+data/mawi*/*
+!data/mawi*/SOURCE.txt
+queries/mawi*/
+
+### Notes and write-ups (local only, not pushed) ###
+docs/
+
+### ConfidenceExperiment output ###
+*runs_summary.csv
+*patterns_summary.csv

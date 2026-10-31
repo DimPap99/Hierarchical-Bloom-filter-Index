@@ -184,7 +184,7 @@ public final class BenchmarkReporter {
         // Runs that differ only in the SSWSI setting must not overwrite each other's file.
         String sswsiToken = (sswsi == null) ? "" : "_sswsi-" + sswsi.label();
         String minPatternToken = (options.minPatternLength() > 0 ? "_minpat" + options.minPatternLength() : "")
-                + (options.filter() != membership.FilterKind.BLOOM ? "_" + options.filter().label() : "");
+                + (options.filter() != membership.FilterKind.DEFAULT ? "_" + options.filter().label() : "");
         String fileName = "%s_%s_%s_%s_%s_fp%s%s%s.csv"
                 .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken,
                         minPatternToken, sswsiToken);
