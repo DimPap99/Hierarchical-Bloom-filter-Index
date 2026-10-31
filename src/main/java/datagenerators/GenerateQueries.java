@@ -17,17 +17,18 @@ import java.util.Random;
 /**
  * Generates the query workloads of one window, in the layout the benchmarks read:
  * {@code <query dir>/<r>.uniform.txt}, {@code <r>.missing.txt} and {@code <r>.rare.txt} for
- * r = 10, 20, 40, 80, 160, with 500 queries each.
+ * r = 10, 20, 40, 80, 160 (or the lengths given), with 500 queries each.
  *
  * <p>Symbols are characters ({@code chars}: newlines dropped, as the harness reads text) or records
  * ({@code segments}: one per line; a query line joins its records with single spaces).
  * <ul>
  *   <li><b>uniform</b>: substrings at uniformly random positions (thesis Sec. 5.1). All occur.</li>
  *   <li><b>missing</b>: the uniform samples, of which exactly half are turned into non-occurrences:
- *       30% of their symbols (rounded up), at distinct random positions, are replaced by symbols drawn
- *       uniformly from the window's alphabet, redrawn until the pattern does not occur in the window
- *       (thesis Sec. 5.2.1). They are near misses made of symbols that do occur, so an index cannot
- *       reject them just because a symbol is new.</li>
+ *       30% of their symbols (rounded up), at distinct random positions, are replaced by symbols of the
+ *       window, redrawn until the pattern does not occur in the window (thesis Sec. 5.2.1). A replacement
+ *       is the symbol at a uniformly random window position, so symbols are drawn as often as they occur:
+ *       the near misses look like the window's own text, and an index cannot reject them just because
+ *       they contain a new or rare symbol.</li>
  *   <li><b>rare</b>: substrings containing a rare symbol. Symbol frequencies are taken from the lowest
  *       up until the positions holding them cover at least 1% of the window; a position is drawn
  *       uniformly among those, and the substring covers it at a random offset. All occur.</li>
@@ -35,7 +36,8 @@ import java.util.Random;
  * Deterministic for a given seed. Absence is checked exactly: a pattern is accepted as missing only
  * if its rolling hash matches no substring of the window, and equal strings have equal hashes.
  *
- * <p>Usage: {@code GenerateQueries <window file> <query dir> <chars|segments> <seed>}
+ * <p>Usage: {@code GenerateQueries <window file> <query dir> <chars|segments> <seed> [lengths]},
+ * where lengths is a comma-separated list such as {@code 10,20,40,80,160,320}.
  */
 public final class GenerateQueries {
 
@@ -49,18 +51,21 @@ public final class GenerateQueries {
     }
 
     public static void main(String[] args) throws IOException {
-        if (args.length != 4 || !(args[2].equals("chars") || args[2].equals("segments"))) {
-            System.err.println("usage: GenerateQueries <window file> <query dir> <chars|segments> <seed>");
+        if (args.length < 4 || args.length > 5 || !(args[2].equals("chars") || args[2].equals("segments"))) {
+            System.err.println("usage: GenerateQueries <window file> <query dir> <chars|segments> <seed> [lengths]");
             System.exit(2);
         }
         Window window = Window.read(Path.of(args[0]), args[2].equals("segments"));
         Path out = Path.of(args[1]);
         long seed = Long.parseLong(args[3]);
+        int[] lengths = (args.length == 5)
+                ? Arrays.stream(args[4].split(",")).mapToInt(Integer::parseInt).toArray()
+                : LENGTHS;
         Files.createDirectories(out);
-        System.out.println(generate(window, out, seed));
+        System.out.println(generate(window, out, seed, lengths));
     }
 
-    static String generate(Window win, Path out, long seed) throws IOException {
+    static String generate(Window win, Path out, long seed, int[] lengths) throws IOException {
         int n = win.seq.length;
         int[] freq = new int[win.sigma];
         for (int s : win.seq) {
@@ -72,7 +77,7 @@ public final class GenerateQueries {
                 "%s: %d symbols, %d distinct (%d occur once); rare pool %d positions (%.2f%%)%n",
                 win.source, n, win.sigma, singletons, rarePool.length, 100.0 * rarePool.length / n));
 
-        for (int r : LENGTHS) {
+        for (int r : lengths) {
             if (r > n) {
                 continue;
             }
@@ -112,7 +117,7 @@ public final class GenerateQueries {
                     for (int i = 0; i < replaced; i++) {
                         int j = i + rnd.nextInt(r - i);
                         int t = positions[i]; positions[i] = positions[j]; positions[j] = t;
-                        mutant[positions[i]] = rnd.nextInt(win.sigma);
+                        mutant[positions[i]] = win.seq[rnd.nextInt(n)];
                     }
                 } while (present.contains(hash(mutant, base)));
                 missing[q] = mutant;
