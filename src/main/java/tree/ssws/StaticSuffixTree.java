@@ -8,6 +8,10 @@ import java.util.Arrays;
  * Suffix tree of {@code text[offset, offset + n)} followed by a unique terminator, stored in arrays and immutable
  * after construction. Built by a {@link SuffixTreeBuilder}.
  *
+ * <p>The tree is a view: it keeps a reference to {@code text} and reads {@code text[offset, offset + n)} whenever it
+ * is searched, so those entries must not change while the tree is in use. The rest of {@code text} may change;
+ * {@code SlidingSuffixIndex} keeps every tree in one shared array.
+ *
  * <p><b>Nodes.</b> Leaf {@code i} is suffix {@code sa[i]}, the i-th suffix in suffix-array order, and has node id
  * {@code ~i}, which is negative. Internal nodes have ids {@code 0 .. internalNodeCount() - 1}, and the root is 0.
  * An internal node stores its string depth and its leaf range {@code [lo, hi]} in suffix-array order. Children are
@@ -103,6 +107,11 @@ public final class StaticSuffixTree {
     /** The child whose edge starts with {@code symbol}, through the child dictionary, or {@link #NONE}. */
     public int childBySymbol(int node, long symbol) {
         return dictionary.child(node, symbol);
+    }
+
+    /** True if this is the tree of {@code text[offset, offset + length)}: the same array, not a copy of it. */
+    public boolean views(long[] text, int offset, int length) {
+        return this.text == text && this.offset == offset && this.n == length;
     }
 
     /** The symbol at {@code position < length()}. */

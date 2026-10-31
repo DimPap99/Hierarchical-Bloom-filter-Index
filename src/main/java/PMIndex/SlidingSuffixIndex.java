@@ -1,6 +1,7 @@
 package PMIndex;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
+import org.openjdk.jol.info.GraphLayout;
 import search.Pattern;
 import tree.ssws.ChildDictionary;
 import tree.ssws.Dc3SuffixTreeBuilder;
@@ -11,6 +12,9 @@ import utilities.PatternResult;
 import utilities.TokenHasher;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -50,6 +54,14 @@ import java.util.Objects;
  * is {@code max(|s_x| - m + 1, window start - B.start)}; both are lower bounds on the start, so the range-maximum
  * recursion still stops correctly.
  *
+ * <p><b>Text (Sec. 2 and 3.1).</b> The paper's structure contains the suffix {@code S} once, and its suffix trees
+ * represent edge labels by two indices into the text. Here {@code S} is stored once, in one array of {@code 2w}
+ * symbols, always starting at index 0, and every tree (segment, boundary, and the query-time tree over R) is a view
+ * {@code (offset, length)} into that array, without a copy. When a second segment of size {@code w} forms, the old
+ * one is dropped and {@code S} is the new segment alone, so the new segment moves from {@code [w, 2w)} to
+ * {@code [0, w)} before its tree is built: {@code w} symbols every {@code w} arrivals. No tree is alive at that
+ * moment, and new symbols are written past the end of {@code S}, which no tree views.
+ *
  * <p>Interface behaviour as LEGACY: symbols and the n-grams of a pattern are hashed with
  * {@link TokenHasher#hashToPositiveLong}, stream positions are {@code long}, and {@link #report} returns positions
  * relative to the window start ({@link #windowStartPosition()}), in no particular order.
@@ -57,8 +69,9 @@ import java.util.Objects;
  * <p>Defaults: FKS child dictionaries, as in the paper, and the DC3 + Kasai construction. The paper's Farach-Colton
  * construction ({@link tree.ssws.FarachColtonSuffixTreeBuilder}) is selectable and gives the same trees, but its
  * suffix and LCP arrays take 2-3 times as long, which makes inserts 1.1-1.4 times slower (docs/sswsi-results.md,
- * Phase 2). FASTUTIL is selectable too. Every segment and every boundary tree still has its own copy of its
- * symbols (docs/sswsi-baseline-handoff.md, Phase 3).
+ * Phase 2). FASTUTIL is selectable too.
+ *
+ * <p>With {@code -ea}, every insert ends with {@link #checkInvariants()}.
  */
 public final class SlidingSuffixIndex implements IPMIndexing {
 
@@ -70,6 +83,9 @@ public final class SlidingSuffixIndex implements IPMIndexing {
     private final Segment[] segments;           // left to right
     private int count;
     private long nextTokenPosition;
+
+    private final long[] text;                  // S = text[0, nextTokenPosition - base); capacity 2w
+    private long base;                          // stream position of text[0]: the leftmost segment's start
 
     private final IntArrayList hits = new IntArrayList();
 
@@ -91,6 +107,7 @@ public final class SlidingSuffixIndex implements IPMIndexing {
         this.builder = Objects.requireNonNull(builder, "builder");
         this.dictionary = Objects.requireNonNull(dictionary, "dictionary");
         this.segments = new Segment[maxLevel + 2];
+        this.text = new long[2 * windowSize];
     }
 
     @Override
@@ -100,23 +117,18 @@ public final class SlidingSuffixIndex implements IPMIndexing {
         }
         long token = TokenHasher.hashToPositiveLong(key);
         long position = nextTokenPosition++;
+        text[(int) (position - base)] = token;      // |S| <= 2w - 1 before this symbol
 
         // The rightmost j segments have sizes 2^(j-1), ..., 2, 1; with the new symbol they become one segment of
-        // size 2^j <= w, and only that segment is built.
+        // size 2^j <= w, and only that segment is built. Its symbols are already in place.
         int j = 0;
         while (j < maxLevel && j < count && segments[count - 1 - j].size == (1 << j)) {
             j++;
         }
         int size = 1 << j;
-        long[] tokens = new long[size];
-        int filled = 0;
         for (int k = count - j; k < count; k++) {
-            Segment s = segments[k];
-            System.arraycopy(s.tokens, 0, tokens, filled, s.size);
-            filled += s.size;
             segments[k] = null;
         }
-        tokens[filled] = token;
         count -= j;
 
         long start = position - size + 1;
@@ -127,22 +139,26 @@ public final class SlidingSuffixIndex implements IPMIndexing {
             }
             segments[0] = null;
             count = 0;
+            // S is the new segment alone, and no tree is alive: move it to the front.
+            System.arraycopy(text, windowSize, text, 0, windowSize);
+            base = start;
         }
 
-        StaticSuffixTree tree = builder.build(tokens, 0, size, dictionary);
+        StaticSuffixTree tree = builder.build(text, (int) (start - base), size, dictionary);
         RangeMax starts = (size == windowSize) ? new RangeMax(tree) : null;
-        Boundary left = (count > 0) ? buildBoundary(segments[count - 1], tokens, start) : null;
-        segments[count++] = new Segment(start, size, tokens, tree, starts, left);
+        Boundary left = (count > 0) ? buildBoundary(start, size) : null;
+        segments[count++] = new Segment(start, size, tree, starts, left);
+        assert checkInvariants();
     }
 
-    /** B(a, d): the last |d| symbols of a, then d, with BL' over the suffixes that start in the left half. */
-    private Boundary buildBoundary(Segment a, long[] right, long rightStart) {
-        int half = right.length;
-        long[] text = new long[2 * half];
-        System.arraycopy(a.tokens, a.size - half, text, 0, half);
-        System.arraycopy(right, 0, text, half, half);
-        StaticSuffixTree tree = builder.build(text, 0, text.length, dictionary);
-        return new Boundary(rightStart - half, half, tree, new RangeMax(tree, half));
+    /**
+     * B(a, d) for the new rightmost segment d: the last |d| symbols of its left neighbour a (which is larger), then
+     * d, with BL' over the suffixes that start in the left half.
+     */
+    private Boundary buildBoundary(long rightStart, int half) {
+        long start = rightStart - half;
+        StaticSuffixTree tree = builder.build(text, (int) (start - base), 2 * half, dictionary);
+        return new Boundary(start, half, tree, new RangeMax(tree, half));
     }
 
     /** Absolute stream position of the first symbol in the current window. */
@@ -176,12 +192,12 @@ public final class SlidingSuffixIndex implements IPMIndexing {
 
             int node = s.tree.locus(pattern);
             if (node != StaticSuffixTree.NONE) {
-                int base = (int) (s.start - windowStart);
+                int shift = (int) (s.start - windowStart);
                 if (s.start >= windowStart) {
-                    s.tree.reportAll(node, out, base);
+                    s.tree.reportAll(node, out, shift);
                 } else {
                     // Only the leftmost segment, of size w, reaches before the window start.
-                    s.starts.reportAtLeast(s.tree.lo(node), s.tree.hi(node), (int) (windowStart - s.start), out, base);
+                    s.starts.reportAtLeast(s.tree.lo(node), s.tree.hi(node), (int) (windowStart - s.start), out, shift);
                 }
             }
 
@@ -204,36 +220,24 @@ public final class SlidingSuffixIndex implements IPMIndexing {
         return result;
     }
 
-    /** Part 3: a suffix tree over R, built for this query. */
+    /** Part 3: a suffix tree over R, built for this query. R is the end of S, so the tree is a view of it. */
     private void reportFromR(long[] pattern, int pivot, long windowStart, IntArrayList out) {
         int m = pattern.length;
         if (pivot == count - 1) {
             return;   // R would be the last m - 1 symbols of the rightmost segment
         }
-        int prefix = (pivot < 0) ? 0 : m - 1;
-        int length = prefix;
-        for (int x = pivot + 1; x < count; x++) {
-            length += segments[x].size;
-        }
-        if (length < m) {
-            return;
-        }
-        long[] r = new long[length];
         long rStart;
         if (pivot < 0) {
             rStart = segments[0].start;
         } else {
             Segment p = segments[pivot];
-            rStart = p.start + p.size - prefix;
-            System.arraycopy(p.tokens, p.size - prefix, r, 0, prefix);
+            rStart = p.start + p.size - (m - 1);
         }
-        int filled = prefix;
-        for (int x = pivot + 1; x < count; x++) {
-            Segment s = segments[x];
-            System.arraycopy(s.tokens, 0, r, filled, s.size);
-            filled += s.size;
+        int length = (int) (nextTokenPosition - rStart);
+        if (length < m) {
+            return;
         }
-        StaticSuffixTree tree = builder.build(r, 0, length, dictionary);
+        StaticSuffixTree tree = builder.build(text, (int) (rStart - base), length, dictionary);
         int node = tree.locus(pattern);
         if (node != StaticSuffixTree.NONE) {
             // R starts before the window only when the pivot is the leftmost segment.
@@ -266,6 +270,131 @@ public final class SlidingSuffixIndex implements IPMIndexing {
         return sizes;
     }
 
+    /** |S|, the number of symbols stored: all of them before {@code w} have arrived, then {@code w} to {@code 2w - 1}. */
+    public long storedSymbols() {
+        return nextTokenPosition - base;
+    }
+
+    /**
+     * Checks the structure of Sec. 3.1 and the text layout, and throws {@link AssertionError} if anything is off;
+     * returns true otherwise, so that {@code insert} can end with {@code assert checkInvariants()}, which costs
+     * nothing without {@code -ea}.
+     * <ul>
+     *   <li>Segment sizes are distinct powers of two, at most {@code w}, decreasing to the right, and there are at
+     *       most {@code log2(w) + 1} of them.</li>
+     *   <li>Segments are contiguous, the first starts at {@code text[0]}, the last ends with the newest symbol, and
+     *       each starts at a multiple of its size (the binary counter).</li>
+     *   <li>Before {@code w} symbols have arrived, the segments hold all of them. From then on, the leftmost has size
+     *       {@code w}, {@code w <= |S| <= 2w - 1}, the window starts inside the leftmost segment, and every other
+     *       segment lies inside the window.</li>
+     *   <li>A segment has a range-maximum structure exactly when its size is {@code w}.</li>
+     *   <li>The leftmost segment has no boundary tree; every other segment {@code d} has one over the last |d|
+     *       symbols of its left neighbour and d.</li>
+     *   <li>Every tree is a view of its own symbols in {@code text}.</li>
+     * </ul>
+     */
+    boolean checkInvariants() {
+        long t = nextTokenPosition;
+        if (count == 0) {
+            check(t == 0 && base == 0, "no segments after %d symbols", t);
+            return true;
+        }
+        check(count <= maxLevel + 1, "%d segments", count);
+        check(segments[0].start == base, "the leftmost segment starts at %d, text[0] is %d", segments[0].start, base);
+        long expected = base;
+        for (int x = 0; x < count; x++) {
+            Segment s = segments[x];
+            check(s != null, "segment %d is missing", x);
+            check(Integer.bitCount(s.size) == 1 && s.size <= windowSize, "segment %d has size %d", x, s.size);
+            check(x == 0 || s.size < segments[x - 1].size, "segment %d is not smaller than its left neighbour", x);
+            check(s.start == expected, "segment %d starts at %d, not %d", x, s.start, expected);
+            check(s.start % s.size == 0, "segment %d of size %d starts at %d", x, s.size, s.start);
+            check((s.starts != null) == (s.size == windowSize), "segment %d of size %d, range max %s", x, s.size,
+                    s.starts);
+            check(s.tree.views(text, (int) (s.start - base), s.size), "segment %d's tree is not a view of it", x);
+            if (x == 0) {
+                check(s.left == null, "the leftmost segment has a boundary tree");
+            } else {
+                Boundary b = s.left;
+                check(b != null, "segment %d has no boundary tree", x);
+                check(b.half == s.size && b.start == s.start - s.size, "segment %d's boundary covers [%d, %d)", x,
+                        b.start, b.start + 2L * b.half);
+                check(b.tree.views(text, (int) (b.start - base), 2 * b.half), "boundary %d's tree is not a view", x);
+            }
+            expected += s.size;
+        }
+        check(expected == t, "the segments end at %d, the stream at %d", expected, t);
+        for (int x = count; x < segments.length; x++) {
+            check(segments[x] == null, "slot %d past the last segment is not empty", x);
+        }
+        long stored = t - base;
+        check(stored <= 2L * windowSize - 1, "%d symbols stored", stored);
+        if (t < windowSize) {
+            check(base == 0, "symbols before position %d were dropped before the window filled", base);
+        } else {
+            check(segments[0].size == windowSize, "the leftmost segment has size %d", segments[0].size);
+            check(stored >= windowSize, "only %d symbols stored", stored);
+            long windowStart = t - windowSize;
+            check(segments[0].start <= windowStart && windowStart < segments[0].start + windowSize,
+                    "the window starts at %d, outside the leftmost segment at %d", windowStart, segments[0].start);
+            check(count == 1 || segments[1].start >= windowStart, "segment 1 starts before the window");
+        }
+        return true;
+    }
+
+    private static void check(boolean ok, String what, Object... args) {
+        if (!ok) {
+            throw new AssertionError("SlidingSuffixIndex: " + String.format(what, args));
+        }
+    }
+
+    /**
+     * Bytes reachable from this index, measured by JOL as {@code MemoryBenchmark} measures LEGACY
+     * ({@link StreamingSlidingWindowIndex#estimateRetainedBytesWithoutAlphabet()}). Walks the whole object graph.
+     * The builders' per-thread work arrays are not reachable from the index, so they are not included.
+     */
+    public long estimateRetainedBytes() {
+        return GraphLayout.parseInstance(this).totalSize();
+    }
+
+    /**
+     * {@link #estimateRetainedBytes()} split into the stored text, the segment trees and the boundary trees (each
+     * with their child dictionaries), the range-maximum structures, and the rest. Each part is the JOL size of
+     * everything reachable from it that an earlier part does not reach (a tree reaches the text, a range-maximum
+     * structure its tree's suffix array).
+     */
+    public Map<String, Long> estimateRetainedBytesByPart() {
+        List<Object> roots = new ArrayList<>();
+        roots.add(text);
+        long textBytes = GraphLayout.parseInstance(roots.toArray()).totalSize();
+        for (int x = 0; x < count; x++) {
+            roots.add(segments[x].tree);
+        }
+        long withSegments = GraphLayout.parseInstance(roots.toArray()).totalSize();
+        for (int x = 1; x < count; x++) {
+            roots.add(segments[x].left.tree);
+        }
+        long withBoundaries = GraphLayout.parseInstance(roots.toArray()).totalSize();
+        for (int x = 0; x < count; x++) {
+            Segment s = segments[x];
+            if (s.starts != null) {
+                roots.add(s.starts);
+            }
+            if (s.left != null) {
+                roots.add(s.left.leftStarts);
+            }
+        }
+        long withRangeMax = GraphLayout.parseInstance(roots.toArray()).totalSize();
+
+        Map<String, Long> parts = new LinkedHashMap<>();
+        parts.put("text", textBytes);
+        parts.put("segment trees", withSegments - textBytes);
+        parts.put("boundary trees", withBoundaries - withSegments);
+        parts.put("range max", withRangeMax - withBoundaries);
+        parts.put("other", estimateRetainedBytes() - withRangeMax);
+        return parts;
+    }
+
     /** Nothing to do: the window slides on every insert. */
     @Override
     public void expire() {
@@ -290,15 +419,13 @@ public final class SlidingSuffixIndex implements IPMIndexing {
     private static final class Segment {
         final long start;           // stream position of the first symbol
         final int size;
-        final long[] tokens;
         final StaticSuffixTree tree;
         final RangeMax starts;      // size w only
         final Boundary left;        // B(left neighbour, this); null for the leftmost segment
 
-        Segment(long start, int size, long[] tokens, StaticSuffixTree tree, RangeMax starts, Boundary left) {
+        Segment(long start, int size, StaticSuffixTree tree, RangeMax starts, Boundary left) {
             this.start = start;
             this.size = size;
-            this.tokens = tokens;
             this.tree = tree;
             this.starts = starts;
             this.left = left;

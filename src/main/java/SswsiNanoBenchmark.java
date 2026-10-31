@@ -1,16 +1,21 @@
 import PMIndex.IPMIndexing;
 import PMIndex.StreamingSlidingWindowIndex;
+import org.openjdk.jol.info.GraphLayout;
+import org.openjdk.jol.util.Multiset;
 import search.Pattern;
 import tree.ssws.SuffixTree;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 
 // Nanosecond-resolution benchmarks for the SSWSI baseline (docs/sswsi-results.md). The main harness times
@@ -30,6 +35,12 @@ import java.util.Random;
 //   build [legacy|static] [fc|dc3] [fastutil|fks]
 //       Times one suffix tree build on random 63-bit tokens, 2^4..2^21 of them, 100 or all distinct: legacy is
 //       SuffixTree.build, static is the array tree of SlidingSuffixIndex with the given builder and dictionary.
+//   memory <dataset file> <n> [window] [legacy|amortized] [fc|dc3] [fastutil|fks] [chars|segments]
+//       Streams the dataset like `index` into one index, then prints what MemoryBenchmark measures: the JOL size of
+//       everything reachable from the index, per stored symbol, and its largest classes; for amortized, also the
+//       stored text, segment trees, boundary trees and range-maximum structures. Then the builders' per-thread
+//       work arrays, which the index does not reference, so JOL's total leaves them out.
+//       JOL on JDK 25 needs -Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading.
 //
 // It uses reflection where the API changed after Phase 0, so it also compiles and runs against older checkouts
 // (legacy only).
@@ -77,12 +88,109 @@ public final class SswsiNanoBenchmark {
                 }
             }
             build(legacy, builder, dictionary);
+        } else if (args.length >= 3 && args[0].equals("memory")) {
+            int window = 1 << 20;
+            String mode = "legacy";
+            String builder = "dc3";
+            String dictionary = "fks";
+            boolean segments = false;
+            for (int i = 3; i < args.length; i++) {
+                String a = args[i].toLowerCase(Locale.ROOT);
+                switch (a) {
+                    case "legacy", "amortized" -> mode = a;
+                    case "fc", "dc3" -> builder = a;
+                    case "fastutil", "fks" -> dictionary = a;
+                    case "chars" -> segments = false;
+                    case "segments" -> segments = true;
+                    default -> window = Integer.parseInt(a);
+                }
+            }
+            memory(Path.of(args[1]), Integer.parseInt(args[2]), window, mode, builder, dictionary, segments);
         } else {
             System.err.println("usage: SswsiNanoBenchmark index <dataset file> <query dir> <n> <reps> [window]"
                     + " [legacy|amortized] [fc|dc3] [fastutil|fks] [chars|segments]");
             System.err.println("       SswsiNanoBenchmark build [legacy|static] [fc|dc3] [fastutil|fks]");
+            System.err.println("       SswsiNanoBenchmark memory <dataset file> <n> [window] [legacy|amortized]"
+                    + " [fc|dc3] [fastutil|fks] [chars|segments]");
             System.exit(2);
         }
+    }
+
+    private static final double MIB = 1024.0 * 1024.0;
+
+    private static void memory(Path dataset, int n, int window, String mode, String builder, String dictionary,
+                               boolean segments) throws Exception {
+        IPMIndexing index = newIndex(mode, builder, dictionary, window);
+        int symbols = 0;
+        if (segments) {
+            String[] tokens = nonEmptyLines(dataset).toArray(new String[0]);
+            for (int i = 0; i + n <= tokens.length; i++, symbols++) {
+                index.insert(Pattern.joinTokens(tokens, i, n));
+            }
+        } else {
+            String text = Files.readString(dataset).replace("\n", "").replace("\r", "");
+            for (int i = 0; i + n <= text.length(); i++, symbols++) {
+                index.insert(text.substring(i, i + n));
+            }
+        }
+        // Symbols stored: S for amortized (w to 2w - 1 of them once w have arrived), the segments for legacy.
+        long stored;
+        if (mode.equals("legacy")) {
+            Field f = StreamingSlidingWindowIndex.class.getDeclaredField("totalStoredLength");
+            f.setAccessible(true);
+            stored = ((Number) f.get(index)).longValue();
+        } else {
+            stored = (long) index.getClass().getMethod("storedSymbols").invoke(index);
+        }
+
+        GraphLayout layout = GraphLayout.parseInstance(index);
+        long total = layout.totalSize();
+        System.out.printf("%s%s %s n=%d window=%d symbols=%d stored=%d: %.1f MiB, %.1f B per stored symbol%n",
+                mode, mode.equals("legacy") ? "" : "/" + builder + "/" + dictionary, segments ? "segments" : "chars",
+                n, window, symbols, stored, total / MIB, total / (double) stored);
+        if (!mode.equals("legacy")) {
+            @SuppressWarnings("unchecked")
+            Map<String, Long> parts = (Map<String, Long>) index.getClass()
+                    .getMethod("estimateRetainedBytesByPart").invoke(index);
+            for (Map.Entry<String, Long> e : parts.entrySet()) {
+                System.out.printf("  %-15s %8.1f MiB %6.1f B per stored symbol%n", e.getKey(), e.getValue() / MIB,
+                        e.getValue() / (double) stored);
+            }
+        }
+        Multiset<Class<?>> sizes = layout.getClassSizes();
+        Multiset<Class<?>> counts = layout.getClassCounts();
+        List<Class<?>> classes = new ArrayList<>(sizes.keys());
+        classes.sort(Comparator.comparingLong((Class<?> c) -> sizes.count(c)).reversed());
+        System.out.println("  largest classes:");
+        for (Class<?> c : classes.subList(0, Math.min(8, classes.size()))) {
+            System.out.printf("    %-60s %10d objects %8.1f MiB%n", c.getName(), counts.count(c), sizes.count(c) / MIB);
+        }
+
+        // Work arrays kept per thread between builds, sized to the largest tree built so far.
+        String[][] scratch = {
+                {"tree.ssws.RankReducer", "WORKSPACE"},
+                {"tree.ssws.SuffixArrayBuilder", "TLS_WORKSPACE"},
+                {"tree.ssws.StaticSuffixTree", "WORKSPACE"},
+                {"tree.ssws.RangeMax", "STACK"},
+        };
+        long scratchTotal = 0;
+        System.out.println("  per-thread work arrays (not in the total):");
+        for (String[] s : scratch) {
+            Object value;
+            try {
+                Field f = Class.forName(s[0]).getDeclaredField(s[1]);
+                f.setAccessible(true);
+                value = ((ThreadLocal<?>) f.get(null)).get();
+            } catch (ClassNotFoundException | NoSuchFieldException olderCheckout) {
+                continue;
+            }
+            long bytes = GraphLayout.parseInstance(value).totalSize();
+            scratchTotal += bytes;
+            System.out.printf("    %-45s %8.1f MiB %6.1f B per window symbol%n", s[0] + "." + s[1], bytes / MIB,
+                    bytes / (double) window);
+        }
+        System.out.printf("    %-45s %8.1f MiB %6.1f B per window symbol%n", "total", scratchTotal / MIB,
+                scratchTotal / (double) window);
     }
 
     private static IPMIndexing newIndex(String mode, String builder, String dictionary, int window)

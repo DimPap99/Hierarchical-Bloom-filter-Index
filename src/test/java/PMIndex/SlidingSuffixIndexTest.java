@@ -6,7 +6,9 @@ import tree.ssws.ChildDictionary;
 import tree.ssws.SuffixTreeBuilder;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.TreeSet;
 
@@ -121,6 +123,85 @@ class SlidingSuffixIndexTest {
                 }
             }
         }
+    }
+
+    // After every insert: every distinct substring of the window (lengths 1..w) and, per length, up to two absent
+    // patterns (a substring of the window with one symbol changed, kept only if it is not in the window; many of
+    // them occur before the window start). Compared with brute force as sets; no position may come back twice.
+    // Streams over 1, 2 and 3 letters and one periodic text, with the defaults (DC3 + FKS) and with FC + FASTUTIL;
+    // everyPatternLengthAfterEveryInsert covers all four combinations with sampled patterns. LEGACY gets the same
+    // check.
+    @Test
+    void everyWindowSubstringAfterEveryInsert() {
+        Random rnd = new Random(41);
+        for (int w : new int[]{16, 32, 64}) {
+            // About 2,000 distinct substrings per window at w = 64, so a shorter stream there: still three drops
+            // of a size-w segment, and every state of the binary counter three times with a full window.
+            int length = (w == 64) ? 4 * w + 13 : 8 * w + 13;
+            List<String> streams = List.of(randomText(rnd, "a", length), randomText(rnd, "ab", length),
+                    randomText(rnd, "abc", length), "aab".repeat(length / 3 + 1).substring(0, length));
+            for (String stream : streams) {
+                String label = "w=" + w + ", stream starting " + stream.substring(0, 12);
+                checkEveryWindowSubstring(new SlidingSuffixIndex(w), w, stream, rnd, "DC3/FKS " + label);
+                checkEveryWindowSubstring(new SlidingSuffixIndex(w, SuffixTreeBuilder.Kind.FC.create(),
+                        ChildDictionary.Kind.FASTUTIL), w, stream, rnd, "FC/FASTUTIL " + label);
+                checkEveryWindowSubstring(new StreamingSlidingWindowIndex(w), w, stream, rnd, "LEGACY " + label);
+            }
+        }
+    }
+
+    // insert() ends with `assert checkInvariants()`, so the tests here check the invariants after every insert, but
+    // only with -ea. Maven's surefire turns assertions on; the JUnit console launcher needs `java -ea -jar ...`.
+    @Test
+    void invariantsAreCheckedAfterEveryInsert() {
+        assertTrue(SlidingSuffixIndex.class.desiredAssertionStatus(),
+                "run the tests with -ea, so that SlidingSuffixIndex checks its invariants after every insert");
+    }
+
+    private static void checkEveryWindowSubstring(IPMIndexing index, int w, String stream, Random rnd,
+                                                  String label) {
+        // The stream's own letters, so that a changed pattern can still occur before the window; "ab" for a^k.
+        StringBuilder alphabet = new StringBuilder();
+        stream.chars().distinct().sorted().forEach(c -> alphabet.append((char) c));
+        String letters = (alphabet.length() > 1) ? alphabet.toString() : alphabet + "b";
+        for (int t = 1; t <= stream.length(); t++) {
+            index.insert(String.valueOf(stream.charAt(t - 1)));
+            int windowStart = Math.max(0, t - w);
+            String window = stream.substring(windowStart, t);
+            Map<String, TreeSet<Integer>> occurrences = new HashMap<>();
+            for (int i = 0; i < window.length(); i++) {
+                for (int j = i + 1; j <= window.length(); j++) {
+                    occurrences.computeIfAbsent(window.substring(i, j), k -> new TreeSet<>()).add(windowStart + i);
+                }
+            }
+            for (Map.Entry<String, TreeSet<Integer>> e : occurrences.entrySet()) {
+                assertReports(index, windowStart, e.getKey(), e.getValue(), label + ", after " + t);
+            }
+            for (int m = 1; m <= window.length(); m++) {
+                for (int q = 0; q < 2; q++) {
+                    int s = rnd.nextInt(window.length() - m + 1);
+                    char[] p = window.substring(s, s + m).toCharArray();
+                    int k = rnd.nextInt(m);
+                    p[k] = letters.charAt((letters.indexOf(p[k]) + 1 + rnd.nextInt(letters.length() - 1))
+                            % letters.length());
+                    String absent = new String(p);
+                    if (!occurrences.containsKey(absent)) {
+                        assertReports(index, windowStart, absent, new TreeSet<>(), label + ", after " + t);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void assertReports(IPMIndexing index, int windowStart, String pattern, TreeSet<Integer> expected,
+                                      String label) {
+        ArrayList<Integer> got = index.report(new Pattern(pattern, 1));
+        TreeSet<Integer> reported = new TreeSet<>();
+        for (int relative : got) {
+            reported.add(windowStart + relative);
+        }
+        assertEquals(got.size(), reported.size(), "reported twice: " + label + ", pattern " + pattern);
+        assertEquals(expected, reported, label + ", pattern " + pattern);
     }
 
     // A long run of one symbol makes suffix trees as deep as they are long.
