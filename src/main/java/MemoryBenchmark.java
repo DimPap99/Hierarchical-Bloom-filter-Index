@@ -1,7 +1,7 @@
 import PMIndex.HBI;
 import PMIndex.HbiConfiguration;
 import PMIndex.RegexIndex;
-import PMIndex.StreamingSlidingWindowIndex;
+import PMIndex.SlidingSuffixIndex;
 import PMIndex.IPMIndexing;
 
 import estimators.CSEstimator;
@@ -21,7 +21,9 @@ import search.Verifier;
 import search.VerifierLinearLeafProbe;
 
 import utilities.CsvUtil;
+import utilities.MemUtil;
 import utilities.MultiQueryExperiment;
+import utilities.SswsiSettings;
 import utilities.Utils;
 import utilities.SegmentModeRunner;
 import utilities.IndexFactory;
@@ -50,8 +52,8 @@ public final class MemoryBenchmark {
         MemoryOptions options = MemoryOptions.parse(args);
 
         System.out.printf(Locale.ROOT,
-                "Running memory benchmark on window %s under %s (mode=%s)%n",
-                options.window(), options.dataRoot(), options.mode());
+                "Running memory benchmark on window %s under %s (mode=%s, sswsi=%s)%n",
+                options.window(), options.dataRoot(), options.mode(), options.sswsi().label());
 
         List<Path> datasetDirs = listDatasetDirectories(options.dataRoot());
         if (datasetDirs.isEmpty()) {
@@ -80,7 +82,13 @@ public final class MemoryBenchmark {
                 "suffix_core_mem_mib",
                 "suffix_total_mem_mib",
                 "suffix_tree_mem_mib",
-                "regex_mem_mib"));
+                "regex_mem_mib",
+                "suffix_scratch_mib",   // the SSWSI builders' per-thread work arrays, not in suffix_*_mem_mib
+                "sswsi_mode",
+                "sswsi_builder",
+                "sswsi_dict",
+                "sswsi_ngram",
+                "suffix_tree_ngram"));
 
         Map<Integer, SuffixMeasurement> suffixCache = new HashMap<>();
         Map<Integer, SuffixTreeMeasurement> suffixTreeCache = new HashMap<>();
@@ -96,19 +104,10 @@ public final class MemoryBenchmark {
                     suffixStats = suffixCache.get(ngram);
                     System.out.printf(Locale.ROOT, "Reusing suffix measurement for suffix ngram %d%n", suffixStats.ngram());
                     System.out.printf(Locale.ROOT,
-                            "SuffixIndex total (reuse, including token remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                            "SuffixIndex total (reuse): %d B (%.3f MiB), work arrays %.3f MiB [ngram=%d]%n",
                             suffixStats.totalBytes(),
                             suffixStats.totalMiB(),
-                            suffixStats.ngram());
-                    System.out.printf(Locale.ROOT,
-                            "SuffixIndex core (reuse, excluding token dictionary only): %d B (%.3f MiB) [ngram=%d]%n",
-                            suffixStats.coreBytes(),
-                            suffixStats.coreMiB(),
-                            suffixStats.ngram());
-                    System.out.printf(Locale.ROOT,
-                            "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
-                            suffixStats.remapBytes(),
-                            suffixStats.remapMiB(),
+                            suffixStats.scratchMiB(),
                             suffixStats.ngram());
                 } else {
                     suffixStats = buildAndMeasureSuffix(datasetFile, options, ngram);
@@ -121,17 +120,20 @@ public final class MemoryBenchmark {
                     regexCache = buildAndMeasureRegex(datasetFile, options);
                 }
 
+                // The online suffix tree uses the same n-gram as SSWSI (1, or HBI's with --suffix-match-ngram), as in
+                // the harness; it used to take HBI's n-gram in both settings.
+                int suffixTreeNgram = options.suffixMatchNgram() ? Math.max(1, ngram) : 1;
                 SuffixTreeMeasurement suffixTreeStats;
-                if (options.reuseSuffixResults() && suffixTreeCache.containsKey(ngram)) {
-                    suffixTreeStats = suffixTreeCache.get(ngram);
-                    System.out.printf(Locale.ROOT, "Reusing suffix-tree measurement for ngram %d%n", ngram);
+                if (options.reuseSuffixResults() && suffixTreeCache.containsKey(suffixTreeNgram)) {
+                    suffixTreeStats = suffixTreeCache.get(suffixTreeNgram);
+                    System.out.printf(Locale.ROOT, "Reusing suffix-tree measurement for ngram %d%n", suffixTreeNgram);
                     System.out.printf(Locale.ROOT,
                             "SuffixTree total (reuse): %d B (%.3f MiB) [ngram=%d]%n",
-                            suffixTreeStats.bytes(), suffixTreeStats.mib(), ngram);
+                            suffixTreeStats.bytes(), suffixTreeStats.mib(), suffixTreeNgram);
                 } else {
-                    suffixTreeStats = buildAndMeasureSuffixTree(datasetFile, options, ngram);
+                    suffixTreeStats = buildAndMeasureSuffixTree(datasetFile, options, suffixTreeNgram);
                     if (options.reuseSuffixResults()) {
-                        suffixTreeCache.put(ngram, suffixTreeStats);
+                        suffixTreeCache.put(suffixTreeNgram, suffixTreeStats);
                     }
                 }
 
@@ -152,7 +154,13 @@ public final class MemoryBenchmark {
                             suffixStats.coreMiB(),
                             suffixStats.totalMiB(),
                             suffixTreeStats.mib(),
-                            regexCache.mib()));
+                            regexCache.mib(),
+                            suffixStats.scratchMiB(),
+                            options.sswsi().mode().name().toLowerCase(Locale.ROOT),
+                            options.sswsi().builder() == null ? "" : options.sswsi().builder().name().toLowerCase(Locale.ROOT),
+                            options.sswsi().dictionary() == null ? "" : options.sswsi().dictionary().name().toLowerCase(Locale.ROOT),
+                            suffixStats.ngram(),
+                            suffixTreeNgram));
                 }
             }
         }
@@ -222,13 +230,9 @@ public final class MemoryBenchmark {
         return hbi;
     }
 
-    // Create the streaming suffix baseline using the same window size and expected alphabet size.
-    private static StreamingSlidingWindowIndex newSuffixIndex(MemoryOptions options, int nGram) {
-        int windowSize = options.windowLength();
-        // Optionally match HBI's n-gram for the suffix baseline if requested.
-        int suffixNg = options.suffixMatchNgram() ? Math.max(1, nGram) : 1;
-        int expectedAlphabetSize = options.alphabetSizeFor(suffixNg);
-        return new StreamingSlidingWindowIndex(windowSize, expectedAlphabetSize);
+    // The SSWSI of --sswsi-mode, --sswsi-builder and --sswsi-dict, built as the benchmark harness builds it.
+    private static IPMIndexing newSuffixIndex(MemoryOptions options) {
+        return IndexFactory.createSuffixIndex(options.windowLength(), options.sswsi());
     }
 
     private static HbiMeasurement buildAndMeasureHbi(Path datasetFile,
@@ -272,8 +276,9 @@ public final class MemoryBenchmark {
                                                            MemoryOptions options,
                                                            int ngram) throws IOException {
         int suffixNgram = options.suffixMatchNgram() ? Math.max(1, ngram) : 1;
-        StreamingSlidingWindowIndex suffix = newSuffixIndex(options, suffixNgram);
-        System.out.printf(Locale.ROOT, "SuffixIndex using ngram=%d (match=%b)%n", suffixNgram, options.suffixMatchNgram());
+        IPMIndexing suffix = newSuffixIndex(options);
+        System.out.printf(Locale.ROOT, "SuffixIndex %s using ngram=%d (match=%b)%n",
+                options.sswsi().label(), suffixNgram, options.suffixMatchNgram());
         if (options.isSegmentsMode()) {
             try {
                 SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNgram);
@@ -284,34 +289,39 @@ public final class MemoryBenchmark {
             MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNgram);
         }
 
+        // Everything reachable from the index. Neither index has a token dictionary any more (LEGACY's
+        // estimateTokenDictionaryBytes() was always 0), so the core and total columns are the same number.
         GraphLayout layout = GraphLayout.parseInstance(suffix);
-        long layoutBytes = layout.totalSize();
-        long dictBytes = suffix.estimateTokenDictionaryBytes();//we fully count it so this is always 0 in reality
-        // long remapBytes = suffix.estimateSuffixTreeRemapBytes();
-        long totalBytes = layoutBytes;
-        long coreBytes = Math.max(0L, layoutBytes - dictBytes);
-        double coreMiB = coreBytes / 1_048_576d;
+        long totalBytes = layout.totalSize();
         double totalMiB = totalBytes / 1_048_576d;
 
-        System.out.println("\n=== StreamingSlidingWindowIndex JOL footprint ===");
+        System.out.printf(Locale.ROOT, "%n=== %s JOL footprint ===%n", suffix.getClass().getSimpleName());
         System.out.println(layout.toFootprint());
         System.out.printf(Locale.ROOT,
-                "SuffixIndex total (including token remaps): %d B (%.3f MiB) [ngram=%d]%n",
+                "SuffixIndex total: %d B (%.3f MiB) [%s, ngram=%d]%n",
                 totalBytes,
                 totalMiB,
+                options.sswsi().label(),
                 suffixNgram);
-        System.out.printf(Locale.ROOT,
-                "SuffixIndex core (excluding token dictionary only): %d B (%.3f MiB) [ngram=%d]%n",
-                coreBytes,
-                coreMiB,
-                suffixNgram);
-//        System.out.printf(Locale.ROOT,
-//                "  Token remap structures account for %d B (%.3f MiB) [ngram=%d]%n",
-//                0,
-//                0 / 1_048_576d,
-//                suffixNgram);
+        if (suffix instanceof SlidingSuffixIndex amortized) {
+            System.out.printf(Locale.ROOT, "  stored symbols: %d%n", amortized.storedSymbols());
+            for (Map.Entry<String, Long> part : amortized.estimateRetainedBytesByPart().entrySet()) {
+                System.out.printf(Locale.ROOT, "  %-15s %10.3f MiB%n", part.getKey(), part.getValue() / 1_048_576d);
+            }
+        }
 
-        return new SuffixMeasurement(totalBytes, coreBytes, totalMiB, coreMiB, 0, 0, suffixNgram);
+        // The builders' per-thread work arrays, sized to the largest tree this thread has built. The index does not
+        // reference them, so they are reported next to its total, not in it.
+        long scratchBytes = 0;
+        System.out.println("  per-thread work arrays (not in the total):");
+        for (Map.Entry<String, Long> e : MemUtil.sswsiWorkArrayBytes().entrySet()) {
+            scratchBytes += e.getValue();
+            System.out.printf(Locale.ROOT, "    %-40s %10.3f MiB%n", e.getKey(), e.getValue() / 1_048_576d);
+        }
+        double scratchMiB = scratchBytes / 1_048_576d;
+        System.out.printf(Locale.ROOT, "    %-40s %10.3f MiB%n", "total", scratchMiB);
+
+        return new SuffixMeasurement(totalBytes, totalBytes, totalMiB, totalMiB, scratchBytes, scratchMiB, suffixNgram);
     }
 
     private static RegexMeasurement buildAndMeasureRegex(Path datasetFile,
@@ -383,8 +393,8 @@ public final class MemoryBenchmark {
                                      long coreBytes,
                                      double totalMiB,
                                      double coreMiB,
-                                     long remapBytes,
-                                     double remapMiB,
+                                     long scratchBytes,
+                                     double scratchMiB,
                                      int ngram) {}
 
     private record RegexMeasurement(long bytes, double mib) {}
@@ -463,7 +473,8 @@ public final class MemoryBenchmark {
 
     // ===== Options and parsing logic =====
 
-    private record MemoryOptions(Path dataRoot,
+    // Package-private for MemoryBenchmarkOptionsTest.
+    record MemoryOptions(Path dataRoot,
                                  String window,
                                  int windowPower,
                                  List<TreeSetting> treeSettings,
@@ -480,7 +491,8 @@ public final class MemoryBenchmark {
                                  boolean reuseSuffix,
                                  boolean suffixMatchNgram,
                                  Utils.MemPolicy memPolicy,
-                                 int policyBuckets) {
+                                 int policyBuckets,
+                                 SswsiSettings sswsi) {
 
         static MemoryOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -523,6 +535,7 @@ public final class MemoryBenchmark {
             boolean suffixMatchNgram = false;
             Utils.MemPolicy memPolicy = Utils.MemPolicy.REACTIVE;
             Integer policyBuckets = null;
+            String sswsiMode = null, sswsiBuilder = null, sswsiDict = null;  // SswsiSettings.DEFAULT when not given
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -581,6 +594,9 @@ public final class MemoryBenchmark {
                     case "suffix-match-ngram", "match-suffix-ngram", "suffix-use-hbi-ngram" -> suffixMatchNgram = Boolean.parseBoolean(value);
                     case "policy", "mem-policy", "memory-policy" -> memPolicy = parseMemPolicy(value);
                     case "policy-buckets", "mem-policy-buckets" -> policyBuckets = Integer.parseInt(value);
+                    case "sswsi-mode" -> sswsiMode = value;
+                    case "sswsi-builder" -> sswsiBuilder = value;
+                    case "sswsi-dict" -> sswsiDict = value;
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -671,6 +687,9 @@ public final class MemoryBenchmark {
                 treeSettings = List.of(new TreeSetting(resolvedPower, treeLength));
             }
 
+            SswsiSettings sswsi = SswsiSettings.parse(sswsiMode, sswsiBuilder, sswsiDict);
+            sswsi.requireValidWindow(windowLength);
+
             Path resolvedDataRoot = dataRoot.resolve(window);
             if (!Files.isDirectory(resolvedDataRoot)) {
                 throw new IllegalArgumentException("Data directory not found: " + resolvedDataRoot);
@@ -694,7 +713,8 @@ public final class MemoryBenchmark {
                     reuseSuffix,
                     suffixMatchNgram,
                     memPolicy,
-                    policyBuckets != null ? Math.max(0, policyBuckets) : 0);
+                    policyBuckets != null ? Math.max(0, policyBuckets) : 0,
+                    sswsi);
         }
 
         int alphabetSizeFor(int ngram) {
@@ -781,10 +801,12 @@ public final class MemoryBenchmark {
         Path csvOutputFile() {
             boolean multiCombos = (ngrams.size() > 1) || (fpRates.size() > 1) || (treeSettings.size() > 1);
             String policyToken = memPolicy.name().toLowerCase(Locale.ROOT);
+            // The suffix n-gram and the SSWSI setting, so runs that differ only in those keep separate files.
+            String suffixToken = (suffixMatchNgram ? "_suffix-match" : "") + "_sswsi-" + sswsi.label();
             if (multiCombos) {
-                return Path.of("memory_%s_%s_multi.csv".formatted(window, policyToken));
+                return Path.of("memory_%s_%s_multi%s.csv".formatted(window, policyToken, suffixToken));
             }
-            return Path.of("memory_%s_%d_%s.csv".formatted(window, ngram(), policyToken));
+            return Path.of("memory_%s_%d_%s%s.csv".formatted(window, ngram(), policyToken, suffixToken));
         }
 
         static int deriveWindowLength(String window, int defaultValue) {

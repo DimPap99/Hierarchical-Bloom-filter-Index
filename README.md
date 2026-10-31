@@ -86,6 +86,8 @@ Useful flags:
 - `--mode segments`, for one token per line, as in CAIDA-style records
 - `--run-suffix false`, to skip the baselines
 - `--verify true`, to check that every index reports the same occurrences for every query (all of them are exact, so any difference is a bug)
+- `--sswsi-mode amortized|legacy`, `--sswsi-builder dc3|fc` and `--sswsi-dict fks|fastutil`, which SSWSI runs (also in `MemoryBenchmark`). The default, `amortized` with `dc3` and `fks`, is the amortized structure of Bille et al. (CPM 2023, Sec. 3.3) with the paper's FKS dictionaries; it needs a power-of-two window. `fc` is the paper's Farach-Colton construction: it builds the same trees, 1.1–1.4 times slower. `legacy` is the thesis-era structure, with fixes for deep trees, n-gram remapping and position overflow, and takes no builder or dictionary. The setting is in the CSV name and in its `sswsi_*` columns
+- `--out-dir <dir>`, where the CSV goes (by default the working directory)
 
 The window length comes from `--window-length`, then `--window-power`, then the number in the window name (`w19` gives 2^19). Insert and query times are measured in nanoseconds, after the window and the query files have been read into memory. `avgQueryMs` (`avg_query_ms_*` in the CSV) is the time for a whole query file of 500 queries, not for one query: queries per second are `500 * 1000 / avgQueryMs`.
 

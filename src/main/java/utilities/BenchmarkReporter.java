@@ -77,6 +77,13 @@ public final class BenchmarkReporter {
             }
         }
         header.add("algo");
+        // The SSWSI setting, and the n-grams the suffix baselines ran with: each row is filed under HBI's n-gram,
+        // and the baselines' columns hold their results at their own n-gram (--suffix-ngram).
+        header.add("sswsi_mode");
+        header.add("sswsi_builder");
+        header.add("sswsi_dict");
+        header.add("sswsi_ngram");
+        header.add("suffix_tree_ngram");
         header.add("policy");
         header.add("alphabet");
         header.add("fpr");
@@ -95,7 +102,9 @@ public final class BenchmarkReporter {
         List<List<Object>> csvRows = new ArrayList<>();
         csvRows.add(header);
 
-        for (int ng : options.ngrams()) {
+        SswsiSettings sswsi = options.runSuffix() ? options.sswsi() : null;
+        for (int ngIndex = 0; ngIndex < options.ngrams().size(); ngIndex++) {
+            int ng = options.ngrams().get(ngIndex);
             // Union of pattern lengths across types
             Set<Integer> allPatternLengths = new TreeSet<>();
             for (QueryType type : queryTypes) {
@@ -129,6 +138,11 @@ public final class BenchmarkReporter {
                     }
                 }
                 row.add(algo);
+                row.add(sswsi == null ? null : sswsi.mode().name().toLowerCase(Locale.ROOT));
+                row.add(sswsi == null || sswsi.builder() == null ? null : sswsi.builder().name().toLowerCase(Locale.ROOT));
+                row.add(sswsi == null || sswsi.dictionary() == null ? null : sswsi.dictionary().name().toLowerCase(Locale.ROOT));
+                row.add(options.runSuffix() ? options.resolveSuffixNgram(ngIndex, ng) : null);
+                row.add(options.runSuffixTreeBaseline() ? options.suffixTreeNgramFor(ngIndex, ng) : null);
                 row.add(options.memPolicy());
                 row.add(options.alphabetSizeFor(ng));
                 row.add(currentFp);
@@ -159,9 +173,11 @@ public final class BenchmarkReporter {
         String fpToken = String.format(Locale.ROOT, "%.6f", currentFp).replace('.', 'p');
         String ngToken = (options.ngrams().size() == 1) ? String.valueOf(options.ngrams().get(0)) : "ngmulti";
         String treeToken = "t" + options.treePower();
-        String fileName = "%s_%s_%s_%s_%s_fp%s.csv"
-                .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken);
-        Path csvPath = Path.of(fileName);
+        // Runs that differ only in the SSWSI setting must not overwrite each other's file.
+        String sswsiToken = (sswsi == null) ? "" : "_sswsi-" + sswsi.label();
+        String fileName = "%s_%s_%s_%s_%s_fp%s%s.csv"
+                .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken, sswsiToken);
+        Path csvPath = options.outDir().resolve(fileName);
         CsvUtil.writeRows(csvPath, csvRows);
         return csvPath;
     }

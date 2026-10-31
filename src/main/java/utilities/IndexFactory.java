@@ -5,6 +5,7 @@ import PMIndex.HbiConfiguration;
 import PMIndex.StreamingSlidingWindowIndex;
 import PMIndex.DelayedStreamingSlidingWindowIndex;
 import PMIndex.IPMIndexing;
+import PMIndex.SlidingSuffixIndex;
 import PMIndex.SuffixTreeIndex;
 import estimators.*;
 import membership.BloomFilter;
@@ -145,12 +146,12 @@ public final class IndexFactory {
         return hbi;
     }
 
-    public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength) {
-        return new StreamingSlidingWindowIndex(windowLength);
-    }
-
-    public static StreamingSlidingWindowIndex createSuffixIndex(int windowLength, int expectedAlphabetSize) {
-        return new StreamingSlidingWindowIndex(windowLength, expectedAlphabetSize);
+    // SSWSI as set by --sswsi-mode, --sswsi-builder and --sswsi-dict. Neither index needs the alphabet size.
+    public static IPMIndexing createSuffixIndex(int windowLength, SswsiSettings settings) {
+        return switch (settings.mode()) {
+            case LEGACY -> new StreamingSlidingWindowIndex(windowLength);
+            case AMORTIZED -> new SlidingSuffixIndex(windowLength, settings.builder().create(), settings.dictionary());
+        };
     }
 
     public static IPMIndexing createSuffixTreeIndex(int expectedAlphabetSize) {

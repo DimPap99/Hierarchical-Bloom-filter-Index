@@ -46,7 +46,9 @@ public record MultiBenchmarkOptions(
         double deltaSamp,
         double quantile,
         boolean collectStats,
-        boolean verify) {             // cross-check that every index reports the same occurrences
+        boolean verify,               // cross-check that every index reports the same occurrences
+        SswsiSettings sswsi,          // which SSWSI runs: --sswsi-mode, --sswsi-builder, --sswsi-dict
+        Path outDir) {                // where the CSV goes (--out-dir; the working directory by default)
 
     public static MultiBenchmarkOptions parse(String[] args) {
         Path dataRoot = Path.of("data");
@@ -92,6 +94,8 @@ public record MultiBenchmarkOptions(
         boolean strides = true; // default to strides enabled
         boolean collectStats = false; // default off; enable via --collect-stats=true
         boolean verify = false;       // default off; enable via --verify=true
+        String sswsiMode = null, sswsiBuilder = null, sswsiDict = null;  // SswsiSettings.DEFAULT when not given
+        Path outDir = Path.of("");
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -164,6 +168,10 @@ public record MultiBenchmarkOptions(
                 case "p", "quantile" -> quantile = Double.parseDouble(value);
                 case "collect-stats", "stats" -> collectStats = Boolean.parseBoolean(value);
                 case "verify", "verify-results" -> verify = Boolean.parseBoolean(value);
+                case "sswsi-mode" -> sswsiMode = value;
+                case "sswsi-builder" -> sswsiBuilder = value;
+                case "sswsi-dict" -> sswsiDict = value;
+                case "out-dir" -> outDir = Path.of(value);
                 default -> throw new IllegalArgumentException("Unknown option --" + key);
             }
         }
@@ -228,11 +236,17 @@ public record MultiBenchmarkOptions(
                     "Invalid powers: window power (" + windowPower + ") must be >= tree power (" + treePower + ")");
         }
 
+        SswsiSettings sswsi = SswsiSettings.parse(sswsiMode, sswsiBuilder, sswsiDict);
+        if (runSuffix) {
+            sswsi.requireValidWindow(windowLength);
+        }
+
         Path resolvedDataRoot = dataRoot.resolve(window);
         Path resolvedQueryRoot = queryRoot.resolve(window);
         if (!Files.isDirectory(resolvedDataRoot)) throw new IllegalArgumentException("Data directory not found: " + resolvedDataRoot);
         if (!Files.isDirectory(resolvedQueryRoot)) throw new IllegalArgumentException("Query directory not found: " + resolvedQueryRoot);
         if (!runSuffixTreeBaseline && !runHbi && !runSuffix) throw new IllegalArgumentException("At least one index must be enabled");
+        if (!Files.isDirectory(outDir.toAbsolutePath())) throw new IllegalArgumentException("Output directory not found: " + outDir);
 
         if (ngramList == null) {
             ngramList = List.of(defaultNgram);
@@ -305,7 +319,9 @@ public record MultiBenchmarkOptions(
                 deltaSamp,
                 quantile,
                 collectStats,
-                verify
+                verify,
+                sswsi,
+                outDir
         );
     }
 

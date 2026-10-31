@@ -110,6 +110,16 @@ public final class SlidingSuffixIndex implements IPMIndexing {
         this.text = new long[2 * windowSize];
     }
 
+    /** The suffix tree construction of every tree. */
+    public SuffixTreeBuilder builder() {
+        return builder;
+    }
+
+    /** The child dictionary of every tree. */
+    public ChildDictionary.Kind dictionary() {
+        return dictionary;
+    }
+
     @Override
     public void insert(String key) {
         if (key == null) {

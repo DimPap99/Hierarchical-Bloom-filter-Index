@@ -87,6 +87,10 @@ public final class ResultVerifier {
         return mismatches;
     }
 
+    public static synchronized long checked() {
+        return checked;
+    }
+
     private record Expected(long fingerprint, int count, String who) {
     }
 }

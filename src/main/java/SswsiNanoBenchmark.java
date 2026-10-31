@@ -4,6 +4,7 @@ import org.openjdk.jol.info.GraphLayout;
 import org.openjdk.jol.util.Multiset;
 import search.Pattern;
 import tree.ssws.SuffixTree;
+import utilities.MemUtil;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -43,7 +44,7 @@ import java.util.Random;
 //       JOL on JDK 25 needs -Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading.
 //
 // It uses reflection where the API changed after Phase 0, so it also compiles and runs against older checkouts
-// (legacy only).
+// (legacy only), compiled together with this checkout's utilities/MemUtil.java.
 //
 // Run it with a fixed, pre-touched heap: -Xms8g -Xmx8g -XX:+AlwaysPreTouch. Without pre-touching, queries that
 // happen to allocate into heap pages the JVM has not written yet pay a page fault per fresh page; at n=1, m=160
@@ -167,27 +168,12 @@ public final class SswsiNanoBenchmark {
         }
 
         // Work arrays kept per thread between builds, sized to the largest tree built so far.
-        String[][] scratch = {
-                {"tree.ssws.RankReducer", "WORKSPACE"},
-                {"tree.ssws.SuffixArrayBuilder", "TLS_WORKSPACE"},
-                {"tree.ssws.StaticSuffixTree", "WORKSPACE"},
-                {"tree.ssws.RangeMax", "STACK"},
-        };
         long scratchTotal = 0;
         System.out.println("  per-thread work arrays (not in the total):");
-        for (String[] s : scratch) {
-            Object value;
-            try {
-                Field f = Class.forName(s[0]).getDeclaredField(s[1]);
-                f.setAccessible(true);
-                value = ((ThreadLocal<?>) f.get(null)).get();
-            } catch (ClassNotFoundException | NoSuchFieldException olderCheckout) {
-                continue;
-            }
-            long bytes = GraphLayout.parseInstance(value).totalSize();
-            scratchTotal += bytes;
-            System.out.printf("    %-45s %8.1f MiB %6.1f B per window symbol%n", s[0] + "." + s[1], bytes / MIB,
-                    bytes / (double) window);
+        for (Map.Entry<String, Long> e : MemUtil.sswsiWorkArrayBytes().entrySet()) {
+            scratchTotal += e.getValue();
+            System.out.printf("    %-45s %8.1f MiB %6.1f B per window symbol%n", e.getKey(), e.getValue() / MIB,
+                    e.getValue() / (double) window);
         }
         System.out.printf("    %-45s %8.1f MiB %6.1f B per window symbol%n", "total", scratchTotal / MIB,
                 scratchTotal / (double) window);

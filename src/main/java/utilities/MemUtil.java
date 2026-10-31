@@ -5,6 +5,10 @@ import org.openjdk.jol.info.GraphLayout;
 import org.openjdk.jol.vm.VM;
 import tree.StreamBuffer;
 
+import java.lang.reflect.Field;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public class MemUtil {
 
     // Detailed JOL report for an HBI instance, optionally including per-tree and class footprint.
@@ -344,4 +348,32 @@ public class MemUtil {
     }
 
 
+
+    // Work arrays the SSWSI builders keep per thread between builds (rank reduction, DC3, the static tree's stack
+    // build, range-max reporting), each sized to the largest tree built so far by this thread. No index references
+    // them, so a JOL size of an index leaves them out. Found by reflection, so this also runs against checkouts
+    // that lack some of them (they are skipped). Call it on the thread that built the index.
+    private static final String[][] SSWSI_WORK_ARRAYS = {
+            {"tree.ssws.RankReducer", "WORKSPACE"},
+            {"tree.ssws.SuffixArrayBuilder", "TLS_WORKSPACE"},
+            {"tree.ssws.StaticSuffixTree", "WORKSPACE"},
+            {"tree.ssws.RangeMax", "STACK"},
+    };
+
+    // JOL bytes of each per-thread SSWSI work array of the calling thread, by "class.field".
+    public static Map<String, Long> sswsiWorkArrayBytes() {
+        Map<String, Long> bytes = new LinkedHashMap<>();
+        for (String[] s : SSWSI_WORK_ARRAYS) {
+            Object value;
+            try {
+                Field f = Class.forName(s[0]).getDeclaredField(s[1]);
+                f.setAccessible(true);
+                value = ((ThreadLocal<?>) f.get(null)).get();
+            } catch (ClassNotFoundException | NoSuchFieldException | IllegalAccessException olderCheckout) {
+                continue;
+            }
+            bytes.put(s[0] + "." + s[1], GraphLayout.parseInstance(value).totalSize());
+        }
+        return bytes;
+    }
 }

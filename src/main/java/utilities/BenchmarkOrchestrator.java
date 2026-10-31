@@ -77,9 +77,10 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, suffixTreeNgram=%d, fpr=%.6f, runs=%d, algo=%s, strides=%b, mode=%s, policy=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, suffixTreeNgram=%d, sswsi=%s, fpr=%.6f, runs=%d, algo=%s, strides=%b, mode=%s, policy=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
                             options.windowLength(), options.treeLength(), ng,
-                            options.alphabetBase(), effAlphabet, suffixNgForLoop, suffixTreeNgForLoop, currentFp,
+                            options.alphabetBase(), effAlphabet, suffixNgForLoop, suffixTreeNgForLoop,
+                            options.runSuffix() ? options.sswsi().label() : "off", currentFp,
                             options.runs(), options.algorithm(), options.strides(), options.mode(), options.memPolicy(), options.reinsertPerWorkload(),
                             options.rankEpsTarget(), options.deltaQ(), options.deltaSamp(), options.quantile());
 
@@ -174,7 +175,7 @@ public final class BenchmarkOrchestrator {
                             // Use delayed SSWSI; warmups don't target a specific pattern length, use configured default delta
                             //dont use ngrams for suffix cause it hurts performance
                             IPMIndexing suffixWarm = IndexFactory.createSuffixIndex(
-                                    options.windowLength(), options.alphabetSizeFor(suffixNg));
+                                    options.windowLength(), options.sswsi());
                             InsertStats suffixIns = isSegments(options)
                                     ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixWarm, suffixNg)
                                     : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixWarm, suffixNg);
@@ -236,7 +237,7 @@ public final class BenchmarkOrchestrator {
                             if (options.runSuffix() && !canReuseSuffix) {
                                 // Build the suffix index only if we're not reusing results.
                                 suffix = IndexFactory.createSuffixIndex(
-                                        options.windowLength(), options.alphabetSizeFor(suffixNg));
+                                        options.windowLength(), options.sswsi());
                                 suffixIns = isSegments(options)
                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNg)
                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNg);
@@ -270,7 +271,7 @@ public final class BenchmarkOrchestrator {
                                         if (suffixResults == null) {
                                             // Fallback: compute and cache now if missing
                                             IPMIndexing tmpSuffix = IndexFactory.createSuffixIndex(
-                                                    options.windowLength(), options.alphabetSizeFor(suffixNg));
+                                                    options.windowLength(), options.sswsi());
                                             InsertStats tmpIns = isSegments(options)
                                                     ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), tmpSuffix, suffixNg)
                                                     : MultiQueryExperiment.populateIndex(datasetFile.toString(), tmpSuffix, suffixNg);
@@ -363,7 +364,7 @@ public final class BenchmarkOrchestrator {
                                             res = suffixResultsCache.get(cacheKey);
                                             if (res == null) {
                                                 IPMIndexing suffix = IndexFactory.createSuffixIndex(
-                                                        options.windowLength(), options.alphabetSizeFor(sfxNg));
+                                                        options.windowLength(), options.sswsi());
                                                 InsertStats ins = isSegments(options)
                                                         ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, sfxNg)
                                                         : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, sfxNg);
@@ -374,7 +375,7 @@ public final class BenchmarkOrchestrator {
                                             }
                                         } else {
                                             IPMIndexing suffix = IndexFactory.createSuffixIndex(
-                                                    options.windowLength(), options.alphabetSizeFor(sfxNg));
+                                                    options.windowLength(), options.sswsi());
                                             InsertStats ins = isSegments(options)
                                                     ? SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, sfxNg)
                                                     : MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, sfxNg);
