@@ -14,8 +14,6 @@ public class CSEstimator implements Estimator {
 
     private IntCountSketch sketch;
     private double totalRecords;
-    private long minKey;
-    private double minProbability;
 
     public CSEstimator(int expectedRecords) {
         this(deriveWidth(expectedRecords), DEFAULT_DEPTH, System.nanoTime());
@@ -43,8 +41,6 @@ public class CSEstimator implements Estimator {
         int width = Math.max(baseWidth, deriveWidth(totalRecords));
         this.sketch = new IntCountSketch(width, depth, seed);
         this.totalRecords = 0.0;
-        this.minKey = Long.MAX_VALUE;
-        this.minProbability = Double.POSITIVE_INFINITY;
     }
 
     @Override
@@ -54,13 +50,6 @@ public class CSEstimator implements Estimator {
         }
         sketch.add(key);
         totalRecords += 1.0;
-        if (key < minKey) {
-            minKey = key;
-        }
-        double estimate = estimate(key);
-        if (estimate > 0.0 && estimate < minProbability) {
-            minProbability = estimate;
-        }
     }
 
     @Override
@@ -90,18 +79,11 @@ public class CSEstimator implements Estimator {
         return result;
     }
 
+    // A Count Sketch does not track which keys it has seen, so it cannot report the rarest one.
+    // The provisioning policies use the HOPS percentile sampler for that instead.
     @Override
     public double getMin() {
-        if (totalRecords <= 0.0) {
-            return 0.0;
-        }
-        if (minProbability != Double.POSITIVE_INFINITY) {
-            return minProbability;
-        }
-        if (minKey != Long.MAX_VALUE) {
-            return estimate(minKey);
-        }
-        return 0.0;
+        throw new UnsupportedOperationException("CSEstimator cannot enumerate its keys");
     }
 
     private static int deriveWidth(int expectedRecords) {

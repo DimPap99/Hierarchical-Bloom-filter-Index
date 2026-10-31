@@ -48,7 +48,8 @@ public final class IntervalScanner implements Iterator<CandidateRange> {
             }
             Frame f = stack.pop();
             CandidateRange r = this.searchAlgorithm.search(f, pattern, this.tree, this.stack, this.positionOffset);
-            this.positionOffset = this.searchAlgorithm.getCurrentOffset();
+            // The frontier only moves forward; moving it back would re-verify reported starts.
+            this.positionOffset = Math.max(this.positionOffset, this.searchAlgorithm.getCurrentOffset());
             if (r != null) {
                 return r;
             }

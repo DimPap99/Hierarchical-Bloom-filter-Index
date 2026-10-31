@@ -7,6 +7,8 @@ import org.apache.commons.math3.util.Pair;
 import tree.ImplicitTree;
 import tree.StreamBuffer;
 
+// Checks every start in a candidate range directly against the buffered symbols (the raw data level).
+// Positions are relative to the retained trees: tree t holds positions [t.id * span, (t.id + 1) * span).
 public class VerifierLinearLeafProbe implements Verifier {
 
     public VerifierLinearLeafProbe() {}
@@ -18,52 +20,29 @@ public class VerifierLinearLeafProbe implements Verifier {
                                                     CandidateRange candidateRange,
                                                     Pattern pat)
     {
-        int leafStartIdx = candidateRange.startPos();
-        int stopPos      = candidateRange.endPos();
+        ArrayList<Integer> matches = new ArrayList<>();
+        int start = Math.max(0, candidateRange.startPos());
+        int stopPos = candidateRange.endPos();
+        int next = Math.max(start, stopPos + 1);
+        long[] tokens = pat.nGramToLong;
+        if (trees.isEmpty() || tokens.length == 0) {
+            return new Pair<>(matches, next);
+        }
 
-        // span is the number of symbols covered by one ImplicitTree block
-        // This is usually 2^(maxDepth-1) or treeLength
-        final int span      = trees.get(0).baseIntervalSize();
-        final int spanShift = Integer.numberOfTrailingZeros(span);
-
-        // The first active tree in the sliding window might no longer have id == 0
-        // We take that into account when mapping absolute positions back to an index in 'trees'
+        final int span = trees.get(0).baseIntervalSize();
         final int baseTreeId = trees.get(0).id;
 
-        if (leafStartIdx < 0) {
-            leafStartIdx = 0;
-        }
+        // Last start whose occurrence would still end inside the indexed data.
+        ImplicitTree<Membership> lastTree = trees.get(trees.size() - 1);
+        int lastPos = lastTree.id * span + lastTree.buffer.lastIndex();
+        int lastStart = Math.min(stopPos, lastPos - tokens.length + 1);
 
-        ArrayList<Integer> matches = new ArrayList<>();
-        MatchResult result;
-
-        // We do not cache workingTree/buffer up here because we may have to jump
-        // to the correct relative index if the caller passed a stale currentTreeIdx
-        while (leafStartIdx <= stopPos) {
-
-            // Figure out which absolute tree id contains this starting position
-            int absoluteTreeId = leafStartIdx >>> spanShift; // == floor(leafStartIdx / span)
-            int relIdx         = absoluteTreeId - baseTreeId;
-
-            // If relIdx is outside [0, trees.size()) then we ran past the active window
-            if (relIdx < 0 || relIdx >= trees.size()) {
-                return new Pair<>(matches, leafStartIdx);
-            }
-
-            // Run the naive verifier starting exactly at leafStartIdx
-            result = verifyAtLeavesNaive(relIdx, trees, leafStartIdx, pat.nGramToLong);
-
-            if (result.matched) {
-                matches.add(result.pos);
-                // jump past this match, classic exact string search semantics
-                leafStartIdx = result.pos + 1;
-            } else {
-                // advance one symbol in global coordinates
-                leafStartIdx++;
+        for (int s = start; s <= lastStart; s++) {
+            if (matchesAt(trees, span, baseTreeId, s, tokens)) {
+                matches.add(s);
             }
         }
-
-        return new Pair<>(matches, leafStartIdx);
+        return new Pair<>(matches, next);
     }
 
     @Override
@@ -76,76 +55,35 @@ public class VerifierLinearLeafProbe implements Verifier {
         this.leafProbesCounter = 0;
     }
 
-    public MatchResult verifyAtLeavesNaive(
-            int startTreeRelIdx,
-            ArrayList<ImplicitTree<Membership>> trees,
-            int leafStartIdx,
-            long[] pat)
-    {
-        final int span      = trees.get(0).baseIntervalSize();
-        final int spanShift = Integer.numberOfTrailingZeros(span);
-        final int m         = pat.length;
-
-        // The first active tree may have id > 0
-        final int baseTreeId = trees.get(0).id;
-
-        // Compute the last valid absolute position in the active window
-        int globalLastPos = -1;
-        if (!trees.isEmpty()) {
-            ImplicitTree<Membership> lastTree = trees.get(trees.size() - 1);
-            // lastTree.id is the absolute tree id
-            // lastTree.buffer.lastIndex() is the last local offset inside that block
-            globalLastPos = lastTree.id * span + lastTree.buffer.lastIndex();
+    // Compare the pattern tokens with the buffered tokens starting at pos, crossing into later trees
+    // when needed. Every tree but the newest is full, so a tree ends exactly at its buffer length.
+    private boolean matchesAt(ArrayList<ImplicitTree<Membership>> trees,
+                              int span,
+                              int baseTreeId,
+                              int pos,
+                              long[] tokens) {
+        int treeIdx = pos / span - baseTreeId;
+        if (treeIdx < 0 || treeIdx >= trees.size()) {
+            return false;
         }
+        int local = pos - (treeIdx + baseTreeId) * span;
+        StreamBuffer buffer = trees.get(treeIdx).buffer;
 
-        // If the pattern would run past the active window, we can fail fast
-        if (leafStartIdx + m - 1 > globalLastPos) {
-            return new MatchResult(false, globalLastPos);
-        }
-
-        // Initialise to the correct working tree
-        int workingTreeRelIdx = startTreeRelIdx;
-        ImplicitTree<?> tree  = trees.get(workingTreeRelIdx);
-        StreamBuffer buffer   = tree.buffer;
-        int bufferLength      = buffer.length();
-
-        for (int i = 0; i < m; i++) {
-            int leafIdx = leafStartIdx + i;
-
-            // Compute which absolute tree id holds position leafIdx
-            int absTreeId   = leafIdx >>> spanShift;
-            int relTreeIdx  = absTreeId - baseTreeId;
-
-            // Crossed into a new ImplicitTree block
-            if (relTreeIdx != workingTreeRelIdx) {
-                if (relTreeIdx < 0 || relTreeIdx >= trees.size()) {
-                    // we left the active window
-                    return new MatchResult(false, leafIdx - 1);
+        for (long token : tokens) {
+            if (local >= buffer.length()) {
+                treeIdx++;
+                if (treeIdx >= trees.size()) {
+                    return false;
                 }
-                workingTreeRelIdx = relTreeIdx;
-                tree              = trees.get(workingTreeRelIdx);
-                buffer            = tree.buffer;
-                bufferLength      = buffer.length();
+                buffer = trees.get(treeIdx).buffer;
+                local = 0;
             }
-
-            // Map leafIdx to local index inside this tree block
-            // Because span is a power of two, leafIdx & (span - 1) is leafIdx % span
-            int localPos = leafIdx & (span - 1);
-
-            // Bounds check against the last tree which may be only partially full
-            if (localPos >= bufferLength) {
-                return new MatchResult(false, leafIdx - 1);
-            }
-
-            // Actual comparison
             this.leafProbesCounter++;
-            if (buffer.get(localPos) != pat[i]) {
-                int failPos = (i == 0) ? leafStartIdx : leafIdx - 1;
-                return new MatchResult(false, failPos);
+            if (buffer.get(local) != token) {
+                return false;
             }
+            local++;
         }
-
-        // All characters matched
-        return new MatchResult(true, leafStartIdx);
+        return true;
     }
 }

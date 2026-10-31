@@ -20,6 +20,7 @@ public final class ImplicitTree< M extends Membership> {
     private final int[] visitedPerLevel = new int[64];
 
     private final LevelDirectory< M> levels;
+    private final double[] droppedFpRates;
     public final StreamBuffer         buffer;
     public final KeyPackingService codec;
     public boolean alwaysFits = false;
@@ -38,6 +39,7 @@ public final class ImplicitTree< M extends Membership> {
                         KeyPackingService codec, Estimator est) {
         this.layout   = layout;
         this.levels   = new LevelDirectory<>(layout, filterFactory);
+        this.droppedFpRates = new double[layout.levels()];
         this.capacity = layout.intervalSize(0);
         this.buffer   = new StreamBuffer(true, this.capacity);
         this.codec    = codec;
@@ -109,16 +111,18 @@ public final class ImplicitTree< M extends Membership> {
     public M filterAtLevel(int level) { return levels.filter(level); }
 
     public int totalFilters(){return  levels.depth();}
-    public void dropFiltersUpToLp(int lp){
 
+    // Drop every level L < lp (absolute level numbers), as in the provisioning policies of Sec. 4.3.2.
+    // The deepest level is always kept, and calling this again with a smaller lp is a no-op.
+    public void dropFiltersUpToLp(int lp){
+        int target = Math.min(lp, maxDepth() - 1);
         int effectiveRoot = this.effectiveRoot();
-        while(lp > 0){
+        while (effectiveRoot < target) {
+            this.droppedFpRates[effectiveRoot] = this.levels.getLevelFpRate(effectiveRoot);
             this.levels.dropLevel(effectiveRoot);
             effectiveRoot++;
-            lp--;
         }
         this.layout.setEffectiveRootLevel(effectiveRoot);
-
     }
     public int levelCount() { return levels.depth(); }
 
@@ -241,8 +245,15 @@ public final class ImplicitTree< M extends Membership> {
         return levels.contains(level, hi, lo);
     }
 
+    // Realized false positive rate of a level. Levels removed by a provisioning policy report the
+    // rate they had when they were dropped, so cost models can still reason about them.
     public double getMembershipFpRate(int level) {
-        if(level <= maxDepth()) return this.levels.getLevelFpRate(level);
-        else return -1;
+        if (level < 0 || level >= maxDepth()) {
+            throw new IllegalArgumentException("level " + level + " out of range");
+        }
+        if (level < effectiveRoot()) {
+            return this.droppedFpRates[level];
+        }
+        return this.levels.getLevelFpRate(level);
     }
 }

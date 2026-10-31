@@ -54,6 +54,10 @@ public final class MultiQueryExperiment {
         Map<QueryWorkload, ExperimentRunResult> results = new LinkedHashMap<>();
 
         for (QueryWorkload workload : workloads) {
+            // HBI statistics below are per workload, not running totals.
+            if (index instanceof PMIndex.HBI hbi) {
+                hbi.stats().resetCounters();
+            }
             QueryStats queryStats = executeQueries(workload.queryFile(), index, nGram, verbose, queryResults);
 
             double avgLpMs = (index instanceof PMIndex.HBI hbi)
@@ -158,7 +162,9 @@ public final class MultiQueryExperiment {
         try (BufferedReader reader = Files.newBufferedReader(queryFile, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
-                queries.add(line);
+                if (!line.isEmpty()) {
+                    queries.add(line);
+                }
             }
         }
         return queries;

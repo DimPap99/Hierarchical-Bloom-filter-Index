@@ -19,17 +19,17 @@ public final class LevelCostMinimizer {
                                   boolean strides) {
         double[] probs = tree.estimator.estimateALl(pattern, strides);
         if (probs.length == 0) {
-            return new Result(0, 0.0);
+            return new Result(tree.effectiveRoot(), 0.0);
         }
 
         int width = tree.baseIntervalSize();
         int maxDepth = tree.maxDepth();
         int r = probs.length;
         double minProb = Arrays.stream(probs).min().orElse(0.0);
-        int _maxlp = MathUtils.pruningLevel(tree, 0.99, minProb);//MathUtils.pruningLevel(tree, 0.9, minProb);
-        int minLp = 0;//MathUtils.pruningLevel(tree, 0.99, minProb);
-        int patternFitDepth = computePatternFitDepth(tree, pattern);
-        int maxLpLevel = (int) ((tree.maxDepth()-1) - Math.ceil(Math.log(pattern.nGramArr.length)/Math.log(2)));
+        int _maxlp = MathUtils.pruningLevel(tree, 0.99, minProb);
+        // Levels above the effective root were dropped by a provisioning policy and cannot be searched.
+        int minLp = tree.effectiveRoot();
+        int maxLpLevel = (int) ((tree.maxDepth()-1) - Math.ceil(Math.log(pattern.nGramToLong.length)/Math.log(2)));
 
         if (maxLpLevel < minLp) {
             maxLpLevel = minLp;
@@ -49,17 +49,9 @@ public final class LevelCostMinimizer {
         }
         // Also apply this clamp when SelectiveFanout is enabled, regardless of debugging flag
         if (bestLp > _maxlp && (SelectiveFanout.isSelectiveRegimeEnabled())) {
-            bestLp = _maxlp;
+            bestLp = Math.max(minLp, _maxlp);
         }
         return new Result(bestLp, bestCost);
-    }
-
-    private static int computePatternFitDepth(ImplicitTree tree, Pattern pattern) {
-        int maxDepth = tree.maxDepth() - 1;
-        double patternLength = Math.max(1, pattern.originalSz);
-        int depthOffset = (int) Math.ceil(Math.log(patternLength) / Math.log(2.0));
-        int fitDepth = maxDepth - depthOffset;
-        return Math.max(0, fitDepth);
     }
 
     public static final class Result {

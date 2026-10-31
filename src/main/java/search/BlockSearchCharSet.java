@@ -4,11 +4,10 @@ import estimators.Estimator;
 import tree.ImplicitTree;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Deque;
 
-// Block search strategy that uses Bloom-style membership tests over node intervals.
-// Aware of pruning level and always tests the first token when needed.
+// Confidence-Gated Block Search (Sec. 4.2.4): block search that only tests the tokens whose gate
+// level has been reached, and always tests the first token to anchor the alignment.
 public class BlockSearchCharSet implements SearchAlgorithm {
 
     public Estimator estimator;
@@ -22,58 +21,50 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         int childrenIntervalSize = currentIntervalSize / 2;
         int treeBaseInterval = tree.baseIntervalSize();
 
+        int intervalStartIdx = tree.id * treeBaseInterval + currentIntervalSize * f.intervalIdx();
+        int intervalEndIdx = intervalStartIdx + currentIntervalSize - 1;
+
+        // Candidate ranges never start before the frontier or before this interval.
+        this.currentOffset = Math.max(positionOffset, intervalStartIdx);
+        if (intervalEndIdx < positionOffset) {
+            this.currentOffset = positionOffset;
+            return null;
+        }
+
         long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
         Probe probe = probe(tree,
                 f.level(),
                 f.intervalIdx(),
                 p,
                 tokens,
-                p.charStartLp,
-                currentIntervalSize);
-        this.currentOffset = positionOffset;
+                p.charStartLp);
         int requiredSpan = useTokenLengthGuard ? tokens.length : p.size;
         requiredSpan = Math.max(1, requiredSpan);
         boolean canDescend = f.level() + 1 < tree.maxDepth();
 
         if (probe.consumed() == 0) {
-            this.currentOffset = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval;
+            // The first token is absent, so no occurrence can start inside this interval.
+            this.currentOffset = intervalEndIdx + 1;
             return null;
-        } else {
-            //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
-            if (probe.complete() && canDescend && childrenIntervalSize >= requiredSpan) {
-                //we just generate children as theres a chance that the pattern is in both of them
-                tree.generateChildren(f, stack, positionOffset, tree.id);
-                return null;
-            } else {
-                int intervalEndIdx = currentIntervalSize * (f.intervalIdx() + 1) + tree.id * treeBaseInterval - 1;
-
-                if(probe.complete()) return new CandidateRange(this.currentOffset, intervalEndIdx);
-                else {
-                    //the probes were incomplete. Meaning:
-                    //Regardless of the children we are at a point where the current interval >= pattern and we have at least 1 character match from it
-                    //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
-                    //neighboring child (we have an overlap).
-                    this.currentOffset = intervalEndIdx - probe.consumed() + 1;
-                    return new CandidateRange(this.currentOffset, intervalEndIdx);
-                }
-            }
         }
+        //the intervals of the children are bigger or equal to the pattern and the probe matched all characters
+        if (probe.complete() && canDescend && childrenIntervalSize >= requiredSpan) {
+            //we just generate children as theres a chance that the pattern is in both of them
+            tree.generateChildren(f, stack, positionOffset, tree.id);
+            return null;
+        }
+        if (probe.complete()) {
+            return new CandidateRange(this.currentOffset, intervalEndIdx);
+        }
+        //the probes were incomplete. Meaning:
+        //For a pattern to truly exist it must reside in the right most positions of the current interval. The remaining characters will be at the
+        //neighboring interval (we have an overlap). Starts before this interval are handled by earlier intervals.
+        this.currentOffset = Math.max(this.currentOffset, intervalEndIdx - probe.consumed() + 1);
+        return new CandidateRange(this.currentOffset, intervalEndIdx);
     }
 
     public int getCurrentOffset() {
         return this.currentOffset;
-    }
-
-    // Counts consecutive TRUEs starting at index 0 in matchedArr.
-    int countStartConsecutiveMatches(boolean[] matchedArr) {
-        int matches = 0;
-        for (boolean b : matchedArr) {
-            if (!b) {
-                break;
-            }
-            matches++;
-        }
-        return matches;
     }
 
     @Override
@@ -90,36 +81,26 @@ public class BlockSearchCharSet implements SearchAlgorithm {
         this.useTokenLengthGuard = useTokenLengthGuard;
     }
 
+    // Algorithm 2 (TestActive). Returns the number of pattern characters covered by the longest prefix
+    // of tokens that tested positive, and whether no gated-in token tested negative.
     Probe probe(ImplicitTree tree,
                 int level,
                 int intervalIdx,
                 Pattern pattern,
                 long[] tokens,
-                ArrayList<Integer> lp,
-                int currentIntervalSize) {
+                ArrayList<Integer> lp) {
 
         int limit = tokens.length;
-
         boolean[] matchedArr = new boolean[limit];
-        Arrays.fill(matchedArr, false);
 
         // Force-check token 0, ignoring lp pruning.
-        long firstTok = tokens[0];
         long hi = Integer.toUnsignedLong(intervalIdx);
-        long lo0 = firstTok;
-        boolean firstContains = tree.contains(level, hi, lo0);
-        // we definitely tested the first token
-        boolean testedFirst = true;
-
-        if (!firstContains) {
+        if (!tree.contains(level, hi, tokens[0])) {
             // Hard "no" at the very first symbol:
             // pattern cannot start at this interval boundary.
-            // consumed == 0, not complete.
             return new Probe(0, false, true);
         }
         int prefixCount = 1;
-        int consumedChars;
-
 
         // MAIN SCAN (respects lp)
         for (int i = 1; i < limit; i++) {
@@ -129,63 +110,34 @@ public class BlockSearchCharSet implements SearchAlgorithm {
                 continue;
             }
 
-            long token = tokens[i];
-
-            boolean contains;
-
-            long lo = token;
-            contains = tree.contains(level, hi, lo);
-
-            if (!contains) {
+            if (!tree.contains(level, hi, tokens[i])) {
                 // First negative at token i in the main scan.
-
-                // Repair: explicitly check tokens 1..i-1 ignoring lp.
-
+                // Repair: explicitly check tokens 1..i-1 ignoring lp to find where the prefix breaks.
                 for (int j = 1; j < i; j++) {
-                    if(matchedArr[j]) {
-                        prefixCount +=1;
-                        continue;
-                    }
-                    long t0 = tokens[j];
-
-                    boolean c0;
-
-                    lo0 = t0;
-                    c0 = tree.contains(level, hi, lo0);
-
-
-                    if (!c0) {
+                    if (!matchedArr[j] && !tree.contains(level, hi, tokens[j])) {
                         // prefix breaks at j
-                        consumedChars = charactersMatched(prefixCount, pattern);
-                        return new Probe(consumedChars, false, true);
+                        return new Probe(charactersMatched(prefixCount, pattern), false, true);
                     }
-
                     matchedArr[j] = true;
                     prefixCount++;
                 }
 
                 // All tokens 0..i-1 were present.
-                consumedChars = charactersMatched(prefixCount, pattern);
-                return new Probe(consumedChars, false, true);
-
+                return new Probe(charactersMatched(prefixCount, pattern), false, true);
             }
 
             // still "maybe present" for this token in main scan
             matchedArr[i] = true;
             // Do not increment prefixCount here, because this might not actually be
             // contiguous from 0 if lp skipped early tokens. We only use prefixCount
-            // in fallback, where we explicitly walk from 0 upward.
+            // in the repair walk, which goes from 1 upward.
         }
 
-        // If we get here, main scan saw NO Bloom filter negatives at all.
-        // complete == true.
-        // testedFirst may still be false if lp skipped i == 0 and we never had to fallback.
-
-        consumedChars = charactersMatched(matchedArr.length, pattern);
-
-        return new Probe(consumedChars, true, testedFirst);
+        // The main scan saw no Bloom filter negatives at all.
+        return new Probe(charactersMatched(limit, pattern), true, true);
     }
 
+    // Upper bound on how far into the pattern the failing token reaches, in pattern positions.
     private int charactersMatched(int matchedTokens, Pattern pattern) {
         if (matchedTokens <= 0) {
             return 0;
@@ -203,33 +155,5 @@ public class BlockSearchCharSet implements SearchAlgorithm {
 
         long chars = (long) matchedTokens + nGramSize - 1L;
         return (int) Math.min(pattern.originalSz, chars);
-    }
-
-    private int maxTokensForInterval(int intervalSize, Pattern pattern) {
-        if (!strides) {
-            return intervalSize;
-        }
-
-        int nGramSize = Math.max(1, pattern.nGram);
-        if (nGramSize <= 1) {
-            return intervalSize;
-        }
-
-        int full = intervalSize / nGramSize;
-        int rem = intervalSize % nGramSize;
-        return full + (rem > 0 ? 1 : 0);
-    }
-
-    public boolean isValidChild(int positionOffset,
-                                int intervalIdx,
-                                int level,
-                                int maxLevel,
-                                int workingTreeIdx) {
-
-        int spanAll = 1 << maxLevel;
-        int maxPos = (1 << (maxLevel - level)) * (intervalIdx + 1)
-                + workingTreeIdx * spanAll
-                - 1;
-        return maxPos >= positionOffset;
     }
 }

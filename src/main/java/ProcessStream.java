@@ -1,3 +1,4 @@
+import PMIndex.HbiConfiguration;
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
@@ -58,7 +59,8 @@ public class ProcessStream {
                 continue;
             }
             long t0 = System.nanoTime();
-            String s = window.snapshot().toString();
+            // Characters concatenate directly; multi-character tokens need the segment separator.
+            String s = (token instanceof Character) ? window.snapshot() : window.join(Pattern.SEGMENT_JOINER);
 
 
             index.insert(s);
@@ -158,7 +160,7 @@ public class ProcessStream {
         for (String q : queries) {
             if (q == null || q.isEmpty()) continue;
             Pattern pat;
-            if (readerMode == "segments") {
+            if ("segments".equalsIgnoreCase(readerMode)) {
                 String[] splitArray = q.split(" ");
 
                 pat = new Pattern(splitArray, ngram);
@@ -195,19 +197,19 @@ public class ProcessStream {
         Supplier<Membership> memFactory = BloomFilter::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier verifier = new VerifierLinearLeafProbe();
-        return new HBI(
-                new BlockSearch(),
-                windowLen,
-                fpRate,
-                alphabet,
-                treeLen,
-                estFactory,
-                memFactory,
-                prFactory,
-                verifier,
-                new CostFunctionMarkov(),
-                conf,
-                ngrams
-        );
+        return new HBI(HbiConfiguration.builder()
+                .searchAlgorithm(new BlockSearch())
+                .windowLength(windowLen)
+                .fpRate(fpRate)
+                .alphabetSize(alphabet)
+                .treeLength(treeLen)
+                .estimatorSupplier(estFactory)
+                .membershipSupplier(memFactory)
+                .pruningPlanSupplier(prFactory)
+                .verifier(verifier)
+                .costFunction(new CostFunctionMarkov())
+                .confidence(conf)
+                .nGram(ngrams)
+                .build());
     }
 }

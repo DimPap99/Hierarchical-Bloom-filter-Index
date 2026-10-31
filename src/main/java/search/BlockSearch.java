@@ -22,7 +22,7 @@ public class BlockSearch implements SearchAlgorithm{
         int childrenIntervalSize  = currentIntervalSize / 2;
         int treeBaseInterval      = tree.baseIntervalSize();
 
-        // Absolute global start and end of this interval
+        // Start and end of this interval among the retained trees
         int globalStart = tree.id * treeBaseInterval
                 + currentIntervalSize * f.intervalIdx();
 
@@ -34,7 +34,7 @@ public class BlockSearch implements SearchAlgorithm{
         // If this node's entire interval lies strictly before positionOffset,
         // we can skip probing this node entirely
         if (globalEnd < positionOffset) {
-            this.currentOffset = globalEnd + 1;
+            this.currentOffset = positionOffset;
             return null;
         }
 
@@ -66,11 +66,12 @@ public class BlockSearch implements SearchAlgorithm{
             tree.generateChildren(f, stack, positionOffset, tree.id);
             return null;
         }
-//        if(childrenIntervalSize < p.size) System.out.println(f);
         if (probe.complete()) {
             return new CandidateRange(this.currentOffset, globalEnd);
         } else {
-            this.currentOffset = globalEnd - probe.consumed() + 1;
+            // Only starts near the right edge can still cross into the next interval. Starts before
+            // this interval belong to earlier intervals, so the range never reaches past currentOffset.
+            this.currentOffset = Math.max(this.currentOffset, globalEnd - probe.consumed() + 1);
             return new CandidateRange(this.currentOffset, globalEnd);
         }
     }

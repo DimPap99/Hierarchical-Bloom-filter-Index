@@ -146,9 +146,7 @@ public final class BenchmarkOrchestrator {
                     // Warmups
                     for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                         if (options.runHbi()) {
-                            //testing to improve CF. Keep it as false to have the original behavior
-                            boolean enableSelective = false;//(ng >= 6) || isCaidaWindow(options.window());
-                            SelectiveFanout.setSelectiveRegimeEnabled(false);
+                            configureSelectiveFanout();
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
@@ -218,8 +216,7 @@ public final class BenchmarkOrchestrator {
                             HBI hbi = null; InsertStats hbiIns = null;
                             if (options.runHbi()) {
 
-                                boolean enableSelective = (ng >= 6) || isCaidaWindow(options.window());
-                                SelectiveFanout.setSelectiveRegimeEnabled(enableSelective);
+                                configureSelectiveFanout();
                                 hbi = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
@@ -328,6 +325,7 @@ public final class BenchmarkOrchestrator {
                             // Reinsert only for suffix-style baselines. HBI is built once per dataset.
                             HBI hbiSingle = null; InsertStats hbiSingleIns = null;
                             if (options.runHbi()) {
+                                configureSelectiveFanout();
                                 hbiSingle = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
@@ -520,19 +518,23 @@ public final class BenchmarkOrchestrator {
         return filtered;
     }
 
-    private static boolean isCaidaWindow(String windowToken) {
-        if (windowToken == null) return false;
-        String w = windowToken.toLowerCase(java.util.Locale.ROOT);
-        return w.contains("caida");
+    // Warmups and measured runs must exercise the same cost-function code path. The thesis CF-BS
+    // (Sec. 4.2.2) assumes both children of a passing parent are visited, so the adaptive
+    // SelectiveFanout heuristic stays off everywhere.
+    private static void configureSelectiveFanout() {
+        SelectiveFanout.setSelectiveRegimeEnabled(false);
     }
 
     private static boolean isSegments(MultiBenchmarkOptions options) {
         return "segments".equalsIgnoreCase(options.mode());
     }
 
+    // Apply the provisioning policy to the newest tree once the snapshot is loaded, so queries run on
+    // the pruned index. Otherwise the policy only fires when the next tree starts, which never
+    // happens when the dataset fills exactly one window.
     private static void forcePolicyIfActive(HBI hbi, MultiBenchmarkOptions options) {
         if (hbi != null && options.memPolicy() != Utils.MemPolicy.NONE) {
-//            hbi.forceApplyMemoryPolicy();
+            hbi.forceApplyMemoryPolicy();
         }
     }
 

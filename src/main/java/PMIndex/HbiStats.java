@@ -43,6 +43,16 @@ public final class HbiStats {
         }
     }
 
+    // Forget everything recorded so far, e.g. between benchmark workloads.
+    public void resetCounters() {
+        lpLevels.clear();
+        alphas.clear();
+        cfLpLevels.clear();
+        latestPatternResult = null;
+        resetExperimentStats();
+        resetTiming();
+    }
+
     public boolean isExperimentMode() {
         return experimentMode;
     }

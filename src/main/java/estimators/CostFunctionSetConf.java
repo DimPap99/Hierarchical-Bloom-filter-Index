@@ -12,7 +12,7 @@ import static utilities.MathUtils.pruningLevel;
 public class CostFunctionSetConf  implements CostFunction {
     @Override
     public int minCostLp(ImplicitTree tree, double confInit, Pattern p, double bfCost, double leafCost, boolean strides) {
-        double pMax = Arrays.stream(tree.estimator.estimateALl(p, strides)).min().getAsDouble();
+        double pMax = Arrays.stream(tree.estimator.estimateALl(p, strides)).min().orElse(0.0);
 
         return pruningLevel(tree, confInit, pMax);
     }

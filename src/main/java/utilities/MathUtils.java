@@ -108,14 +108,22 @@ public final class  MathUtils {
         return (width >> (level + 1)) >= patternLength;
     }
 
-    // Alpha to Lp mapping for a single p.
+    // Alpha to Lp mapping for a single p (content-only model, no Bloom false positives).
     public static int pruningLevel(ImplicitTree<?> tree, double conf, double prob){
+        final int Lmax = tree.maxDepth() - 1;
+        if (prob <= 0.0) {
+            return 0; // absent symbol: the root can already prune
+        }
+        if (prob >= 1.0) {
+            return Lmax; // symbol everywhere: no level can prune
+        }
         double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob); // > 0
-        double val    = Math.log(tree.baseIntervalSize() / bAlpha);
-        int L         = (int) Math.ceil(val);
-        double lp = Math.min(L, tree.maxDepth() - 1);
-        if(lp > 0) lp = lp+1;
-        return (int) Math.max(0, lp);
+        if (!Double.isFinite(bAlpha) || bAlpha <= 0.0) {
+            return 0;
+        }
+        int L = (int) Math.ceil(log2(tree.baseIntervalSize() / bAlpha));
+        if (L > 0) L = L + 1;
+        return Math.max(0, Math.min(L, Lmax));
     }
 
     public static int pruningLevelBloom(
@@ -145,20 +153,16 @@ public final class  MathUtils {
             if (!(Double.isFinite(bAlphaQ)) || bAlphaQ <= 0.0) {
                 return 0;
             }
-            // L = ceil( log2( baseIntervalSize / bAlphaQ ) )
+            // Eq. 4.8 and 4.10: L = ceil( log2( baseIntervalSize / bAlphaQ ) ) + 1, clamped to [0, Lmax]
             final double ratio = tree.baseIntervalSize() / bAlphaQ;
-            final double val   = log2(ratio); // <-- this is where base-2 is required
-            int L        = (int) Math.ceil(val) + 1 ;
-            L = Math.max(0, L);
-            lp = Math.min(L, tree.maxDepth());//l can underflow if the probs are too small. clamp to 0
-
+            int L = (int) Math.ceil(log2(ratio)) + 1;
+            lp = Math.max(0, Math.min(L, Lmax)); // L underflows when the probs are tiny
         }
         return (int) Math.max(0, lp);
     }
 
-    // If you do not already have one
-    private static double log2(double x) {
-        return Math.log(x);
+    public static double log2(double x) {
+        return Math.log(x) / Math.log(2.0);
     }
 
 

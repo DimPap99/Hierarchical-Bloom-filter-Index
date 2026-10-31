@@ -1,3 +1,4 @@
+import PMIndex.HbiConfiguration;
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
 import PMIndex.RegexIndex;
@@ -144,10 +145,8 @@ public class ConfidenceExperiment {
                 continue;
             }
 
-            // snapshot().toString() should give the canonical string form we index.
-            // In your ProcessStream code you were doing exactly this:
-            //   String s = window.snapshot().toString();
-            String s = window.snapshot().toString();
+            // Same n-gram form as Pattern(String[], int) builds on the query side.
+            String s = window.join(Pattern.SEGMENT_JOINER);
 
             long t0 = System.nanoTime();
             index.insert(s);
@@ -768,19 +767,21 @@ public class ConfidenceExperiment {
         Supplier<Membership> memFactory = MockMembership::new;
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, FP_RATE);
         Verifier v = new VerifierLinearLeafProbe();
-        return new HBI(
-                new BlockSearch(),
-                WINDOW_LEN,
-                FP_RATE,
-                ALPHABET,
-                TREE_LEN,
-                estFactory,
-                memFactory,
-                prFactory,
-                v,
-                new CostFunctionMaxProb(),
-                conf,
-                1
-        );
+        // Experiment mode: every query records a PatternResult with the probe counts per start level.
+        return new HBI(HbiConfiguration.builder()
+                .searchAlgorithm(new BlockSearch())
+                .windowLength(WINDOW_LEN)
+                .fpRate(FP_RATE)
+                .alphabetSize(ALPHABET)
+                .treeLength(TREE_LEN)
+                .estimatorSupplier(estFactory)
+                .membershipSupplier(memFactory)
+                .pruningPlanSupplier(prFactory)
+                .verifier(v)
+                .costFunction(new CostFunctionMaxProb())
+                .confidence(conf)
+                .nGram(1)
+                .experimentMode(true)
+                .build());
     }
 }

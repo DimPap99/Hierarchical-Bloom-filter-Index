@@ -1,22 +1,23 @@
 package search;
 
-import tree.ImplicitTree;
-
 import java.util.ArrayList;
-import java.util.Arrays;
 
 public class Pattern{
+    // Joins the tokens of one n-gram in segments mode. Segments are lines and query tokens are split on
+    // spaces, so a line break can never occur inside a token and distinct token sequences stay distinct.
+    public static final String SEGMENT_JOINER = "\n";
+
     public char[] text;
     public String patternTxt;
     public int originalSz;
-    public int[] pi;
 
     public String[] nGramArr;
-    public long[] nGramToLong;      // filled by the index via StringKeyMapper
-    public long[] effectiveNgramArr;
+    public long[] nGramToLong;      // filled by the index via StringKeyMapper, or by setTokens
+    public long[] effectiveNgramArr; // every n-th token for stride mode, see buildStrideTokens
     public ArrayList<Integer> charStartLp;
     public int nGram = 1;
     public int size;
+    // True once nGramToLong holds the final numeric tokens, so the index must not remap nGramArr.
     public boolean isConverted;
 
     public Pattern(String s, int nGram) {
@@ -25,7 +26,6 @@ public class Pattern{
         this.originalSz = this.text.length;
         this.patternTxt = s;
         this.nGram = nGram;
-        this.prefixFunction();
         int len = s.length() - nGram + 1;
         boolean shortPattern = len <= 0;
         if (shortPattern) {
@@ -46,12 +46,10 @@ public class Pattern{
 
     }
 
+    // Segments mode: each element of s is one stream token.
     public Pattern(String[] s, int nGram) {
-        if(this.patternTxt != null)         this.text = this.patternTxt.toCharArray(); // not used in segments mode
-
         this.size = s.length;
         this.originalSz = s.length;
-        this.patternTxt =  String.join(" ", s);         // also unused/commented in your version
         this.nGram = nGram;
 
         int len = size - nGram + 1;
@@ -63,72 +61,55 @@ public class Pattern{
         // sliding-window n-grams
         this.nGramArr = new String[len];
         this.nGramToLong = new long[len]; // stays allocated; encoding filled elsewhere
-        this.patternTxt = "";
         int addition = (originalSz % nGram == 0) ? 0 : 1;
         this.effectiveNgramArr = new long[(originalSz / nGram) + addition];
 
         if (shortPattern) {
-            StringBuilder sb = new StringBuilder();
-            for (String token : s) {
-                sb.append(token);
-            }
-            nGramArr[0] = sb.toString();
+            nGramArr[0] = String.join(SEGMENT_JOINER, s);
         } else {
             for (int i = 0; i < len; i++) {
-                StringBuilder sb = new StringBuilder();
-                for (int j = 0; j < nGram; j++) {
-                    sb.append(s[i + j]);
-                }
-                nGramArr[i] = sb.toString();
-                // nGramToLong[i] will get populated by the existing logic elsewhere
+                nGramArr[i] = joinTokens(s, i, nGram);
             }
         }
-        StringBuilder human = new StringBuilder();
-        if (s.length > 0) {
-            human.append(s[0]);
-            for (int i = 1; i < s.length; i++) {
-                human.append(' ');
-                human.append(s[i]);
-            }
-        }
-        this.patternTxt = human.toString();
-        // effectiveNgramArr is still allocated here and (per your note)
-        // is populated later in the pipeline, so we leave it alone.
+        this.patternTxt = String.join(" ", s);
+        this.text = this.patternTxt.toCharArray();
     }
 
-
-
-//    public Pattern(String s, int nGram) {
-//        this.text = s.toCharArray();
-//        this.originalSz = this.text.length;
-//        this.patternTxt = s;
-//        this.nGram = nGram;
-//        this.prefixFunction();
-//        int len = s.length() - nGram + 1;
-//
-//        this.nGramArr   = new String[len];
-//        this.nGramToInt = new int[len];        // or whatever you store there
-//        int addition =  originalSz%nGram == 0 ? 0 : 1;
-//        this.effectiveNgramArr = new int[originalSz/nGram + addition];
-//        for (int i = 0; i < len; i++) {
-//            nGramArr[i] = s.substring(i, i + nGram);   // sliding window
-//            // nGramToInt[i] = … convert nGramArr[i] to int if needed
-//        }
-//
-//    }
-
-
-
-
-    // Private copy of prefix helper, not exposed to callers.
-    private int[] prefixFunction() {
-        int[] pi = new int[this.text.length];
-        int k = 0;
-        for (int i = 1; i < this.text.length; ++i) {
-            while (k > 0 && this.text[k] != this.text[i]) k = pi[k - 1];
-            if (this.text[k] == this.text[i]) ++k;
-            pi[i] = k;
+    // Builds the n-gram key used for count consecutive tokens starting at from. Must match how the
+    // stream side builds its n-grams in segments mode.
+    public static String joinTokens(String[] tokens, int from, int count) {
+        if (count == 1) {
+            return tokens[from];
         }
-        return pi;
+        StringBuilder sb = new StringBuilder();
+        for (int j = 0; j < count; j++) {
+            if (j > 0) {
+                sb.append(SEGMENT_JOINER);
+            }
+            sb.append(tokens[from + j]);
+        }
+        return sb.toString();
+    }
+
+    // Use already-mapped numeric tokens (one per overlapping n-gram) instead of mapping nGramArr.
+    public void setTokens(long[] tokens) {
+        if (tokens.length != nGramToLong.length) {
+            throw new IllegalArgumentException(
+                    "expected " + nGramToLong.length + " tokens but got " + tokens.length);
+        }
+        System.arraycopy(tokens, 0, nGramToLong, 0, tokens.length);
+        this.isConverted = true;
+    }
+
+    // Fill effectiveNgramArr with the n-grams at offsets 0, n, 2n, ... (Sec. 4.3.1). When the
+    // length is not a multiple of n, the last entry is the final overlapping n-gram so the tail
+    // of the pattern is still covered.
+    public void buildStrideTokens() {
+        for (int nIdx = 0; nIdx < nGramToLong.length; nIdx += nGram) {
+            effectiveNgramArr[nIdx / nGram] = nGramToLong[nIdx];
+        }
+        if (effectiveNgramArr.length > 0 && originalSz % nGram != 0) {
+            effectiveNgramArr[effectiveNgramArr.length - 1] = nGramToLong[nGramToLong.length - 1];
+        }
     }
 }

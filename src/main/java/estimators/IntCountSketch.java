@@ -151,7 +151,11 @@ public final class IntCountSketch {
         }
         Arrays.sort(vals);
         int mid = depth >>> 1;
-        return vals[mid];
+        if ((depth & 1) == 1) {
+            return vals[mid];
+        }
+        // Even depth: the median is the mean of the two middle rows.
+        return Math.floorDiv((long) vals[mid - 1] + vals[mid], 2L);
     }
 
     private int bucket(long itemHash, int row) {

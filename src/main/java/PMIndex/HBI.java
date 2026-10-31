@@ -4,13 +4,9 @@ import estimators.CostFunction;
 import estimators.CostFunctionDefaultRoot;
 import estimators.Estimator;
 import estimators.HOPS;
-import jdk.jshell.execution.Util;
-import membership.Key64;
 import membership.KeyPackingService;
 import membership.Membership;
 import org.apache.commons.math3.util.Pair;
-import org.openjdk.jol.info.GraphLayout;
-import org.openjdk.jol.vm.VM;
 import search.CandidateRange;
 import search.IntervalScanner;
 import search.Pattern;
@@ -31,10 +27,16 @@ import static utilities.MathUtils.pruningLevel;
 import static utilities.MathUtils.pruningLevelBloom;
 
 
+// Hierarchical Bloom filter Index (thesis Ch. 4).
+//
+// Coordinates: the active trees are numbered 0..trees.size()-1 (oldest first) and a position p inside
+// the retained trees is tree.id * treeLength + local. When the oldest tree expires the remaining trees
+// are renumbered, so these ints never grow with the stream. report() returns positions relative to the
+// start of the current window, i.e. the set { i in 0..w-r : W_t[i..i+r-1] = P } of Sec. 1.2.
+// windowStartPosition() converts them to absolute stream positions.
+//
+// Not thread-safe.
 public final class HBI implements IPMIndexing {
-
-    // Monotonic global id for new trees.
-    private int nextTreeId = 0;
 
     private static final int DEFAULT_BC_COST_ESTIM_ITER = 1_000_000;
     private static final int DEFAULT_LC_COST_ESTIM_ITER = 1_000_000;
@@ -49,11 +51,8 @@ public final class HBI implements IPMIndexing {
     private final int treeLength;
     public int alphabetSize;
     public final double fpRate;
-    // Toggle to keep levels below nGram and use token-length descent; default preserves current behaviour.
-    public boolean keepSubNgramLevels = false;
-
-
-
+    // Keep levels below nGram and use token-length descent; default preserves current behaviour.
+    private final boolean keepSubNgramLevels;
 
     private final SearchAlgorithm searchAlgo;
     private final Supplier<Estimator> estimatorFac;
@@ -67,7 +66,10 @@ public final class HBI implements IPMIndexing {
     public final ArrayList<ImplicitTree<Membership>> trees = new ArrayList<>();
 
     public StringKeyMapper keyMapper;
+    // Absolute position of the last indexed symbol.
     private long indexedItemsCounter = -1;
+    // Number of trees evicted so far; they all held exactly treeLength symbols.
+    private long expiredTrees = 0;
 
     private int bcCostEstimIter = DEFAULT_BC_COST_ESTIM_ITER;
     private int lcCostEstimIter = DEFAULT_LC_COST_ESTIM_ITER;
@@ -87,9 +89,6 @@ public final class HBI implements IPMIndexing {
     public boolean activateEstim = false;
     public Utils.MemPolicy memPolicy = Utils.MemPolicy.NONE; // default is no memory policy.
     public int pctEstimatorBuckets;
-    private final int maxActiveTrees;
-    private final HashSet<String> strhs = new HashSet<>();
-    private final HashSet<Integer> assignedkeys = new HashSet<Integer>();
     // Markov configuration and snapshot lifecycle.
     private int  desiredMaxOrder = 3;   // 2 means first-order.
     private boolean markovDirty = false; // set true on insert; snapshot rebuilt lazily before query.
@@ -117,6 +116,7 @@ public final class HBI implements IPMIndexing {
         this.treeLength = config.treeLength();
         this.alphabetSize = config.alphabetSize();
         this.fpRate = config.fpRate();
+        this.keepSubNgramLevels = config.keepSubNgramLevels();
         this.searchAlgo = config.searchAlgorithm();
         if (this.searchAlgo instanceof search.BlockSearch bs) {
             bs.setUseTokenLengthGuard(this.keepSubNgramLevels);
@@ -135,11 +135,6 @@ public final class HBI implements IPMIndexing {
         if(this.cf instanceof CostFunctionDefaultRoot) {
             this.isRootAlg = true;
         }
-        trees.addLast(createTree(this.nextTreeId++));
-        this.maxActiveTrees = (int) Math.ceil((double) (windowLength / treeLength));
-        if(isMarkov) {
-            ensureMarkovBuilder();
-        }
 
         Utils.MemPolicy configuredPolicy = config.memPolicy();
         this.memPolicy = configuredPolicy == null ? Utils.MemPolicy.NONE : configuredPolicy;
@@ -153,48 +148,12 @@ public final class HBI implements IPMIndexing {
             }
             ensurePctEstimator();
         }
-    }
-
-    public HBI(SearchAlgorithm algo,
-               int windowLength,
-               double fpRate,
-               int alphabetSize,
-               int treeLength,
-               Supplier<Estimator> estimator,
-               Supplier<Membership> membership,
-               Supplier<PruningPlan> pruningPlan,
-               Verifier verifier,
-               CostFunction cf,
-               double conf,
-               int nGram) {
-        this(HbiConfiguration.builder()
-                .searchAlgorithm(algo)
-                .windowLength(windowLength)
-                .fpRate(fpRate)
-                .alphabetSize(alphabetSize)
-                .treeLength(treeLength)
-                .estimatorSupplier(estimator)
-                .membershipSupplier(membership)
-                .pruningPlanSupplier(pruningPlan)
-                .verifier(verifier)
-                .costFunction(cf)
-                .confidence(conf)
-                .nGram(nGram)
-                .memPolicy(Utils.MemPolicy.REACTIVE)
-                .build());
+        trees.addLast(createTree(0));
     }
 
     public HbiStats stats() {
         return stats;
     }
-
-//    public void setAlphabetMap(AlphabetMapper<String> alphabetMap) {
-//        this.alphabetMap = Objects.requireNonNull(alphabetMap, "alphabetMap");
-//    }
-
-//    public void resetAlphabetMap(int capacity) {
-//        this.alphabetMap = new AlphabetMapper<>(capacity);
-//    }
 
     public void setLpOverride(int lp) {
         this.lpOverride = lp;
@@ -204,22 +163,62 @@ public final class HBI implements IPMIndexing {
         return lpOverride;
     }
 
-    // Evict the oldest tree unconditionally.
-    @Override
-    public void expire() {
-        trees.removeFirst();
+    public int nGram() {
+        return nGram;
     }
 
-    // Stream a single character into the index.
+    public int windowLength() {
+        return windowLength;
+    }
+
+    public int treeLength() {
+        return treeLength;
+    }
+
+    // Number of symbols indexed since construction.
+    public long indexedCount() {
+        return indexedItemsCounter + 1;
+    }
+
+    // Absolute stream position of the first symbol of the current window.
+    public long windowStartPosition() {
+        return Math.max(0L, indexedItemsCounter - windowLength + 1);
+    }
+
+    // Absolute stream position of the first symbol held by the oldest retained tree.
+    private long retainedStartPosition() {
+        return expiredTrees * (long) treeLength;
+    }
+
+    // Evict the oldest tree. The newest tree is never evicted, since it receives the next symbols.
+    @Override
+    public void expire() {
+        if (trees.size() <= 1) {
+            return;
+        }
+        trees.removeFirst();
+        expiredTrees++;
+        for (ImplicitTree<Membership> tree : trees) {
+            tree.id--;
+        }
+    }
+
+    // Drop whole trees once none of their positions lies inside the window (Sec. 4.1.3).
+    private void expireOutOfWindowTrees() {
+        long windowStart = windowStartPosition();
+        while (trees.size() > 1 && retainedStartPosition() + treeLength <= windowStart) {
+            expire();
+        }
+    }
+
+    // Stream a single symbol (character or n-gram) into the index.
     @Override
     public void insert(String c) {
-        long token = keyMapper.mapToLong(c);
-//        this.strhs.add(c);
-//        this.assignedkeys.add(intC);
-//        if(intC == 146) System.out.println(c);
-        if (memoryPolicyActive()) {
-            ensurePctEstimator().insert(token);
-        }
+        insertToken(keyMapper.mapToLong(c));
+    }
+
+    // Stream a symbol that the caller has already mapped to a numeric key (Sec. 3.3).
+    public void insertToken(long token) {
         if(isMarkov) {
             ensureMarkovBuilder();
             this.modelBuilder.observeSymbol(token); // update counts while indexing
@@ -227,43 +226,31 @@ public final class HBI implements IPMIndexing {
         }
 
         indexedItemsCounter++;
-        ImplicitTree<Membership> lastTree = trees.getLast();
-        if (lastTree.isFull()) {
-
+        ImplicitTree<Membership> target = trees.getLast();
+        if (target.isFull()) {
+            // The policies decide on the tree that just filled, before the next tree starts.
             if (memoryPolicyActive()) {
                 applyMemoryPolicy();
-//                if(this.memPolicy == Utils.MemPolicy.PREDICTIVE){
-//
-//                }
             }
-
-            ImplicitTree<Membership> fresh = createTree(nextTreeId++);
+            target = createTree(trees.size());
             if (this.memPolicy == Utils.MemPolicy.PREDICTIVE && this.lastPredictiveLp > 0) {
-                fresh.dropFiltersUpToLp(this.lastPredictiveLp);
+                target.dropFiltersUpToLp(this.lastPredictiveLp);
             }
-            if (estimatorsActive()) {
-                if (fresh.estimator == null) {
-                    fresh.estimator = estimatorFac.get();
-                }
-                fresh.estimator.insert(token);
-            }
-            fresh.append(token, indexedItemsCounter);
-            trees.add(fresh);
-//            alphabetSize = this.alphabetMap.getSize() + (int)(this.alphabetMap.getSize()*0.1);
-        } else {
-            if (estimatorsActive()) {
-                if (lastTree.estimator == null) {
-                    lastTree.estimator = estimatorFac.get();
-                }
-                lastTree.estimator.insert(token);
-            }
-            lastTree.append(token, indexedItemsCounter);
+            trees.add(target);
         }
 
-        if (trees.getLast().indexedItemsCounter + (trees.size() - 1) * this.treeLength > this.windowLength) {
-
-            this.expire();
+        if (memoryPolicyActive()) {
+            ensurePctEstimator().insert(token);
         }
+        if (estimatorsActive()) {
+            if (target.estimator == null) {
+                target.estimator = estimatorFac.get();
+            }
+            target.estimator.insert(token);
+        }
+        target.append(token, indexedItemsCounter);
+
+        expireOutOfWindowTrees();
     }
 
     private HOPS ensurePctEstimator() {
@@ -359,60 +346,20 @@ public final class HBI implements IPMIndexing {
 
     @Override
     public boolean exists(String key) {
-        return false;
-    }
-    // Choose a target absolute seed span S from the pattern.
-    // Heuristic: seed where children are about 4x the pattern length.
-    // This keeps the descent to pattern scale short and stable.
-    private static int targetSeedSpanFor(search.Pattern p) {
-        int m = Math.max(1, p.originalSz);
-        return Math.max(64, 4 * m);
-    }
-
-    // Exact ceil(log2(x)) for positive integers.
-    private static int ilog2ceil(int x) {
-        if (x <= 1) return 0;
-        return 32 - Integer.numberOfLeadingZeros(x - 1);
-    }
-
-    // Exact ceil(log2(W/S)) without floating point.
-    private static int ceilLog2Ratio(int windowLength, int seedSpan) {
-        long span = Math.max(1, seedSpan);
-        int L = 0;
-        while (span < (long) windowLength) {
-            span <<= 1;
-            L++;
-        }
-        return L;
-    }
-
-    // Compute the per-tree seed level so that across all active trees
-    // you seed the same absolute interval size as a single tree over the whole window.
-    private static int alignedSeedLevel(tree.ImplicitTree<?> tree,
-                                        int windowLength,
-                                        int numActiveTrees,
-                                        search.Pattern p, int S) {
-        int Lglobal  = ceilLog2Ratio(windowLength, S);     // ceil(log2(W/S))
-        int shift    = ilog2ceil(Math.max(1, numActiveTrees)); // ceil(log2(T))
-        int lp       = Math.max(0, Lglobal - shift);
-        return Math.min(lp, tree.maxDepth() - 1);
-    }
-
-    private static void printLevelHistogram(int[] visits, String label) {
-        // Print only non-zero levels for readability
-        System.out.printf(Locale.ROOT, "Visits per level (%s):", label);
-        boolean first = true;
-        for (int lvl = 0; lvl < visits.length; lvl++) {
-            int v = visits[lvl];
-            if (v == 0) continue;
-            System.out.printf(Locale.ROOT, "%s L%-2d=%d", first ? " " : ", ", lvl, v);
-            first = false;
-        }
-        System.out.println();
+        return !report(new Pattern(key, this.nGram)).isEmpty();
     }
 
     @Override
     public ArrayList<Integer> report(Pattern pat) {
+        if (pat.nGram != this.nGram) {
+            throw new IllegalArgumentException(
+                    "pattern uses n-gram size " + pat.nGram + " but the index uses " + this.nGram);
+        }
+        // Sec. 4.3.1: a pattern needs at least one full n-gram.
+        if (pat.originalSz < this.nGram) {
+            throw new IllegalArgumentException(
+                    "pattern length " + pat.originalSz + " is shorter than the n-gram size " + this.nGram);
+        }
 
         ArrayList<Integer> results = new ArrayList<>();
         long queryStartNanos = System.nanoTime();
@@ -421,30 +368,22 @@ public final class HBI implements IPMIndexing {
         this.searchAlgo.setStrides(this.strides);
 
         // Precompute numeric tokens for the pattern once
-        for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
-            long tokenVal = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
-            pat.nGramToLong[nIdx] = tokenVal;
-            if (nIdx % pat.nGram == 0) {
-                pat.effectiveNgramArr[nIdx / pat.nGram] = tokenVal;
+        if (!pat.isConverted) {
+            for (int nIdx = 0; nIdx < pat.nGramArr.length; nIdx++) {
+                pat.nGramToLong[nIdx] = this.keyMapper.mapToLong(pat.nGramArr[nIdx]);
             }
         }
-
-        // Handle a tail n-gram for stride mode if pattern length is not divisible by nGram
-        if (pat.effectiveNgramArr.length > 0 && pat.originalSz % pat.nGram != 0) {
-            long tailToken = (pat.nGramToLong.length > 0)
-                    ? pat.nGramToLong[pat.nGramToLong.length - 1]
-                    : this.keyMapper.mapToLong(pat.patternTxt);
-            pat.effectiveNgramArr[pat.effectiveNgramArr.length - 1] = tailToken;
-        }
+        pat.buildStrideTokens();
 
         // Rebuild Markov-aware cost model if needed
         if (isMarkov) {
             refreshCostModelIfNeeded();
         }
 
-        // positionOffset is the global frontier in absolute coordinates
-        // Any match strictly before this offset has already been verified
-        int positionOffset = -1;
+        // positionOffset is the search frontier: every start before it is already verified or ruled out.
+        // Positions of the oldest tree that slid out of the window are skipped from the start.
+        final int windowStart = (int) (windowStartPosition() - retainedStartPosition());
+        int positionOffset = windowStart;
 
         long startTimeMs = System.currentTimeMillis();
         int lp = 0;
@@ -459,11 +398,9 @@ public final class HBI implements IPMIndexing {
             // If we have already advanced our frontier past the last symbol of this tree,
             // skip it completely
             int span = tree.baseIntervalSize();
-            int treeLastGlobal =
-                    tree.id * span
-                            + tree.buffer.lastIndex(); // last local index in this tree
+            int treeLastPos = tree.id * span + tree.buffer.lastIndex();
 
-            if (treeLastGlobal < positionOffset) {
+            if (treeLastPos < positionOffset) {
                 continue;
             }
 
@@ -471,7 +408,7 @@ public final class HBI implements IPMIndexing {
                 tree.pruningPlan = this.pruningPlanFac.get();
             }
 
-            // Build an IntervalScanner seeded with the current global frontier
+            // Build an IntervalScanner seeded with the current frontier
             IntervalScanner scn = new IntervalScanner(tree, pat, searchAlgo, positionOffset);
 
             long lpStart = System.nanoTime();
@@ -480,11 +417,11 @@ public final class HBI implements IPMIndexing {
             if (stats.isExperimentMode()) {
                 // estimator.estimateALl gives us per-symbol estimated probabilities
                 double[] pp = tree.estimator.estimateALl(pat, this.strides);
-                double pMax = Arrays.stream(pp).min().getAsDouble();
+                double pMin = Arrays.stream(pp).min().orElse(0.0);
 
                 // lp from override or arbitrary confidence
                 lp = this.lpOverride;
-                arbitraryConfLp = pruningLevel(tree, this.conf, pMax);
+                arbitraryConfLp = pruningLevel(tree, this.conf, pMin);
 
                 // cost of committing to a chosen level
                 int m = (int) (tree.maxDepth() - 1
@@ -528,7 +465,7 @@ public final class HBI implements IPMIndexing {
 
             totalLpTimeNanos += System.nanoTime() - lpStart;
             pat.charStartLp = lps;
-            lp = Collections.min(lps);
+            lp = lps.isEmpty() ? tree.effectiveRoot() : Collections.min(lps);
 
             if (stats.isCollecting()) {
                 stats.recordLp(lp);
@@ -536,10 +473,9 @@ public final class HBI implements IPMIndexing {
                     stats.recordAlpha(cf.getAlpha());
                 }
             }
-//            int lp2 = alignedSeedLevel(tree, this.windowLength, this.trees.size(), pat, 1 << lp);
 
-            // Clamp seed level to valid tree bounds to avoid overflow/invalid levels
-            int seedLevel = Math.max(0, Math.min(lp, tree.maxDepth() - 1));
+            // Seed only levels that still have filters: a policy may have dropped the top of the tree.
+            int seedLevel = Math.max(tree.effectiveRoot(), Math.min(lp, tree.maxDepth() - 1));
             scn.seedLevel(seedLevel);
 
             // Walk candidate intervals from this tree
@@ -551,25 +487,20 @@ public final class HBI implements IPMIndexing {
                 Pair<ArrayList<Integer>, Integer> res =
                         this.verifier.verify(treeIdx, this.trees, cr, pat);
 
-                // Append matches, while removing immediate duplicates
-                // Since verify() always advances forward, matches are nondecreasing
+                // The frontier only moves forward, so every hit beyond the last one is new.
                 for (int hit : res.getFirst()) {
-                    if (results.isEmpty() || results.get(results.size() - 1) != hit) {
-                        results.add(hit);
+                    if (hit < positionOffset) {
+                        continue;
+                    }
+                    int windowPos = hit - windowStart;
+                    if (results.isEmpty() || results.get(results.size() - 1) < windowPos) {
+                        results.add(windowPos);
                     }
                 }
 
-                // Advance the global frontier
-                positionOffset = res.getSecond();
+                positionOffset = Math.max(positionOffset, res.getSecond());
                 scn.positionOffset = positionOffset;
             }
-//            System.out.println(positionOffset);
-            // Print per-tree totals and histogram immediately after finishing this tree
-//            System.out.println("Tree id=" + tree.id + " lp=" + lp
-//                    + " span=" + span + " bloomProbes=" + tree.containCounter);
-//
-//            int[] perLevel = tree.snapshotVisitedPerLevel();
-//            printLevelHistogram(perLevel, "tree=" + tree.id);    }
         }
 
         // Experiment mode bookkeeping
@@ -598,8 +529,6 @@ public final class HBI implements IPMIndexing {
             long totalQueryTimeNanos = System.nanoTime() - queryStartNanos;
             stats.recordQueryTiming(totalQueryTimeNanos, totalLpTimeNanos);
         }
-//        int bfprobes2   = this.getAllprobes();
-//        System.out.println(pat.text +" Bloom Probes: " + bfprobes2);
 
         return results;
     }
@@ -685,7 +614,7 @@ public final class HBI implements IPMIndexing {
 
     }
 
-    private ImplicitTree<Membership> createTree(int treeGlobalId) {
+    private ImplicitTree<Membership> createTree(int treeId) {
 
         TreeLayout layout = makeLayout();
         int maxDepth = layout.levels();
@@ -713,8 +642,8 @@ public final class HBI implements IPMIndexing {
                 est
         );
 
-        // assign the globally unique id right here
-        tree.id = treeGlobalId;
+        // Slot of the tree among the retained trees; see the coordinate note at the top of the class.
+        tree.id = treeId;
 
         if (estimatorsActive()) {
             tree.pruningPlan = pruningPlanFac.get();

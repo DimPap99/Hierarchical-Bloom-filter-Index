@@ -170,7 +170,7 @@ public final class MemoryBenchmark {
         final double runConf = options.runConfidence();
 
         Supplier<Estimator> estFactory =
-                new EstimatorFactory(treeLen);
+                new EstimatorFactory();
         Supplier<Membership> memFactory =
                 new MembershipFactory();
         Supplier<PruningPlan> prFactory =
@@ -421,16 +421,15 @@ public final class MemoryBenchmark {
     }
 
     // Supplier<Estimator> without lambdas, so JOL does not see hidden lambda classes.
+    // Same Count Sketch (width 2048, depth 8) as IndexFactory, so the measured footprint is that of
+    // the index the latency benchmarks time (Sec. 5.1).
     private static final class EstimatorFactory implements Supplier<Estimator> {
-        private final int treeLen;
-
-        private EstimatorFactory(int treeLen) {
-            this.treeLen = treeLen;
+        private EstimatorFactory() {
         }
 
         @Override
         public Estimator get() {
-            return new HashMapEstimator(treeLen);
+            return new CSEstimator(2048, 8, 1);
         }
     }
 
@@ -756,7 +755,7 @@ public final class MemoryBenchmark {
         Utils.HopsDesignResult policyDesignFor(int ngram) {
             if (memPolicy == Utils.MemPolicy.NONE) return null;
             int distinctEstimate = Math.max(1, alphabetSizeFor(ngram));
-            return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, 0.01, 0.02);
+            return Utils.designBucketsForRankTargetChebyshev(distinctEstimate, rankEpsTarget, deltaQ, deltaSamp);
         }
 
         int ngram() {

@@ -31,8 +31,9 @@ public final class HbiConfiguration {
     private final boolean experimentMode;
     private final boolean collectStats;
     private final boolean activateEstim;
+    private final boolean keepSubNgramLevels;
 
-    private int nGram;
+    private final int nGram;
 
     private HbiConfiguration(Builder builder) {
         this.searchAlgorithm = Objects.requireNonNull(builder.searchAlgorithm, "searchAlgorithm");
@@ -52,6 +53,7 @@ public final class HbiConfiguration {
         this.memPolicy = builder.memPolicy;
         this.buckets = builder.buckets;
         this.activateEstim = builder.activateEstim;
+        this.keepSubNgramLevels = builder.keepSubNgramLevels;
         validate();
     }
 
@@ -66,6 +68,13 @@ public final class HbiConfiguration {
         }
         if (alphabetSize <= 0) {
             throw new IllegalArgumentException("alphabetSize must be positive");
+        }
+        if (nGram <= 0) {
+            throw new IllegalArgumentException("nGram must be positive");
+        }
+        // Positions inside the retained trees are ints; at most windowLength + 2 * treeLength of them are kept.
+        if ((long) windowLength + 2L * treeLength > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("windowLength + 2 * treeLength must fit in an int");
         }
         if (fpRate < 0.0 || fpRate >= 1.0) {
             throw new IllegalArgumentException("fpRate must be in [0,1)");
@@ -90,6 +99,7 @@ public final class HbiConfiguration {
     public int nGram(){return nGram;}
     public boolean collectStats() { return collectStats; }
     public boolean activateEstim() { return activateEstim; }
+    public boolean keepSubNgramLevels() { return keepSubNgramLevels; }
 
     public Utils.MemPolicy memPolicy() {
         return memPolicy;
@@ -109,11 +119,12 @@ public final class HbiConfiguration {
         private Verifier verifier;
         private CostFunction costFunction;
         private double confidence;
-        private boolean experimentMode = true;
+        private boolean experimentMode = false;
         private boolean collectStats;
         private boolean activateEstim;
+        private boolean keepSubNgramLevels;
 
-        private int nGram;
+        private int nGram = 1;
 
         private Builder() {
         }
@@ -198,6 +209,12 @@ public final class HbiConfiguration {
 
         public Builder activateEstim(boolean activateEstim) {
             this.activateEstim = activateEstim;
+            return this;
+        }
+
+        // Keep levels whose span is below the n-gram size (Sec. 4.3.1); off by default.
+        public Builder keepSubNgramLevels(boolean keepSubNgramLevels) {
+            this.keepSubNgramLevels = keepSubNgramLevels;
             return this;
         }
 

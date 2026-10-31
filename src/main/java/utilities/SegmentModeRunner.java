@@ -35,7 +35,7 @@ public final class SegmentModeRunner {
                 if (tok == null || tok.isEmpty()) continue;
                 window.append(tok);
                 if (!window.isFilled()) continue;
-                String gram = window.snapshot().toString();
+                String gram = window.join(Pattern.SEGMENT_JOINER);
                 index.insert(gram);
                 insertionEvents++;
             }
@@ -67,6 +67,10 @@ public final class SegmentModeRunner {
         Map<MultiQueryExperiment.QueryWorkload, ExperimentRunResult> results = new LinkedHashMap<>();
 
         for (MultiQueryExperiment.QueryWorkload workload : workloads) {
+            // HBI statistics below are per workload, not running totals.
+            if (index instanceof PMIndex.HBI hbi) {
+                hbi.stats().resetCounters();
+            }
             long startTimeMs = System.currentTimeMillis();
             ArrayList<PatternResult> patternResults = new ArrayList<>();
             int totalQueryLen = 0;

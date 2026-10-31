@@ -78,6 +78,21 @@ public class RingBuffer<T> {
         return out.toString();
     }
 
+    // Elements in arrival order with sep between them. Use this instead of snapshot() when the
+    // elements are multi-character tokens, so that different token sequences never collide.
+    public String join(CharSequence sep) {
+        StringBuilder out = new StringBuilder();
+        boolean[] first = {true};
+        forEach(item -> {
+            if (!first[0]) {
+                out.append(sep);
+            }
+            out.append(item);
+            first[0] = false;
+        });
+        return out.toString();
+    }
+
     public <R> R collect(Supplier<R> supplier, BiConsumer<R, ? super T> accumulator) {
         Objects.requireNonNull(supplier, "supplier");
         Objects.requireNonNull(accumulator, "accumulator");

@@ -251,7 +251,7 @@ public class HBIDatasetBenchmark {
                 continue;
             }
 
-            String s = window.snapshot().toString();
+            String s = window.join(Pattern.SEGMENT_JOINER);
 
             long t0 = System.nanoTime();
             index.insert(s);
@@ -344,20 +344,20 @@ public class HBIDatasetBenchmark {
         Supplier<PruningPlan> prFactory = () -> new MostFreqPruning(conf, fpRate);
         Verifier v = new VerifierLinearLeafProbe();
 
-        return new HBI(
-                new BlockSearch(),
-                WINDOW_LEN,
-                fpRate,
-                alphabet,
-                TREE_LEN,
-                estFactory,
-                memFactory,
-                prFactory,
-                v,
-                /* cost function */ null,
-                conf,
-                NGRAMS
-        );
+        return new HBI(HbiConfiguration.builder()
+                .searchAlgorithm(new BlockSearch())
+                .windowLength(WINDOW_LEN)
+                .fpRate(fpRate)
+                .alphabetSize(alphabet)
+                .treeLength(TREE_LEN)
+                .estimatorSupplier(estFactory)
+                .membershipSupplier(memFactory)
+                .pruningPlanSupplier(prFactory)
+                .verifier(v)
+                .costFunction(null) // start level comes from the pruning plan
+                .confidence(conf)
+                .nGram(NGRAMS)
+                .build());
     }
 
     public static void main(String[] args) throws IOException {

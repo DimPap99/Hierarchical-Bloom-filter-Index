@@ -56,17 +56,22 @@ public class HashMapEstimator implements Estimator {
         return result;
     }
 
+    // Per-position rate of the rarest key seen so far, or 0 when nothing was inserted.
     @Override
     public double getMin() {
-
-
-        long min = Long.MAX_VALUE;
-        for( long k : this.frequencies.keySet()){
-            if(this.frequencies.get(k)<min){ min = k;}
+        if (totalRecords <= 0 || frequencies.isEmpty()) {
+            return 0.0;
         }
-        this.minKey = min;
-
-        return min/this.estimate(min);
+        long rarest = -1;
+        int minCount = Integer.MAX_VALUE;
+        for (var e : frequencies.entrySet()) {
+            if (e.getValue() < minCount) {
+                minCount = e.getValue();
+                rarest = e.getKey();
+            }
+        }
+        this.minKey = rarest;
+        return minCount / totalRecords;
     }
 
 

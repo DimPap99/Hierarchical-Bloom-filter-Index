@@ -58,8 +58,8 @@ public record MultiBenchmarkOptions(
         List<Integer> ngramList = null;
         Integer windowLength = null; // derive after parsing from power or token
         Integer treeLength = null;   // derive after parsing from power or explicit
-        Integer windowPower = 21;
-        Integer treePower = 21;
+        Integer windowPower = null; // derived below when not given
+        Integer treePower = null;
         Integer alphabetBase = 150;
         int minQueryLength = 0;
         int maxQueryLength = 0;
@@ -181,21 +181,29 @@ public record MultiBenchmarkOptions(
         if (window == null) throw new IllegalArgumentException("--window is required");
         if (defaultNgram == null) defaultNgram = 4;
         // derive lengths if not provided explicitly
-        if (windowLength == null) {
-            // Prefer explicit power if provided; else derive from window token
-            int derivedFromToken = deriveWindowLength(window, 1 << 21);
-            windowLength = (windowPower != null) ? (1 << windowPower) : derivedFromToken;
-        } else {
-            // keep a best-effort power for reporting if not overridden
-            if (windowPower == null) {
-                windowPower = 31 - Integer.numberOfLeadingZeros(windowLength);
-            }
+        // Window: --window-length, else --window-power, else the number in the window token (w19 -> 2^19).
+        if (windowPower != null && (windowPower < 1 || windowPower > 30)) {
+            throw new IllegalArgumentException("--window-power must be in [1,30]");
         }
+        if (treePower != null && (treePower < 1 || treePower > 30)) {
+            throw new IllegalArgumentException("--tree-power must be in [1,30]");
+        }
+        if (windowLength == null) {
+            windowLength = (windowPower != null) ? (1 << windowPower) : deriveWindowLength(window, 1 << 21);
+        }
+        if (windowLength <= 0) {
+            throw new IllegalArgumentException("--window-length must be positive");
+        }
+        // Powers are reported in the results; keep them consistent with the lengths actually used.
+        windowPower = 31 - Integer.numberOfLeadingZeros(windowLength);
+        // Tree: --tree-length, else --tree-power, else one tree per window.
         if (treeLength == null) {
             treeLength = (treePower != null) ? (1 << treePower) : windowLength;
-        } else if (treePower == null) {
-            treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
         }
+        if (treeLength <= 0) {
+            throw new IllegalArgumentException("--tree-length must be positive");
+        }
+        treePower = 31 - Integer.numberOfLeadingZeros(treeLength);
 
         if (minQueryLength < 0) {
             throw new IllegalArgumentException("--min-query-length must be >= 0");
@@ -260,8 +268,8 @@ public record MultiBenchmarkOptions(
                 resolvedDataRoot,
                 resolvedQueryRoot,
                 window,
-                windowPower != null ? windowPower : 21,
-                treePower != null ? treePower : 21,
+                windowPower,
+                treePower,
                 queryType,
                 mode,
                 defaultNgram,
@@ -328,14 +336,16 @@ public record MultiBenchmarkOptions(
 
     public String queryTypeLabel() { return queryType != null ? queryType.fileToken() : "all"; }
 
+    // Window length from the first number in a window token: "w19" -> 2^19, "wzipf_21_e13_128" -> 2^21.
     public static int deriveWindowLength(String window, int def) {
         if (window == null || window.isEmpty()) return def;
         for (int i = 0; i < window.length(); i++) {
             if (Character.isDigit(window.charAt(i))) {
-                String numeric = window.substring(i);
+                int end = i;
+                while (end < window.length() && Character.isDigit(window.charAt(end))) end++;
                 try {
-                    int power = Integer.parseInt(numeric);
-                    return 1 << power;
+                    int power = Integer.parseInt(window.substring(i, end));
+                    return (power >= 1 && power <= 30) ? (1 << power) : def;
                 } catch (NumberFormatException ignored) { return def; }
             }
         }

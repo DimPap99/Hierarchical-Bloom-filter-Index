@@ -45,7 +45,7 @@ public class MostFreqPruning implements  PruningPlan {
 //
 //        int    lp   = MathUtils.pruningLevel(tree, confidence, p_max);//Math.max(0, Math.min(raw, tree.maxDepth() - 1));
         double[] pp = tree.estimator.estimateALl(pattern, strides);
-        double pMin = Arrays.stream(pp).min().getAsDouble();
+        double pMin = Arrays.stream(pp).min().orElse(0.0);
         int lp = Math.max(tree.effectiveRoot(), pruningLevelBloom(tree, confidence, pMin, this.fp));
         prunedLevels.add(lp);
         return prunedLevels;
