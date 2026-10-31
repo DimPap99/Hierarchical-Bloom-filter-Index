@@ -3,6 +3,7 @@ package PMIndex;
 import org.junit.jupiter.api.Test;
 import search.Pattern;
 import tree.ssws.ChildDictionary;
+import tree.ssws.SuffixTreeBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,16 +18,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 // and exactly like LEGACY (StreamingSlidingWindowIndex), with each occurrence reported once.
 class SlidingSuffixIndexTest {
 
-    private static final ChildDictionary.Kind[] DICTIONARIES = ChildDictionary.Kind.values();
+    /** Every builder with every child dictionary. */
+    private record Config(SuffixTreeBuilder.Kind builder, ChildDictionary.Kind dictionary) {
+        SlidingSuffixIndex index(int w) {
+            return new SlidingSuffixIndex(w, builder.create(), dictionary);
+        }
+
+        @Override
+        public String toString() {
+            return builder + "/" + dictionary;
+        }
+    }
+
+    private static final List<Config> CONFIGS = configs();
+
+    private static List<Config> configs() {
+        List<Config> out = new ArrayList<>();
+        for (SuffixTreeBuilder.Kind b : SuffixTreeBuilder.Kind.values()) {
+            for (ChildDictionary.Kind d : ChildDictionary.Kind.values()) {
+                out.add(new Config(b, d));
+            }
+        }
+        return out;
+    }
 
     // BaselineCorrectnessTest's random texts.
     @Test
     void matchesBruteForceAndLegacyOnRandomText() {
         Random rnd = new Random(17);
-        for (ChildDictionary.Kind kind : DICTIONARIES) {
+        for (Config config : CONFIGS) {
             for (int n : new int[]{1, 3}) {
                 for (String alphabet : new String[]{"ab", "acgt", "abcdefghijklmnopqrstuvwxyz"}) {
-                    check(randomText(rnd, alphabet, 2500), n, 512, 211, kind, rnd, "alphabet " + alphabet);
+                    check(randomText(rnd, alphabet, 2500), n, 512, 211, config, rnd, "alphabet " + alphabet);
                 }
             }
         }
@@ -39,11 +62,11 @@ class SlidingSuffixIndexTest {
         String[] texts = {
                 "ab".repeat(1500), "abc".repeat(1000), "aab".repeat(1000), "a".repeat(3000), fibonacciWord(3000)
         };
-        for (ChildDictionary.Kind kind : DICTIONARIES) {
+        for (Config config : CONFIGS) {
             for (String text : texts) {
                 for (int n : new int[]{1, 2, 3}) {
                     for (int w : new int[]{64, 512}) {
-                        check(text, n, w, 97, kind, rnd, "periodic text starting " + text.substring(0, 6));
+                        check(text, n, w, 97, config, rnd, "periodic text starting " + text.substring(0, 6));
                     }
                 }
             }
@@ -58,9 +81,9 @@ class SlidingSuffixIndexTest {
         for (int i = 0; i < 3000; i++) {
             wide.append((char) (0x4E00 + rnd.nextInt(20_000)));
         }
-        for (ChildDictionary.Kind kind : DICTIONARIES) {
-            check(randomText(rnd, "abcdefghijklmnopqrstuvwxyz", 3000), 8, 512, 211, kind, rnd, "8-grams");
-            check(wide.toString(), 1, 512, 211, kind, rnd, "20,000-symbol alphabet");
+        for (Config config : CONFIGS) {
+            check(randomText(rnd, "abcdefghijklmnopqrstuvwxyz", 3000), 8, 512, 211, config, rnd, "8-grams");
+            check(wide.toString(), 1, 512, 211, config, rnd, "20,000-symbol alphabet");
         }
     }
 
@@ -69,10 +92,10 @@ class SlidingSuffixIndexTest {
     @Test
     void everyPatternLengthAfterEveryInsert() {
         Random rnd = new Random(37);
-        for (ChildDictionary.Kind kind : DICTIONARIES) {
+        for (Config config : CONFIGS) {
             for (int w : new int[]{16, 32, 64}) {
                 for (String alphabet : new String[]{"a", "ab", "abc"}) {
-                    SlidingSuffixIndex index = new SlidingSuffixIndex(w, kind);
+                    SlidingSuffixIndex index = config.index(w);
                     StreamingSlidingWindowIndex legacy = new StreamingSlidingWindowIndex(w);
                     StringBuilder seen = new StringBuilder();
                     for (int t = 0; t < 10 * w + 13; t++) {
@@ -91,7 +114,7 @@ class SlidingSuffixIndexTest {
                                     p[rnd.nextInt(m)] = alphabet.charAt(rnd.nextInt(alphabet.length()));
                                 }
                                 assertSameAnswers(index, legacy, seen, windowStart, new String(p), 1,
-                                        kind + " w=" + w + " alphabet " + alphabet + " after " + seen.length());
+                                        config + " w=" + w + " alphabet " + alphabet + " after " + seen.length());
                             }
                         }
                     }
@@ -104,8 +127,8 @@ class SlidingSuffixIndexTest {
     @Test
     void longRunOfOneSymbolIsHandled() {
         int w = 1 << 16;
-        for (ChildDictionary.Kind kind : DICTIONARIES) {
-            SlidingSuffixIndex index = new SlidingSuffixIndex(w, kind);
+        for (Config config : CONFIGS) {
+            SlidingSuffixIndex index = config.index(w);
             for (int i = 0; i < 3 * w; i++) {
                 index.insert("a");
             }
@@ -153,9 +176,9 @@ class SlidingSuffixIndexTest {
     }
 
     // Streams text into both indexes as n-grams and, every `every` characters, compares sampled patterns.
-    private static void check(String text, int n, int w, int every, ChildDictionary.Kind kind, Random rnd,
+    private static void check(String text, int n, int w, int every, Config config, Random rnd,
                               String label) {
-        SlidingSuffixIndex index = new SlidingSuffixIndex(w, kind);
+        SlidingSuffixIndex index = config.index(w);
         StreamingSlidingWindowIndex legacy = new StreamingSlidingWindowIndex(w);
         StringBuilder seen = new StringBuilder();
         for (int i = 0; i < text.length(); i++) {
@@ -171,7 +194,7 @@ class SlidingSuffixIndexTest {
                 assertEquals(windowStart, index.windowStartPosition(), label);
                 for (String pattern : patterns(seen, windowStart, n, rnd)) {
                     assertSameAnswers(index, legacy, seen, windowStart, pattern, n,
-                            kind + " " + label + ", n=" + n + ", w=" + w + ", after " + seen.length() + " chars");
+                            config + " " + label + ", n=" + n + ", w=" + w + ", after " + seen.length() + " chars");
                 }
             }
         }

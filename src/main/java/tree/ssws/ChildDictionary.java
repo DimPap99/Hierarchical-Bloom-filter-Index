@@ -14,10 +14,13 @@ public interface ChildDictionary {
     enum Kind {
         /**
          * Up to two children per node compared inline, more in a per-node fastutil {@code Long2IntOpenHashMap}.
-         * The thesis's documented choice and the default.
+         * The choice the thesis documents.
          */
         FASTUTIL,
-        /** One two-level perfect hash (Fredman, Komlós, Szemerédi) per tree over all (node, first symbol) pairs. */
+        /**
+         * One two-level perfect hash (Fredman, Komlós, Szemerédi) per tree over all (node, first symbol) pairs.
+         * The default: it is what the paper uses for its static trees (Sec. 2).
+         */
         FKS;
 
         ChildDictionary build(StaticSuffixTree tree) {

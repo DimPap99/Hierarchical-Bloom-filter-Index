@@ -34,7 +34,12 @@ final class RankReducer {
 
     /** The same for the {@code n} tokens {@code text[offset, offset + n)}: {@code r[i]} names {@code text[offset + i]}. */
     static int[] rankWithTerminator(long[] text, int offset, int n) {
-        int[] names = new int[n + 1];
+        return rankWithTerminator(text, offset, n, 0);
+    }
+
+    /** The same, with {@code extra} more zeros after the terminator (Farach-Colton pads to an even length). */
+    static int[] rankWithTerminator(long[] text, int offset, int n, int extra) {
+        int[] names = new int[n + 1 + extra];
         if (n <= TINY) {
             nameByComparison(text, offset, n, names);
         } else {

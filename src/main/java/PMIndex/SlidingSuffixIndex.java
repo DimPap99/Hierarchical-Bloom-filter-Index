@@ -54,8 +54,11 @@ import java.util.Objects;
  * {@link TokenHasher#hashToPositiveLong}, stream positions are {@code long}, and {@link #report} returns positions
  * relative to the window start ({@link #windowStartPosition()}), in no particular order.
  *
- * <p>Phase 1 of docs/sswsi-baseline-handoff.md: every segment and every boundary tree still has its own copy of its
- * symbols.
+ * <p>Defaults: FKS child dictionaries, as in the paper, and the DC3 + Kasai construction. The paper's Farach-Colton
+ * construction ({@link tree.ssws.FarachColtonSuffixTreeBuilder}) is selectable and gives the same trees, but its
+ * suffix and LCP arrays take 2-3 times as long, which makes inserts 1.1-1.4 times slower (docs/sswsi-results.md,
+ * Phase 2). FASTUTIL is selectable too. Every segment and every boundary tree still has its own copy of its
+ * symbols (docs/sswsi-baseline-handoff.md, Phase 3).
  */
 public final class SlidingSuffixIndex implements IPMIndexing {
 
@@ -70,8 +73,9 @@ public final class SlidingSuffixIndex implements IPMIndexing {
 
     private final IntArrayList hits = new IntArrayList();
 
+    /** FKS child dictionaries (the paper's) and the DC3 construction. */
     public SlidingSuffixIndex(int windowSize) {
-        this(windowSize, ChildDictionary.Kind.FASTUTIL);
+        this(windowSize, ChildDictionary.Kind.FKS);
     }
 
     public SlidingSuffixIndex(int windowSize, ChildDictionary.Kind dictionary) {

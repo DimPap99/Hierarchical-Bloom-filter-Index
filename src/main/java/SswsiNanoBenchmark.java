@@ -16,19 +16,20 @@ import java.util.Random;
 // Nanosecond-resolution benchmarks for the SSWSI baseline (docs/sswsi-results.md). The main harness times
 // each query workload in whole milliseconds, which cannot resolve SSWSI's 1-30 ms workloads.
 //
-//   index <dataset file> <query dir> <n> <reps> [window] [legacy|amortized] [fastutil|fks] [chars|segments]
+//   index <dataset file> <query dir> <n> <reps> [window] [legacy|amortized] [fc|dc3] [fastutil|fks] [chars|segments]
 //       Streams the dataset like the harness into a fresh index per rep, after one warm-up rep, and prints the
 //       median insert time. Then runs every <m>.<type>.txt workload once untimed, then each one best of 7, and
 //       prints its hit total and a checksum over the sorted absolute positions of every query, so two builds or
 //       two modes can be checked for identical answers. The options after <reps> can come in any order.
-//       Defaults: window 2^20, legacy (StreamingSlidingWindowIndex), fastutil, chars.
+//       Defaults: window 2^20, legacy (StreamingSlidingWindowIndex), dc3, fks, chars.
 //       chars: newlines dropped, one n-gram of characters per symbol (MultiQueryExperiment).
 //       segments: one token per non-empty line, n consecutive tokens per symbol, queries split on spaces
 //       (SegmentModeRunner).
-//       amortized: the paper's structure (SlidingSuffixIndex), with the given child dictionary.
-//   build [legacy|static] [fastutil|fks]
-//       Times one suffix tree build on random 63-bit tokens, 2^4..2^20 of them, 100 or all distinct: legacy is
-//       SuffixTree.build, static is Dc3SuffixTreeBuilder (the array tree of SlidingSuffixIndex).
+//       amortized: the paper's structure (SlidingSuffixIndex), with the given builder (Farach-Colton or DC3)
+//       and child dictionary.
+//   build [legacy|static] [fc|dc3] [fastutil|fks]
+//       Times one suffix tree build on random 63-bit tokens, 2^4..2^21 of them, 100 or all distinct: legacy is
+//       SuffixTree.build, static is the array tree of SlidingSuffixIndex with the given builder and dictionary.
 //
 // It uses reflection where the API changed after Phase 0, so it also compiles and runs against older checkouts
 // (legacy only).
@@ -45,12 +46,14 @@ public final class SswsiNanoBenchmark {
         if (args.length >= 5 && args[0].equals("index")) {
             int window = 1 << 20;
             String mode = "legacy";
-            String dictionary = "fastutil";
+            String builder = "dc3";
+            String dictionary = "fks";
             boolean segments = false;
             for (int i = 5; i < args.length; i++) {
                 String a = args[i].toLowerCase(Locale.ROOT);
                 switch (a) {
                     case "legacy", "amortized" -> mode = a;
+                    case "fc", "dc3" -> builder = a;
                     case "fastutil", "fks" -> dictionary = a;
                     case "chars" -> segments = false;
                     case "segments" -> segments = true;
@@ -58,30 +61,46 @@ public final class SswsiNanoBenchmark {
                 }
             }
             index(Path.of(args[1]), Path.of(args[2]), Integer.parseInt(args[3]), Integer.parseInt(args[4]), window,
-                    mode, dictionary, segments);
+                    mode, builder, dictionary, segments);
         } else if (args.length >= 1 && args[0].equals("build")) {
-            boolean legacy = args.length < 2 || args[1].equalsIgnoreCase("legacy");
-            build(legacy, (args.length >= 3) ? args[2] : "fastutil");
+            boolean legacy = true;
+            String builder = "dc3";
+            String dictionary = "fks";
+            for (int i = 1; i < args.length; i++) {
+                String a = args[i].toLowerCase(Locale.ROOT);
+                switch (a) {
+                    case "legacy" -> legacy = true;
+                    case "static" -> legacy = false;
+                    case "fc", "dc3" -> builder = a;
+                    case "fastutil", "fks" -> dictionary = a;
+                    default -> throw new IllegalArgumentException("unknown build option " + a);
+                }
+            }
+            build(legacy, builder, dictionary);
         } else {
             System.err.println("usage: SswsiNanoBenchmark index <dataset file> <query dir> <n> <reps> [window]"
-                    + " [legacy|amortized] [fastutil|fks] [chars|segments]");
-            System.err.println("       SswsiNanoBenchmark build [legacy|static] [fastutil|fks]");
+                    + " [legacy|amortized] [fc|dc3] [fastutil|fks] [chars|segments]");
+            System.err.println("       SswsiNanoBenchmark build [legacy|static] [fc|dc3] [fastutil|fks]");
             System.exit(2);
         }
     }
 
-    private static IPMIndexing newIndex(String mode, String dictionary, int window) throws Exception {
+    private static IPMIndexing newIndex(String mode, String builder, String dictionary, int window)
+            throws Exception {
         if (mode.equals("legacy")) {
             return new StreamingSlidingWindowIndex(window);
         }
-        Class<?> kind = Class.forName("tree.ssws.ChildDictionary$Kind");
-        Object k = kind.getMethod("parse", String.class).invoke(null, dictionary);
+        Class<?> dictKind = Class.forName("tree.ssws.ChildDictionary$Kind");
+        Class<?> builderKind = Class.forName("tree.ssws.SuffixTreeBuilder$Kind");
+        Class<?> builderType = Class.forName("tree.ssws.SuffixTreeBuilder");
+        Object d = dictKind.getMethod("parse", String.class).invoke(null, dictionary);
+        Object b = builderKind.getMethod("create").invoke(builderKind.getMethod("parse", String.class).invoke(null, builder));
         return (IPMIndexing) Class.forName("PMIndex.SlidingSuffixIndex")
-                .getConstructor(int.class, kind).newInstance(window, k);
+                .getConstructor(int.class, builderType, dictKind).newInstance(window, b, d);
     }
 
     private static void index(Path dataset, Path queryDir, int n, int reps, int window, String mode,
-                              String dictionary, boolean segments) throws Exception {
+                              String builder, String dictionary, boolean segments) throws Exception {
         String text = segments ? null : Files.readString(dataset).replace("\n", "").replace("\r", "");
         String[] tokens = segments ? nonEmptyLines(dataset).toArray(new String[0]) : null;
         int symbols = segments ? tokens.length - n + 1 : text.length() - n + 1;
@@ -90,7 +109,7 @@ public final class SswsiNanoBenchmark {
         for (int rep = -1; rep < reps; rep++) {
             index = null;
             System.gc();
-            index = newIndex(mode, dictionary, window);
+            index = newIndex(mode, builder, dictionary, window);
             long t0 = System.nanoTime();
             if (segments) {
                 for (int i = 0; i + n <= tokens.length; i++) {
@@ -107,7 +126,7 @@ public final class SswsiNanoBenchmark {
         }
         Arrays.sort(insertMs);
         System.out.printf("%s%s %s n=%d window=%d symbols=%d insert ms: median %.0f min %.0f max %.0f (%.3f us/symbol median)%n",
-                mode, mode.equals("legacy") ? "" : "/" + dictionary, segments ? "segments" : "chars", n, window,
+                mode, mode.equals("legacy") ? "" : "/" + builder + "/" + dictionary, segments ? "segments" : "chars", n, window,
                 symbols, insertMs[reps / 2], insertMs[0], insertMs[reps - 1], insertMs[reps / 2] * 1e3 / symbols);
 
         long offset = 0;
@@ -188,7 +207,7 @@ public final class SswsiNanoBenchmark {
         return out;
     }
 
-    private static void build(boolean legacy, String dictionary) throws Exception {
+    private static void build(boolean legacy, String builderName, String dictionary) throws Exception {
         Method oneArg = null, twoArg = null, staticBuild = null;
         Object builder = null, kind = null;
         if (legacy) {
@@ -200,13 +219,15 @@ public final class SswsiNanoBenchmark {
         } else {
             Class<?> kindClass = Class.forName("tree.ssws.ChildDictionary$Kind");
             kind = kindClass.getMethod("parse", String.class).invoke(null, dictionary);
-            Class<?> builderClass = Class.forName("tree.ssws.Dc3SuffixTreeBuilder");
-            builder = builderClass.getConstructor().newInstance();
-            staticBuild = builderClass.getMethod("build", long[].class, int.class, int.class, kindClass);
+            Class<?> builderKind = Class.forName("tree.ssws.SuffixTreeBuilder$Kind");
+            builder = builderKind.getMethod("create")
+                    .invoke(builderKind.getMethod("parse", String.class).invoke(null, builderName));
+            staticBuild = Class.forName("tree.ssws.SuffixTreeBuilder")
+                    .getMethod("build", long[].class, int.class, int.class, kindClass);
         }
-        System.out.println(legacy ? "SuffixTree.build (legacy)" : "Dc3SuffixTreeBuilder, " + dictionary);
+        System.out.println(legacy ? "SuffixTree.build (legacy)" : "static tree, " + builderName + ", " + dictionary);
         Random rnd = new Random(2);
-        for (int log : new int[]{4, 8, 12, 16, 18, 20}) {
+        for (int log : new int[]{4, 8, 10, 12, 14, 16, 18, 20, 21}) {
             int n = 1 << log;
             for (int distinct : new int[]{100, n}) {
                 if (distinct > n) {
