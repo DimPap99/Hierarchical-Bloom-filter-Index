@@ -39,3 +39,6 @@ build/
 ### Mac OS ###
 .DS_Store
 AGENTS.md
+
+### Thesis manuscript (kept out of the repository) ###
+thesis/
