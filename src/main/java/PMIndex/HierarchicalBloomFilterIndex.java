@@ -5,6 +5,7 @@ import estimators.CostFunction;
 import estimators.CostFunctionDefaultRoot;
 import estimators.CostFunctionOccurrence;
 import estimators.Estimator;
+import membership.BlockedBloomFilter;
 import membership.BloomFilter;
 import membership.Membership;
 import search.BlockSearch;
@@ -101,7 +102,7 @@ public final class HierarchicalBloomFilterIndex {
                 : () -> new MostFreqPruning(confidence, fpRate);
         long sketchSeed = b.seed;
         Supplier<Estimator> estimators = () -> new CSEstimator(2048, 8, sketchSeed);
-        Supplier<Membership> filters = BloomFilter::new;
+        Supplier<Membership> filters = b.blockedFilters ? BlockedBloomFilter::new : BloomFilter::new;
 
         Utils.MemPolicy policy = switch (b.policy) {
             case NONE -> Utils.MemPolicy.NONE;
@@ -297,6 +298,7 @@ public final class HierarchicalBloomFilterIndex {
         private ProvisioningPolicy policy = ProvisioningPolicy.NONE;
         private long seed = 1L;
         private int minPatternLength;
+        private boolean blockedFilters;
 
         private Builder() {
         }
@@ -367,6 +369,16 @@ public final class HierarchicalBloomFilterIndex {
          */
         public Builder minPatternLength(int minPatternLength) {
             this.minPatternLength = minPatternLength;
+            return this;
+        }
+
+        /**
+         * Use blocked Bloom filters: all bits of a key in one 64-bit word (one 512-bit block below a rate of about
+         * 0.15), so a lookup is one memory access instead of several. Sized for the same false positive rate, with
+         * up to about 1% more bits. Default false.
+         */
+        public Builder blockedFilters(boolean blockedFilters) {
+            this.blockedFilters = blockedFilters;
             return this;
         }
 

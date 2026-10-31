@@ -138,6 +138,36 @@ class HbiRegressionTest {
         }
     }
 
+    // The benchmark path with blocked filters: every policy (they read getFpRate) and strategy stays exact.
+    @Test
+    void blockedFiltersMatchBruteForceUnderPolicies() {
+        Random rnd = new Random(2);
+        for (Utils.MemPolicy policy : Utils.MemPolicy.values()) {
+            for (String algorithm : new String[]{"bs", "cp", "cgbs", "cf"}) {
+                HBI hbi = IndexFactory.createHbi(2048, 512, 1 << 16, 0.2, 0.99, policy, 2, algorithm, 0.05, 4096, 0,
+                        membership.FilterKind.BLOCKED);
+                String config = policy + " " + algorithm + " blocked";
+                String text = skewed(rnd, 6000);
+                StringBuilder seen = new StringBuilder();
+                for (int i = 0; i < text.length(); i++) {
+                    seen.append(text.charAt(i));
+                    if (seen.length() >= 2) hbi.insert(seen.substring(seen.length() - 2));
+                    if (seen.length() % 1500 == 0) {
+                        if (policy != Utils.MemPolicy.NONE) hbi.forceApplyMemoryPolicy();
+                        int windowStart = Math.max(0, seen.length() - 1 - 2048);
+                        for (int q = 0; q < 20; q++) {
+                            int r = 2 + rnd.nextInt(30);
+                            int s = windowStart + rnd.nextInt(seen.length() - r - windowStart + 1);
+                            String pattern = seen.substring(s, s + r);
+                            assertEquals(expected(seen, 2048, 2, pattern), hbi.report(new Pattern(pattern, 2)),
+                                    config + " after " + seen.length() + " chars, pattern " + pattern);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Finding #9: a partial probe on an interval shorter than the pattern must not push the candidate
     // start back over the frontier (or before the interval, whose earlier starts belong to its left sibling).
     @Test

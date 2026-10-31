@@ -84,6 +84,9 @@ class SswsiSettingsTest {
         assertEquals(SswsiSettings.LEGACY, MultiBenchmarkOptions.parse(concat(base, "--sswsi-mode", "legacy")).sswsi());
         assertEquals(0, MultiBenchmarkOptions.parse(base).minPatternLength());
         assertEquals(10, MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "10")).minPatternLength());
+        assertEquals(membership.FilterKind.BLOOM, MultiBenchmarkOptions.parse(base).filter());
+        assertEquals(membership.FilterKind.BLOCKED, MultiBenchmarkOptions.parse(concat(base, "--filter", "blocked")).filter());
+        assertThrows(IllegalArgumentException.class, () -> MultiBenchmarkOptions.parse(concat(base, "--filter", "x")));
         assertThrows(IllegalArgumentException.class,
                 () -> MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "-1")));
 

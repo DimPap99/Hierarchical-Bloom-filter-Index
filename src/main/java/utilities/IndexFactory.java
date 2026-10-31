@@ -8,7 +8,6 @@ import PMIndex.IPMIndexing;
 import PMIndex.SlidingSuffixIndex;
 import PMIndex.SuffixTreeIndex;
 import estimators.*;
-import membership.BloomFilter;
 import membership.Membership;
 import search.BlockSearch;
 import search.Verifier;
@@ -89,9 +88,26 @@ public final class IndexFactory {
                                 double quantile,
                                 int policyBuckets,
                                 int minPatternLength) {
+        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, algorithm,
+                quantile, policyBuckets, minPatternLength, membership.FilterKind.BLOOM);
+    }
+
+    // filter: the Bloom filter of every level (--filter).
+    public static HBI createHbi(int windowLength,
+                                int treeLength,
+                                int alphabetSize,
+                                double fpRate,
+                                double confidence,
+                                Utils.MemPolicy memPolicy,
+                                int ngram,
+                                String algorithm,
+                                double quantile,
+                                int policyBuckets,
+                                int minPatternLength,
+                                membership.FilterKind filter) {
         // CountSketch: epsilon=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64K.
         Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
-        Supplier<Membership> memFactory = BloomFilter::new;
+        Supplier<Membership> memFactory = filter.supplier();
         Verifier verifier = new VerifierLinearLeafProbe();
 
         // Choose components by algorithm token

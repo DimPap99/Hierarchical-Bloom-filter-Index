@@ -77,11 +77,11 @@ public final class BenchmarkOrchestrator {
                     // Concise printout of effective settings for this loop (per FPR x ngram x dataset)
                     int effAlphabet = options.alphabetSizeFor(ng);
                     System.out.printf(Locale.ROOT,
-                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, suffixTreeNgram=%d, sswsi=%s, fpr=%.6f, runs=%d, algo=%s, strides=%b, mode=%s, policy=%s, minPatternLength=%d, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
+                            "  Settings -> windowLen=%d, treeLen=%d, ngram=%d, alphabetBase=%d, alphabet=%d, suffixNgram=%d, suffixTreeNgram=%d, sswsi=%s, fpr=%.6f, runs=%d, algo=%s, strides=%b, mode=%s, policy=%s, minPatternLength=%d, filter=%s, reinsert=%b, eps=%.6f, deltaQ=%.3f, deltaSamp=%.3f, p=%.3f%n",
                             options.windowLength(), options.treeLength(), ng,
                             options.alphabetBase(), effAlphabet, suffixNgForLoop, suffixTreeNgForLoop,
                             options.runSuffix() ? options.sswsi().label() : "off", currentFp,
-                            options.runs(), options.algorithm(), options.strides(), options.mode(), options.memPolicy(), options.minPatternLength(), options.reinsertPerWorkload(),
+                            options.runs(), options.algorithm(), options.strides(), options.mode(), options.memPolicy(), options.minPatternLength(), options.filter().label(), options.reinsertPerWorkload(),
                             options.rankEpsTarget(), options.deltaQ(), options.deltaSamp(), options.quantile());
 
                     final double policyQuantile = options.quantile();
@@ -152,7 +152,7 @@ public final class BenchmarkOrchestrator {
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets,
-                                    options.minPatternLength());
+                                    options.minPatternLength(), options.filter());
                             warm.strides = options.strides();
                             warm.stats().setCollecting(true);
                             warm.stats().setExperimentMode(false);
@@ -223,7 +223,7 @@ public final class BenchmarkOrchestrator {
                                 hbi = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets,
-                                    options.minPatternLength());
+                                    options.minPatternLength(), options.filter());
                                 hbi.strides = options.strides();
                                 hbi.stats().setCollecting(options.collectStats());
                                 hbi.stats().setExperimentMode(false);
@@ -333,7 +333,7 @@ public final class BenchmarkOrchestrator {
                                 hbiSingle = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets,
-                                    options.minPatternLength());
+                                    options.minPatternLength(), options.filter());
                                 hbiSingle.strides = options.strides();
                                 // Honor --collect-stats/--stats even when not reinserting per workload
                                 hbiSingle.stats().setCollecting(options.collectStats());

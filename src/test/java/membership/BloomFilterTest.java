@@ -81,6 +81,31 @@ class BloomFilterTest {
         }
     }
 
+    // toIndex and stride use Math.unsignedMultiplyHigh in place of a hand-written four-multiply umulh; the bit
+    // positions stay the same only if the two agree on every input.
+    @Test
+    void unsignedMultiplyHighMatchesTheHandWrittenVersion() {
+        Random random = new Random(5);
+        long[] edges = {0L, 1L, -1L, Long.MAX_VALUE, Long.MIN_VALUE, 0xFFFFFFFFL, 1L << 32, (1L << 61) - 1};
+        for (long x : edges)
+            for (long y : edges) assertEquals(handWrittenUmulh(x, y), Math.unsignedMultiplyHigh(x, y));
+        for (int i = 0; i < 1_000_000; i++) {
+            long x = random.nextLong(), y = (i % 2 == 0) ? random.nextLong() : random.nextInt() & 0x7FFFFFFFL;
+            assertEquals(handWrittenUmulh(x, y), Math.unsignedMultiplyHigh(x, y));
+        }
+    }
+
+    private static long handWrittenUmulh(long x, long y) {
+        long x0 = x & 0xFFFFFFFFL, x1 = x >>> 32;
+        long y0 = y & 0xFFFFFFFFL, y1 = y >>> 32;
+        long p11 = x1 * y1;
+        long p01 = x0 * y1;
+        long p10 = x1 * y0;
+        long p00 = x0 * y0;
+        long middle = (p10 & 0xFFFFFFFFL) + (p01 & 0xFFFFFFFFL) + (p00 >>> 32);
+        return p11 + (p10 >>> 32) + (p01 >>> 32) + (middle >>> 32);
+    }
+
     // 65,536 tests: one standard deviation is under 2% of the rate at p = 0.05.
     private static void assertRate(long positives, long tested, BloomFilter filter, String what) {
         double rate = positives / (double) tested;

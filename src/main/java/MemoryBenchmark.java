@@ -9,7 +9,6 @@ import estimators.CostFunctionMaxProb;
 import estimators.Estimator;
 import estimators.HashMapEstimator;
 
-import membership.BloomFilter;
 import membership.Membership;
 
 import org.openjdk.jol.info.GraphLayout;
@@ -79,6 +78,7 @@ public final class MemoryBenchmark {
                 "policy",
                 "policy_buckets",
                 "min_pattern_length",
+                "filter",
                 "hbi_mem_mib",
                 "suffix_core_mem_mib",
                 "suffix_total_mem_mib",
@@ -152,6 +152,7 @@ public final class MemoryBenchmark {
                             options.memPolicy().name(),
                             options.policyBuckets(),
                             options.minPatternLength(),
+                            options.filter().label(),
                             hbiStats.mib(),
                             suffixStats.coreMiB(),
                             suffixStats.totalMiB(),
@@ -181,8 +182,7 @@ public final class MemoryBenchmark {
 
         Supplier<Estimator> estFactory =
                 new EstimatorFactory();
-        Supplier<Membership> memFactory =
-                new MembershipFactory();
+        Supplier<Membership> memFactory = options.filter().supplier();
         Supplier<PruningPlan> prFactory =
                 new PruningPlanFactory(runConf, fpRate);
 
@@ -447,17 +447,6 @@ public final class MemoryBenchmark {
     }
 
     // Supplier<Membership> without lambdas.
-    private static final class MembershipFactory implements Supplier<Membership> {
-
-        private MembershipFactory() {
-        }
-
-        @Override
-        public Membership get() {
-            return new BloomFilter();
-        }
-    }
-
     // Supplier<PruningPlan> without lambdas, holding confidence and FP rate.
     private static final class PruningPlanFactory implements Supplier<PruningPlan> {
         private final double runConf;
@@ -496,7 +485,8 @@ public final class MemoryBenchmark {
                                  Utils.MemPolicy memPolicy,
                                  int policyBuckets,
                                  SswsiSettings sswsi,
-                                 int minPatternLength) {   // --min-pattern-length, as in the harness (0: all levels)
+                                 int minPatternLength,     // --min-pattern-length, as in the harness (0: all levels)
+                                 membership.FilterKind filter) {   // --filter, as in the harness
 
         static MemoryOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -541,6 +531,7 @@ public final class MemoryBenchmark {
             Integer policyBuckets = null;
             String sswsiMode = null, sswsiBuilder = null, sswsiDict = null;  // SswsiSettings.DEFAULT when not given
             int minPatternLength = 0;
+            membership.FilterKind filter = membership.FilterKind.BLOOM;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -603,6 +594,7 @@ public final class MemoryBenchmark {
                     case "sswsi-builder" -> sswsiBuilder = value;
                     case "sswsi-dict" -> sswsiDict = value;
                     case "min-pattern-length" -> minPatternLength = Integer.parseInt(value);
+                    case "filter" -> filter = membership.FilterKind.parse(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -724,7 +716,8 @@ public final class MemoryBenchmark {
                     memPolicy,
                     policyBuckets != null ? Math.max(0, policyBuckets) : 0,
                     sswsi,
-                    minPatternLength);
+                    minPatternLength,
+                    filter);
         }
 
         int alphabetSizeFor(int ngram) {
@@ -813,6 +806,7 @@ public final class MemoryBenchmark {
             String policyToken = memPolicy.name().toLowerCase(Locale.ROOT);
             // The suffix n-gram and the SSWSI setting, so runs that differ only in those keep separate files.
             String suffixToken = (minPatternLength > 0 ? "_minpat" + minPatternLength : "")
+                    + (filter != membership.FilterKind.BLOOM ? "_" + filter.label() : "")
                     + (suffixMatchNgram ? "_suffix-match" : "") + "_sswsi-" + sswsi.label();
             if (multiCombos) {
                 return Path.of("memory_%s_%s_multi%s.csv".formatted(window, policyToken, suffixToken));

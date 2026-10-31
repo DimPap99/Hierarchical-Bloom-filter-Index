@@ -24,6 +24,7 @@ public record MultiBenchmarkOptions(
         int minQueryLength,
         int maxQueryLength,
         int minPatternLength,        // --min-pattern-length: HBI builds no level that such patterns never probe (0: all)
+        membership.FilterKind filter, // --filter bloom|blocked: HBI's Bloom filters
         double fpRate,
         List<Double> fpRates,
         double runConfidence,
@@ -68,6 +69,7 @@ public record MultiBenchmarkOptions(
         int minQueryLength = 0;
         int maxQueryLength = 0;
         int minPatternLength = 0;
+        membership.FilterKind filter = membership.FilterKind.BLOOM;
 
         double fpRate = 0.15;
         List<Double> fpRates = null;
@@ -134,6 +136,7 @@ public record MultiBenchmarkOptions(
                 case "min-query-length", "min-query-len", "query-length-start" -> minQueryLength = Integer.parseInt(value);
                 case "max-query-length", "max-query-len", "query-length-end" -> maxQueryLength = Integer.parseInt(value);
                 case "min-pattern-length" -> minPatternLength = Integer.parseInt(value);
+                case "filter" -> filter = membership.FilterKind.parse(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
                 case "fp-grid" -> fpGridArg = value; // start:end:step
@@ -303,6 +306,7 @@ public record MultiBenchmarkOptions(
                 minQueryLength,
                 maxQueryLength,
                 minPatternLength,
+                filter,
                 fpRate,
                 fpRates,
                 runConfidence,

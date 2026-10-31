@@ -134,16 +134,10 @@ public class BloomFilter implements Membership {
         return x;
     }
 
-    // Uniform index and stride.
+    // Uniform index and stride: the high word of the unsigned 128-bit product, a JVM intrinsic. It replaces a
+    // hand-written four-multiply version with the same result (BloomFilterTest checks the two agree).
     private static long umulh(long x, long y) {
-        long x0 = x & 0xFFFFFFFFL, x1 = x >>> 32;
-        long y0 = y & 0xFFFFFFFFL, y1 = y >>> 32;
-        long p11 = x1 * y1;
-        long p01 = x0 * y1;
-        long p10 = x1 * y0;
-        long p00 = x0 * y0;
-        long middle = (p10 & 0xFFFFFFFFL) + (p01 & 0xFFFFFFFFL) + (p00 >>> 32);
-        return p11 + (p10 >>> 32) + (p01 >>> 32) + (middle >>> 32);
+        return Math.unsignedMultiplyHigh(x, y);
     }
 
     private int toIndex(long y) {

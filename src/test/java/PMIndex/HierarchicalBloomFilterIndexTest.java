@@ -81,6 +81,27 @@ class HierarchicalBloomFilterIndexTest {
                 () -> HierarchicalBloomFilterIndex.builder().windowLength(64).minPatternLength(-1).build());
     }
 
+    // Blocked Bloom filters (64-bit blocks at fp 0.2, 512-bit at 0.05) change only the filters, never the answers.
+    @Test
+    void blockedFiltersMatchBruteForce() {
+        Random rnd = new Random(17);
+        for (SearchStrategy strategy : SearchStrategy.values()) {
+            for (int n : new int[]{1, 3, 8}) {
+                for (double fp : new double[]{0.2, 0.05}) {
+                    HierarchicalBloomFilterIndex index = HierarchicalBloomFilterIndex.builder()
+                            .windowLength(1000)
+                            .treeLength(256)
+                            .nGram(n)
+                            .fpRate(fp)
+                            .searchStrategy(strategy)
+                            .blockedFilters(true)
+                            .build();
+                    checkStream(index, randomText(rnd, "abcd", 3000), rnd, strategy + " n=" + n + " fp=" + fp + " blocked");
+                }
+            }
+        }
+    }
+
     @Test
     void lowEntropyAndPeriodicStreams() {
         Random rnd = new Random(3);
