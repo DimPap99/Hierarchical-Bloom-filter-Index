@@ -54,13 +54,8 @@ public class CostFunctionIE extends AbstractCostFunction {
                                                                         0.0,
                                                                         ieMaxOrder);
 
-            double fanout = SelectiveFanout.multiplier(
-                    level,
-                    Lp,
-                    Ldesc,
-                    parentStats.F,
-                    SelectiveFanout.costEfficiencyScore(parentStats.H, childStats.H));
-            nodesAtLevel = fanout * nodesAtLevel * parentStats.F;
+            // Eq. 4.1: a parent that passes sends the search into both of its children.
+            nodesAtLevel = 2.0 * nodesAtLevel * parentStats.F;
             if (nodesAtLevel <= 0.0) {
                 break;
             }

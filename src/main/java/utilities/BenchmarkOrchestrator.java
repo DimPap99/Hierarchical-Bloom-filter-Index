@@ -2,7 +2,6 @@ package utilities;
 
 import PMIndex.HBI;
 import PMIndex.IPMIndexing;
-import estimators.SelectiveFanout;
 import utilities.BenchmarkEnums.IndexType;
 import utilities.BenchmarkEnums.QueryType;
 import utilities.MultiQueryExperiment.InsertStats;
@@ -146,9 +145,6 @@ public final class BenchmarkOrchestrator {
                     // Warmups
                     for (int warmIndex = 0; warmIndex < options.warmupRuns(); warmIndex++) {
                         if (options.runHbi()) {
-                            //testing to improve CF. Keep it as false to have the original behavior
-                            boolean enableSelective = false;//(ng >= 6) || isCaidaWindow(options.window());
-                            SelectiveFanout.setSelectiveRegimeEnabled(false);
                             HBI warm = IndexFactory.createHbi(
                                     options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                     options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
@@ -217,9 +213,6 @@ public final class BenchmarkOrchestrator {
                         if (!options.reinsertPerWorkload()) {
                             HBI hbi = null; InsertStats hbiIns = null;
                             if (options.runHbi()) {
-
-                                boolean enableSelective = (ng >= 6) || isCaidaWindow(options.window());
-                                SelectiveFanout.setSelectiveRegimeEnabled(enableSelective);
                                 hbi = IndexFactory.createHbi(
                                         options.windowLength(), options.treeLength(), options.alphabetSizeFor(ng), currentFp,
                                         options.runConfidence(), options.memPolicy(), ng, options.algorithm(), policyQuantile, policyBuckets);
@@ -520,11 +513,6 @@ public final class BenchmarkOrchestrator {
         return filtered;
     }
 
-    private static boolean isCaidaWindow(String windowToken) {
-        if (windowToken == null) return false;
-        String w = windowToken.toLowerCase(java.util.Locale.ROOT);
-        return w.contains("caida");
-    }
 
     private static boolean isSegments(MultiBenchmarkOptions options) {
         return "segments".equalsIgnoreCase(options.mode());

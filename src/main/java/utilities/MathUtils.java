@@ -111,11 +111,9 @@ public final class  MathUtils {
     // Alpha to Lp mapping for a single p.
     public static int pruningLevel(ImplicitTree<?> tree, double conf, double prob){
         double bAlpha = Math.log(1.0 - conf) / Math.log(1.0 - prob); // > 0
-        double val    = Math.log(tree.baseIntervalSize() / bAlpha);
+        double val    = Math.log(tree.baseIntervalSize() / bAlpha) / Math.log(2.0);
         int L         = (int) Math.ceil(val);
-        double lp = Math.min(L, tree.maxDepth() - 1);
-        if(lp > 0) lp = lp+1;
-        return (int) Math.max(0, lp);
+        return Math.max(0, Math.min(L, tree.maxDepth() - 1)) + 1;
     }
 
     public static int pruningLevelBloom(

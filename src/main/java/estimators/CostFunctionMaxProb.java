@@ -9,6 +9,9 @@ import java.util.HashSet;
 
 public class CostFunctionMaxProb extends AbstractCostFunction {
 
+    // Eq. 4.1: a parent that passes its membership tests sends the search into both of its children.
+    private static final double CHILDREN_PER_PASSING_PARENT = 2.0;
+
     // Per-pattern cache of level-local summaries that do not depend on the chosen base level.
     private static final class LpCostCache {
         final int width;
@@ -150,14 +153,7 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             return total;
         }
 
-        double childCost = lpCache.HCond(level);
-        double fanout = SelectiveFanout.multiplier(
-                Lp,
-                Lp,
-                Ldesc,
-                lpCache.FUncond(Lp),
-                SelectiveFanout.costEfficiencyScore(parentCostAtLp, childCost));
-        double nodesAtLevel = fanout * nodesAtLp * lpCache.FUncond(Lp);
+        double nodesAtLevel = CHILDREN_PER_PASSING_PARENT * nodesAtLp * lpCache.FUncond(Lp);
         if (nodesAtLevel <= 0.0) {
             return total;
         }
@@ -170,9 +166,7 @@ public class CostFunctionMaxProb extends AbstractCostFunction {
             if (next > lpCache.upperLevel) {
                 break;
             }
-            double costScore = SelectiveFanout.costEfficiencyScore(lpCache.HCond(level), lpCache.HCond(next));
-            double levelFanout = SelectiveFanout.multiplier(level, Lp, Ldesc, lpCache.FCond(level), costScore);
-            nodesAtLevel = levelFanout * parents * lpCache.FCond(level);
+            nodesAtLevel = CHILDREN_PER_PASSING_PARENT * parents * lpCache.FCond(level);
             if (nodesAtLevel <= 0.0) {
                 break;
             }
