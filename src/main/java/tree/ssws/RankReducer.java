@@ -29,32 +29,36 @@ final class RankReducer {
 
     /** Returns {@code r} of length {@code n + 1}: {@code r[i]} names {@code text[i]}, and {@code r[n] = 0}. */
     static int[] rankWithTerminator(long[] text) {
-        int n = text.length;
+        return rankWithTerminator(text, 0, text.length);
+    }
+
+    /** The same for the {@code n} tokens {@code text[offset, offset + n)}: {@code r[i]} names {@code text[offset + i]}. */
+    static int[] rankWithTerminator(long[] text, int offset, int n) {
         int[] names = new int[n + 1];
         if (n <= TINY) {
-            nameByComparison(text, names);
+            nameByComparison(text, offset, n, names);
         } else {
-            nameBySorting(text, names);
+            nameBySorting(text, offset, n, names);
         }
         return names;
     }
 
-    private static void nameByComparison(long[] text, int[] names) {
+    private static void nameByComparison(long[] text, int offset, int n, int[] names) {
         int next = 0;
-        for (int i = 0; i < text.length; i++) {
+        for (int i = 0; i < n; i++) {
+            long v = text[offset + i];
             int j = 0;
-            while (text[j] != text[i]) {
+            while (text[offset + j] != v) {
                 j++;
             }
             names[i] = (j == i) ? ++next : names[j];
         }
     }
 
-    private static void nameBySorting(long[] text, int[] names) {
-        int n = text.length;
+    private static void nameBySorting(long[] text, int offset, int n, int[] names) {
         Workspace ws = WORKSPACE.get();
         ws.ensure(n);
-        System.arraycopy(text, 0, ws.keysA, 0, n);
+        System.arraycopy(text, offset, ws.keysA, 0, n);
         for (int i = 0; i < n; i++) {
             ws.idxA[i] = i;
         }
