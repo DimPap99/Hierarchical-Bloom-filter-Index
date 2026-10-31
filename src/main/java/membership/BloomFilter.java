@@ -103,46 +103,35 @@ public class BloomFilter implements Membership {
         return y >= P61 ? y - P61 : y;
     }
 
-    // Single-word hash.
-    private long h1(long key) {
-        long x = fold61(key);
-        long lo = a1 * x, hi = Math.multiplyHigh(a1, x);
-        long ax = reduce128(hi, lo);
-        long y  = ax + b1;
-        return y >= P61 ? y - P61 : y;
-    }
-    private long h2(long key) {
-        long x = fold61(key);
-        long lo = a2 * x, hi = Math.multiplyHigh(a2, x);
-        long ax = reduce128(hi, lo);
-        long y  = ax + b2;
-        return y >= P61 ? y - P61 : y;
+    // h1 and h2 are independent Carter-Wegman instances a*x + b mod p over a prehashed 64-bit key x.
+    // The bit positions come from the top bits of the hash (toIndex), and structured keys, such as
+    // consecutive nodes with small tokens, stay on a lattice under a linear hash, so every key is
+    // mixed first. The two-word hash used to be b*a^2 + a*k0 + k1, with the token k1 only added:
+    // all tokens of one node then got nearly the same bit positions.
+    private long h1(long x) { return mulAdd61(fold61(x), a1, b1); }
+    private long h2(long x) { return mulAdd61(fold61(x), a2, b2); }
+
+    private static final long GOLDEN = 0x9E3779B97F4A7C15L;
+
+    // SplitMix64's finalizer, a bijection.
+    private static long mix64(long z) {
+        z += GOLDEN;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        return z ^ (z >>> 31);
     }
 
-    // Two-word polynomial hash.
-    private long h1(long k0, long k1) {
-        long h = mulAdd61(b1, a1, fold61(k0));
-        return mulAdd61(h,  a1, fold61(k1));
-    }
-    private long h2(long k0, long k1) {
-        long h = mulAdd61(b2, a2, fold61(k0));
-        return mulAdd61(h,  a2, fold61(k1));
+    private static long prehash(long k0, long k1) {
+        return mix64(k1 + GOLDEN * k0);
     }
 
-    // Variable-length polynomial over 64-bit chunks.
-    private long h1(long[] chunks) {
-        long h = b1;
-        for (int i = 0; i < chunks.length; i++) {
-            h = mulAdd61(h, a1, fold61(chunks[i]));
+    // Agrees with prehash(k0, k1) on two chunks.
+    private static long prehash(long[] chunks) {
+        long x = chunks[0];
+        for (int i = 1; i < chunks.length; i++) {
+            x = mix64(chunks[i] + GOLDEN * x);
         }
-        return h;
-    }
-    private long h2(long[] chunks) {
-        long h = b2;
-        for (int i = 0; i < chunks.length; i++) {
-            h = mulAdd61(h, a2, fold61(chunks[i]));
-        }
-        return h;
+        return x;
     }
 
     // Uniform index and stride.
@@ -174,22 +163,17 @@ public class BloomFilter implements Membership {
 
     // Public API.
 
-    // Single 64-bit key.
-    public void insert(long key) {
-        long y1 = h1(key);
-        long y2 = h2(key);
-        int idx = toIndex(y1), step = stride(y2);
+    // The k positions of a prehashed key, by double hashing.
+    private void set(long x) {
+        int idx = toIndex(h1(x)), step = stride(h2(x));
         for (int i = 0; i < k; i++) {
             filter.set(idx);
             idx += step; if (idx >= m) idx -= m;
         }
     }
 
-    // Single 64-bit key.
-    public boolean contains(long key) {
-        long y1 = h1(key);
-        long y2 = h2(key);
-        int idx = toIndex(y1), step = stride(y2);
+    private boolean test(long x) {
+        int idx = toIndex(h1(x)), step = stride(h2(x));
         for (int i = 0; i < k; i++) {
             if (!filter.get(idx)) return false;
             idx += step; if (idx >= m) idx -= m;
@@ -197,28 +181,17 @@ public class BloomFilter implements Membership {
         return true;
     }
 
-    // Two-word key without array allocation.
-    public void insert(long k0, long k1) {
-        long y1 = h1(k0, k1);
-        long y2 = h2(k0, k1);
-        int idx = toIndex(y1), step = stride(y2);
-        for (int i = 0; i < k; i++) {
-            filter.set(idx);
-            idx += step; if (idx >= m) idx -= m;
-        }
-    }
+    // Single 64-bit key.
+    public void insert(long key) { set(mix64(key)); }
+
+    // Single 64-bit key.
+    public boolean contains(long key) { return test(mix64(key)); }
 
     // Two-word key without array allocation.
-    public boolean contains(long k0, long k1) {
-        long y1 = h1(k0, k1);
-        long y2 = h2(k0, k1);
-        int idx = toIndex(y1), step = stride(y2);
-        for (int i = 0; i < k; i++) {
-            if (!filter.get(idx)) return false;
-            idx += step; if (idx >= m) idx -= m;
-        }
-        return true;
-    }
+    public void insert(long k0, long k1) { set(prehash(k0, k1)); }
+
+    // Two-word key without array allocation.
+    public boolean contains(long k0, long k1) { return test(prehash(k0, k1)); }
 
     // Variable-length key as 64-bit chunks.
     // Chunks are hashed in order.
@@ -227,14 +200,7 @@ public class BloomFilter implements Membership {
             throw new IllegalArgumentException("keyChunks must be non-empty");
         if (keyChunks.length == 1) { insert(keyChunks[0]); return; }
         if (keyChunks.length == 2) { insert(keyChunks[0], keyChunks[1]); return; }
-
-        long y1 = h1(keyChunks);
-        long y2 = h2(keyChunks);
-        int idx = toIndex(y1), step = stride(y2);
-        for (int i = 0; i < k; i++) {
-            filter.set(idx);
-            idx += step; if (idx >= m) idx -= m;
-        }
+        set(prehash(keyChunks));
     }
 
     public boolean contains(long[] keyChunks) {
@@ -242,14 +208,6 @@ public class BloomFilter implements Membership {
             throw new IllegalArgumentException("keyChunks must be non-empty");
         if (keyChunks.length == 1) return contains(keyChunks[0]);
         if (keyChunks.length == 2) return contains(keyChunks[0], keyChunks[1]);
-
-        long y1 = h1(keyChunks);
-        long y2 = h2(keyChunks);
-        int idx = toIndex(y1), step = stride(y2);
-        for (int i = 0; i < k; i++) {
-            if (!filter.get(idx)) return false;
-            idx += step; if (idx >= m) idx -= m;
-        }
-        return true;
+        return test(prehash(keyChunks));
     }
 }
