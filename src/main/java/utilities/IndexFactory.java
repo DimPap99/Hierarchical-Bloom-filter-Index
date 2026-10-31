@@ -73,6 +73,22 @@ public final class IndexFactory {
                                 String algorithm,
                                 double quantile,
                                 int policyBuckets) {
+        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, algorithm,
+                quantile, policyBuckets, 0);
+    }
+
+    // minPatternLength: HbiConfiguration.Builder.minPatternLength (--min-pattern-length); 0 keeps the full layout.
+    public static HBI createHbi(int windowLength,
+                                int treeLength,
+                                int alphabetSize,
+                                double fpRate,
+                                double confidence,
+                                Utils.MemPolicy memPolicy,
+                                int ngram,
+                                String algorithm,
+                                double quantile,
+                                int policyBuckets,
+                                int minPatternLength) {
         // CountSketch: epsilon=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64K.
         Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
         Supplier<Membership> memFactory = BloomFilter::new;
@@ -139,6 +155,7 @@ public final class IndexFactory {
                 .memPolicy(memPolicy)
                 .activateEstim(activateEstimators)
                 .buckets(Math.max(0, policyBuckets))
+                .minPatternLength(minPatternLength)
                 .build();
 
         HBI hbi = new HBI(configuration);

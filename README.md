@@ -37,7 +37,7 @@ HierarchicalBloomFilterIndex index = HierarchicalBloomFilterIndex.builder()
 
 index.append(chunkOfText);                      // or index.append(char) per character
 long[] hits = index.search("needle");           // absolute offsets, ascending
-boolean seen = index.contains("haystack");
+boolean seen = index.contains("haystack");     // stops at the first occurrence
 long oldest = index.windowStart();              // offset of the first character still in the window
 ```
 
@@ -54,6 +54,7 @@ Builder options. Only `windowLength` is required.
 | `strides` | false | Probe only every n-th n-gram of a pattern. Faster for large `n`. |
 | `provisioningPolicy` | `NONE` | `NONE`, `REACTIVE`, or `PREDICTIVE`. |
 | `confidence` | 0.99 | Confidence threshold used by the confidence-based strategies and the policies. |
+| `minPatternLength` | 0 (every level) | Shortest pattern you expect. The search never enters a level whose span is below the pattern length, so those levels are not built: the finest level spans the smallest power of two ≥ this. Saves memory and insert time and leaves queries of at least that length unchanged; shorter patterns stay exact but are verified over the finest level's whole span. |
 
 Results are exact. N-grams of up to four characters are stored losslessly. Longer n-grams are hashed, and every reported match is confirmed against the buffered characters. Instances are not thread-safe.
 
@@ -88,6 +89,7 @@ Useful flags:
 - `--verify true`, to check that every index reports the same occurrences for every query (all of them are exact, so any difference is a bug)
 - `--sswsi-mode amortized|legacy`, `--sswsi-builder dc3|fc` and `--sswsi-dict fks|fastutil`, which SSWSI runs (also in `MemoryBenchmark`). The default, `amortized` with `dc3` and `fks`, is the amortized structure of Bille et al. (CPM 2023, Sec. 3.3) with the paper's FKS dictionaries; it needs a power-of-two window. `fc` is the paper's Farach-Colton construction: it builds the same trees, 1.1–1.4 times slower. `legacy` is the thesis-era structure, with fixes for deep trees, n-gram remapping and position overflow, and takes no builder or dictionary. The setting is in the CSV name and in its `sswsi_*` columns
 - `--out-dir <dir>`, where the CSV goes (by default the working directory)
+- `--min-pattern-length <m>` (also in `MemoryBenchmark`): HBI builds no level whose span is below `m`, the levels that patterns of `m` or more symbols never probe (the builder's `minPatternLength`). Every benchmark query set starts at 10, so `10` gives the same probes and answers with fewer levels. Off (0) by default; in the CSV name (`_minpat<m>`) and column `min_pattern_length`
 
 The window length comes from `--window-length`, then `--window-power`, then the number in the window name (`w19` gives 2^19). Insert and query times are measured in nanoseconds, after the window and the query files have been read into memory. `avgQueryMs` (`avg_query_ms_*` in the CSV) is the time for a whole query file of 500 queries, not for one query: queries per second are `500 * 1000 / avgQueryMs`.
 

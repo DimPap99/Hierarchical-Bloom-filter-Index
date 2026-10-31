@@ -23,6 +23,7 @@ public record MultiBenchmarkOptions(
         int alphabetBase,
         int minQueryLength,
         int maxQueryLength,
+        int minPatternLength,        // --min-pattern-length: HBI builds no level that such patterns never probe (0: all)
         double fpRate,
         List<Double> fpRates,
         double runConfidence,
@@ -66,6 +67,7 @@ public record MultiBenchmarkOptions(
         Integer alphabetBase = 150;
         int minQueryLength = 0;
         int maxQueryLength = 0;
+        int minPatternLength = 0;
 
         double fpRate = 0.15;
         List<Double> fpRates = null;
@@ -131,6 +133,7 @@ public record MultiBenchmarkOptions(
                 case "alphabet", "alphabet-base" -> alphabetBase = Integer.parseInt(value);
                 case "min-query-length", "min-query-len", "query-length-start" -> minQueryLength = Integer.parseInt(value);
                 case "max-query-length", "max-query-len", "query-length-end" -> maxQueryLength = Integer.parseInt(value);
+                case "min-pattern-length" -> minPatternLength = Integer.parseInt(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
                 case "fp-grid" -> fpGridArg = value; // start:end:step
@@ -222,6 +225,9 @@ public record MultiBenchmarkOptions(
         if (maxQueryLength < 0) {
             throw new IllegalArgumentException("--max-query-length must be >= 0");
         }
+        if (minPatternLength < 0) {
+            throw new IllegalArgumentException("--min-pattern-length must be >= 0");
+        }
         if (maxQueryLength > 0 && minQueryLength > 0 && maxQueryLength < minQueryLength) {
             throw new IllegalArgumentException("--max-query-length must be >= --min-query-length when both are set");
         }
@@ -296,6 +302,7 @@ public record MultiBenchmarkOptions(
                 alphabetBase,
                 minQueryLength,
                 maxQueryLength,
+                minPatternLength,
                 fpRate,
                 fpRates,
                 runConfidence,

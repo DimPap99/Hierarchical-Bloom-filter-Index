@@ -20,6 +20,7 @@ import utilities.*;
 
 import java.util.*;
 import java.util.function.IntFunction;
+import java.util.function.IntPredicate;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -53,6 +54,8 @@ public final class HBI implements IPMIndexing {
     public final double fpRate;
     // Keep levels below nGram and use token-length descent; default preserves current behaviour.
     private final boolean keepSubNgramLevels;
+    // Shortest expected pattern; levels the search never enters for such patterns are not built (makeLayout).
+    private final int minPatternLength;
 
     private final SearchAlgorithm searchAlgo;
     private final Supplier<Estimator> estimatorFac;
@@ -117,6 +120,7 @@ public final class HBI implements IPMIndexing {
         this.alphabetSize = config.alphabetSize();
         this.fpRate = config.fpRate();
         this.keepSubNgramLevels = config.keepSubNgramLevels();
+        this.minPatternLength = config.minPatternLength();
         this.searchAlgo = config.searchAlgorithm();
         if (this.searchAlgo instanceof search.BlockSearch bs) {
             bs.setUseTokenLengthGuard(this.keepSubNgramLevels);
@@ -346,11 +350,22 @@ public final class HBI implements IPMIndexing {
 
     @Override
     public boolean exists(String key) {
-        return !report(new Pattern(key, this.nGram)).isEmpty();
+        return exists(new Pattern(key, this.nGram), null);
+    }
+
+    // True if pat occurs in the window. The search stops at the first verified hit that accept takes
+    // (a window position, as report returns it); accept == null takes every hit.
+    public boolean exists(Pattern pat, IntPredicate accept) {
+        return !search(pat, accept, true).isEmpty();
     }
 
     @Override
     public ArrayList<Integer> report(Pattern pat) {
+        return search(pat, null, false);
+    }
+
+    // report and exists: every hit that accept takes, in increasing order, or only the first one.
+    private ArrayList<Integer> search(Pattern pat, IntPredicate accept, boolean firstOnly) {
         if (pat.nGram != this.nGram) {
             throw new IllegalArgumentException(
                     "pattern uses n-gram size " + pat.nGram + " but the index uses " + this.nGram);
@@ -392,6 +407,7 @@ public final class HBI implements IPMIndexing {
         int arbitraryConfLp = 0;
 
         // We iterate trees in ascending time order (oldest to newest)
+        allTrees:
         for (int treeIdx = 0; treeIdx < this.trees.size(); treeIdx++) {
             ImplicitTree<Membership> tree = this.trees.get(treeIdx);
 
@@ -490,8 +506,12 @@ public final class HBI implements IPMIndexing {
                         continue;
                     }
                     int windowPos = hit - windowStart;
-                    if (results.isEmpty() || results.get(results.size() - 1) < windowPos) {
+                    if ((results.isEmpty() || results.get(results.size() - 1) < windowPos)
+                            && (accept == null || accept.test(windowPos))) {
                         results.add(windowPos);
+                        if (firstOnly) {
+                            break allTrees;
+                        }
                     }
                 }
 
@@ -595,11 +615,15 @@ public final class HBI implements IPMIndexing {
         return duration;
     }
 
+    // Levels from the root down to the smallest span >= target. The search enters a child only if the child
+    // spans at least the pattern (BlockSearch: childrenIntervalSize >= requiredSpan), so with patterns of
+    // at least minPatternLength no level below that span is ever probed.
     private TreeLayout makeLayout() {
         int totalLevels = Integer.SIZE - Integer.numberOfLeadingZeros(treeLength);
         int levels = 1;
         int span = Math.max(1, treeLength);
         int target = this.keepSubNgramLevels ? 1 : Math.max(1, nGram);
+        target = Math.max(target, minRequiredSpan());
 
         while (levels < totalLevels && span % 2 == 0 && span / 2 >= target) {
             span /= 2;
@@ -609,6 +633,19 @@ public final class HBI implements IPMIndexing {
         int leafSpan = Math.max(1, span);
         return new TreeLayout(levels, leafSpan);
 
+    }
+
+    // The search's requiredSpan for the shortest expected pattern: its length, or with keepSubNgramLevels
+    // (token-length guard) its fewest tokens, ceil(minPatternLength / n) when only every n-th n-gram is tested.
+    private int minRequiredSpan() {
+        if (minPatternLength <= 0) {
+            return 1;
+        }
+        return keepSubNgramLevels ? (minPatternLength + nGram - 1) / nGram : minPatternLength;
+    }
+
+    public int minPatternLength() {
+        return minPatternLength;
     }
 
     private ImplicitTree<Membership> createTree(int treeId) {

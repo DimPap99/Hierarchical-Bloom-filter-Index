@@ -32,6 +32,7 @@ public final class HbiConfiguration {
     private final boolean collectStats;
     private final boolean activateEstim;
     private final boolean keepSubNgramLevels;
+    private final int minPatternLength;
 
     private final int nGram;
 
@@ -54,6 +55,7 @@ public final class HbiConfiguration {
         this.buckets = builder.buckets;
         this.activateEstim = builder.activateEstim;
         this.keepSubNgramLevels = builder.keepSubNgramLevels;
+        this.minPatternLength = builder.minPatternLength;
         validate();
     }
 
@@ -82,6 +84,9 @@ public final class HbiConfiguration {
         if (confidence <= 0.0 || confidence >= 1.0) {
             throw new IllegalArgumentException("confidence must be in (0,1)");
         }
+        if (minPatternLength < 0) {
+            throw new IllegalArgumentException("minPatternLength must be >= 0");
+        }
     }
     public int buckets(){return buckets;}
     public SearchAlgorithm searchAlgorithm() { return searchAlgorithm; }
@@ -100,6 +105,7 @@ public final class HbiConfiguration {
     public boolean collectStats() { return collectStats; }
     public boolean activateEstim() { return activateEstim; }
     public boolean keepSubNgramLevels() { return keepSubNgramLevels; }
+    public int minPatternLength() { return minPatternLength; }
 
     public Utils.MemPolicy memPolicy() {
         return memPolicy;
@@ -123,6 +129,7 @@ public final class HbiConfiguration {
         private boolean collectStats;
         private boolean activateEstim;
         private boolean keepSubNgramLevels;
+        private int minPatternLength;
 
         private int nGram = 1;
 
@@ -215,6 +222,16 @@ public final class HbiConfiguration {
         // Keep levels whose span is below the n-gram size (Sec. 4.3.1); off by default.
         public Builder keepSubNgramLevels(boolean keepSubNgramLevels) {
             this.keepSubNgramLevels = keepSubNgramLevels;
+            return this;
+        }
+
+        // Shortest pattern length (characters, or tokens in segments mode) the queries are expected to have;
+        // 0 (the default) keeps the full layout. Block Search enters a child only if the child spans at least
+        // the pattern, so levels with a span below this are never probed by such patterns and are not built:
+        // the leaf span becomes the smallest power of two >= minPatternLength. Shorter patterns stay exact,
+        // their candidates are verified directly at the leaf level.
+        public Builder minPatternLength(int minPatternLength) {
+            this.minPatternLength = minPatternLength;
             return this;
         }
 

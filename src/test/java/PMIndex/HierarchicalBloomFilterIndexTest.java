@@ -58,6 +58,29 @@ class HierarchicalBloomFilterIndexTest {
         }
     }
 
+    // hbi-optimizations.md, Section 4: the levels below the shortest expected pattern are not built. Patterns of
+    // every length, shorter ones included, must still match brute force.
+    @Test
+    void minPatternLengthKeepsAnswersExact() {
+        Random rnd = new Random(13);
+        for (SearchStrategy strategy : SearchStrategy.values()) {
+            for (int n : new int[]{1, 3, 8}) {
+                for (int minLen : new int[]{4, 10, 33}) {
+                    HierarchicalBloomFilterIndex index = HierarchicalBloomFilterIndex.builder()
+                            .windowLength(1000)
+                            .treeLength(256)
+                            .nGram(n)
+                            .searchStrategy(strategy)
+                            .minPatternLength(minLen)
+                            .build();
+                    checkStream(index, randomText(rnd, "abcd", 3000), rnd, strategy + " n=" + n + " minLen=" + minLen);
+                }
+            }
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> HierarchicalBloomFilterIndex.builder().windowLength(64).minPatternLength(-1).build());
+    }
+
     @Test
     void lowEntropyAndPeriodicStreams() {
         Random rnd = new Random(3);
@@ -162,6 +185,8 @@ class HierarchicalBloomFilterIndexTest {
                     long[] actual = index.search(pattern);
                     assertArrayEquals(expected, actual,
                             config + " after " + seen.length() + " chars, pattern \"" + pattern + "\"");
+                    assertEquals(expected.length > 0, index.contains(pattern),
+                            config + " contains, after " + seen.length() + " chars, pattern \"" + pattern + "\"");
                 }
                 nextCheck += w / 3 + rnd.nextInt(w / 2 + 1);
             }

@@ -40,6 +40,20 @@ class MemoryBenchmarkOptionsTest {
                 "--window-length", "1000", "--tree-length", "1000", "--sswsi-mode", "legacy")));
     }
 
+    @Test
+    void minPatternLengthFlag(@TempDir Path dir) throws IOException {
+        Files.createDirectories(dir.resolve("w10"));
+        String[] base = {"--data-root", dir.toString(), "--window", "w10", "--window-power", "10", "--tree-power", "10",
+                "--policy", "NONE"};
+        assertEquals(0, MemoryBenchmark.MemoryOptions.parse(base).minPatternLength());
+        MemoryBenchmark.MemoryOptions o = MemoryBenchmark.MemoryOptions.parse(concat(base, "--min-pattern-length", "10"));
+        assertEquals(10, o.minPatternLength());
+        assertTrue(o.csvOutputFile().toString().endsWith("_minpat10_sswsi-amortized-dc3-fks.csv"),
+                o.csvOutputFile().toString());
+        assertThrows(IllegalArgumentException.class,
+                () -> MemoryBenchmark.MemoryOptions.parse(concat(base, "--min-pattern-length", "-1")));
+    }
+
     private static String[] concat(String[] a, String... b) {
         String[] out = new String[a.length + b.length];
         System.arraycopy(a, 0, out, 0, a.length);

@@ -130,6 +130,7 @@ public final class HierarchicalBloomFilterIndex {
                 .memPolicy(policy)
                 .activateEstim(policy != Utils.MemPolicy.NONE)
                 .buckets(buckets)
+                .minPatternLength(b.minPatternLength)
                 .build();
         this.hbi = new HBI(config);
         this.hbi.strides = b.strides;
@@ -165,21 +166,10 @@ public final class HierarchicalBloomFilterIndex {
      * @throws IllegalArgumentException if the pattern is shorter than the n-gram size
      */
     public long[] search(CharSequence pattern) {
-        int r = pattern.length();
-        if (r < nGram) {
-            throw new IllegalArgumentException(
-                    "pattern length " + r + " is shorter than the n-gram size " + nGram);
-        }
-        if (r > windowLength || r > length) {
+        Pattern p = toPattern(pattern);
+        if (p == null) {
             return NO_MATCHES;
         }
-
-        Pattern p = new Pattern(pattern.toString(), nGram);
-        long[] tokens = new long[r - nGram + 1];
-        for (int i = 0; i < tokens.length; i++) {
-            tokens[i] = encode(pattern, i);
-        }
-        p.setTokens(tokens);
 
         ArrayList<Integer> hits = hbi.report(p);
         long windowStart = hbi.windowStartPosition();
@@ -194,9 +184,42 @@ public final class HierarchicalBloomFilterIndex {
         return (count == out.length) ? out : Arrays.copyOf(out, count);
     }
 
-    /** True if {@code pattern} occurs at least once in the current window. */
+    /**
+     * True if {@code pattern} occurs at least once in the current window. Stops at the first occurrence.
+     *
+     * @throws IllegalArgumentException if the pattern is shorter than the n-gram size
+     */
     public boolean contains(CharSequence pattern) {
-        return search(pattern).length > 0;
+        Pattern p = toPattern(pattern);
+        if (p == null) {
+            return false;
+        }
+        if (window == null) {
+            return hbi.exists(p, null);
+        }
+        long windowStart = hbi.windowStartPosition();
+        return hbi.exists(p, hit -> matchesWindow(pattern, windowStart + hit));
+    }
+
+    // The pattern with its tokens, or null when it cannot occur because it is longer than the window
+    // or the stream.
+    private Pattern toPattern(CharSequence pattern) {
+        int r = pattern.length();
+        if (r < nGram) {
+            throw new IllegalArgumentException(
+                    "pattern length " + r + " is shorter than the n-gram size " + nGram);
+        }
+        if (r > windowLength || r > length) {
+            return null;
+        }
+
+        Pattern p = new Pattern(pattern.toString(), nGram);
+        long[] tokens = new long[r - nGram + 1];
+        for (int i = 0; i < tokens.length; i++) {
+            tokens[i] = encode(pattern, i);
+        }
+        p.setTokens(tokens);
+        return p;
     }
 
     /** Number of characters appended so far. */
@@ -273,6 +296,7 @@ public final class HierarchicalBloomFilterIndex {
         private SearchStrategy strategy = SearchStrategy.BLOCK_SEARCH;
         private ProvisioningPolicy policy = ProvisioningPolicy.NONE;
         private long seed = 1L;
+        private int minPatternLength;
 
         private Builder() {
         }
@@ -335,6 +359,17 @@ public final class HierarchicalBloomFilterIndex {
             return this;
         }
 
+        /**
+         * Length of the shortest pattern you expect to search. The search only enters a level whose span is at
+         * least the pattern's length, so the levels finer than this are never used by such patterns; with this
+         * set they are not built, which saves memory and insert time and leaves those queries unchanged.
+         * Shorter patterns still get exact answers, only more slowly. Default: build every level.
+         */
+        public Builder minPatternLength(int minPatternLength) {
+            this.minPatternLength = minPatternLength;
+            return this;
+        }
+
         /** Seed of the frequency sketch, for reproducible start-level choices. */
         public Builder seed(long seed) {
             this.seed = seed;
@@ -359,6 +394,9 @@ public final class HierarchicalBloomFilterIndex {
             }
             if (!(confidence > 0.0 && confidence < 1.0)) {
                 throw new IllegalArgumentException("confidence must be in (0,1)");
+            }
+            if (minPatternLength < 0) {
+                throw new IllegalArgumentException("minPatternLength must be >= 0");
             }
             return new HierarchicalBloomFilterIndex(this);
         }

@@ -85,6 +85,7 @@ public final class BenchmarkReporter {
         header.add("sswsi_ngram");
         header.add("suffix_tree_ngram");
         header.add("policy");
+        header.add("min_pattern_length");
         header.add("alphabet");
         header.add("fpr");
         header.add("delta");
@@ -144,6 +145,7 @@ public final class BenchmarkReporter {
                 row.add(options.runSuffix() ? options.resolveSuffixNgram(ngIndex, ng) : null);
                 row.add(options.runSuffixTreeBaseline() ? options.suffixTreeNgramFor(ngIndex, ng) : null);
                 row.add(options.memPolicy());
+                row.add(options.minPatternLength());
                 row.add(options.alphabetSizeFor(ng));
                 row.add(currentFp);
                 int deltaVal = options.reinsertPerWorkload() ? pl : options.suffixDelta(); // delayed suffix default delta
@@ -175,8 +177,10 @@ public final class BenchmarkReporter {
         String treeToken = "t" + options.treePower();
         // Runs that differ only in the SSWSI setting must not overwrite each other's file.
         String sswsiToken = (sswsi == null) ? "" : "_sswsi-" + sswsi.label();
-        String fileName = "%s_%s_%s_%s_%s_fp%s%s.csv"
-                .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken, sswsiToken);
+        String minPatternToken = options.minPatternLength() > 0 ? "_minpat" + options.minPatternLength() : "";
+        String fileName = "%s_%s_%s_%s_%s_fp%s%s%s.csv"
+                .formatted(options.window(), treeToken, options.queryTypeLabel(), ngToken, algo, fpToken,
+                        minPatternToken, sswsiToken);
         Path csvPath = options.outDir().resolve(fileName);
         CsvUtil.writeRows(csvPath, csvRows);
         return csvPath;

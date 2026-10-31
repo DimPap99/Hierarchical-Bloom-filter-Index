@@ -78,6 +78,7 @@ public final class MemoryBenchmark {
                 "fp_rate",
                 "policy",
                 "policy_buckets",
+                "min_pattern_length",
                 "hbi_mem_mib",
                 "suffix_core_mem_mib",
                 "suffix_total_mem_mib",
@@ -150,6 +151,7 @@ public final class MemoryBenchmark {
                             fpRate,
                             options.memPolicy().name(),
                             options.policyBuckets(),
+                            options.minPatternLength(),
                             hbiStats.mib(),
                             suffixStats.coreMiB(),
                             suffixStats.totalMiB(),
@@ -223,6 +225,7 @@ public final class MemoryBenchmark {
                 .activateEstim(options.shouldActivateEstimators())
                 .buckets(derivedBuckets)
                 .nGram(nGram)
+                .minPatternLength(options.minPatternLength())
                 .build();
 
         HBI hbi = new HBI(configuration);
@@ -492,7 +495,8 @@ public final class MemoryBenchmark {
                                  boolean suffixMatchNgram,
                                  Utils.MemPolicy memPolicy,
                                  int policyBuckets,
-                                 SswsiSettings sswsi) {
+                                 SswsiSettings sswsi,
+                                 int minPatternLength) {   // --min-pattern-length, as in the harness (0: all levels)
 
         static MemoryOptions parse(String[] args) {
             Path dataRoot = Path.of("data");
@@ -536,6 +540,7 @@ public final class MemoryBenchmark {
             Utils.MemPolicy memPolicy = Utils.MemPolicy.REACTIVE;
             Integer policyBuckets = null;
             String sswsiMode = null, sswsiBuilder = null, sswsiDict = null;  // SswsiSettings.DEFAULT when not given
+            int minPatternLength = 0;
 
             for (int i = 0; i < args.length; i++) {
                 String arg = args[i];
@@ -597,6 +602,7 @@ public final class MemoryBenchmark {
                     case "sswsi-mode" -> sswsiMode = value;
                     case "sswsi-builder" -> sswsiBuilder = value;
                     case "sswsi-dict" -> sswsiDict = value;
+                    case "min-pattern-length" -> minPatternLength = Integer.parseInt(value);
                     default -> throw new IllegalArgumentException("Unknown option --" + key);
                 }
             }
@@ -616,6 +622,9 @@ public final class MemoryBenchmark {
             }
             if (!(quantile > 0.0 && quantile < 1.0)) {
                 throw new IllegalArgumentException("p must be in (0,1)");
+            }
+            if (minPatternLength < 0) {
+                throw new IllegalArgumentException("min-pattern-length must be >= 0");
             }
 
             if (defaultNgram == null) defaultNgram = 3;
@@ -714,7 +723,8 @@ public final class MemoryBenchmark {
                     suffixMatchNgram,
                     memPolicy,
                     policyBuckets != null ? Math.max(0, policyBuckets) : 0,
-                    sswsi);
+                    sswsi,
+                    minPatternLength);
         }
 
         int alphabetSizeFor(int ngram) {
@@ -802,7 +812,8 @@ public final class MemoryBenchmark {
             boolean multiCombos = (ngrams.size() > 1) || (fpRates.size() > 1) || (treeSettings.size() > 1);
             String policyToken = memPolicy.name().toLowerCase(Locale.ROOT);
             // The suffix n-gram and the SSWSI setting, so runs that differ only in those keep separate files.
-            String suffixToken = (suffixMatchNgram ? "_suffix-match" : "") + "_sswsi-" + sswsi.label();
+            String suffixToken = (minPatternLength > 0 ? "_minpat" + minPatternLength : "")
+                    + (suffixMatchNgram ? "_suffix-match" : "") + "_sswsi-" + sswsi.label();
             if (multiCombos) {
                 return Path.of("memory_%s_%s_multi%s.csv".formatted(window, policyToken, suffixToken));
             }

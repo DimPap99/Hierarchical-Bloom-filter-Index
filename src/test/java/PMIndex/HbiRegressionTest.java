@@ -122,9 +122,14 @@ class HbiRegressionTest {
                                 int r = n + rnd.nextInt(30);
                                 int s = windowStart + rnd.nextInt(seen.length() - r - windowStart + 1);
                                 String pattern = seen.substring(s, s + r);
-                                assertEquals(expected(seen, 2048, n, pattern),
-                                        hbi.report(new Pattern(pattern, n)),
-                                        config + " after " + seen.length() + " chars, pattern " + pattern);
+                                List<Integer> want = expected(seen, 2048, n, pattern);
+                                String where = config + " after " + seen.length() + " chars, pattern " + pattern;
+                                assertEquals(want, hbi.report(new Pattern(pattern, n)), where);
+                                // exists stops at the first hit that the predicate takes.
+                                assertEquals(!want.isEmpty(), hbi.exists(pattern), where);
+                                int first = want.isEmpty() ? -1 : want.get(0);
+                                assertEquals(want.size() > 1, hbi.exists(new Pattern(pattern, n), pos -> pos > first), where);
+                                assertFalse(hbi.exists(pattern + "#"), where);
                             }
                         }
                     }
@@ -155,6 +160,75 @@ class HbiRegressionTest {
             assertTrue(range.startPos() >= frontier, algorithm.getClass().getSimpleName() + " started at " + range.startPos());
             assertEquals(23, range.endPos());
         }
+    }
+
+    // hbi-optimizations.md, Section 4: with patterns of at least minPatternLength, the levels it removes are never
+    // probed, so the cut layout makes exactly the same probes and answers. Exact filters (no false positives) make
+    // the probe counts comparable. Shorter patterns stay exact.
+    @Test
+    void minPatternLengthRemovesOnlyLevelsTheSearchNeverEnters() {
+        Random rnd = new Random(4);
+        int w = 2048, tree = 512;
+        for (int n : new int[]{1, 2, 3, 5}) {
+            for (int minLen : new int[]{6, 10, 16, 40}) {
+                for (boolean strides : new boolean[]{false, true}) {
+                    HBI full = exactHbi(w, tree, n, 0);
+                    HBI cut = exactHbi(w, tree, n, minLen);
+                    full.strides = strides;
+                    cut.strides = strides;
+                    String config = "n=" + n + " minLen=" + minLen + " strides=" + strides;
+                    String text = skewed(rnd, 5000);
+                    StringBuilder seen = new StringBuilder();
+                    for (int i = 0; i < text.length(); i++) {
+                        seen.append(text.charAt(i));
+                        if (seen.length() >= n) {
+                            String symbol = seen.substring(seen.length() - n);
+                            full.insert(symbol);
+                            cut.insert(symbol);
+                        }
+                    }
+                    int leaf = Integer.highestOneBit(Math.max(n, minLen) - 1) << 1;   // smallest power of two >= it
+                    assertEquals(tree / leaf, 1 << (cut.trees.getLast().maxDepth() - 1), config + ": leaf span");
+                    assertTrue(cut.trees.getLast().maxDepth() <= full.trees.getLast().maxDepth(), config);
+
+                    int windowStart = Math.max(0, seen.length() - n + 1 - w);
+                    for (int q = 0; q < 60; q++) {
+                        int r = n + rnd.nextInt(50);
+                        int s = windowStart + rnd.nextInt(seen.length() - r - windowStart + 1);
+                        String pattern = seen.substring(s, s + r);
+                        if (q % 3 == 0) {
+                            pattern = pattern.substring(0, r - 1) + "#";   // usually absent
+                        }
+                        String where = config + ", pattern " + pattern;
+                        full.getAllprobes();
+                        cut.getAllprobes();
+                        List<Integer> want = full.report(new Pattern(pattern, n));
+                        int fullProbes = full.getAllprobes();
+                        assertEquals(expected(seen, w, n, pattern), want, where);
+                        assertEquals(want, cut.report(new Pattern(pattern, n)), where);
+                        if (r >= minLen) {
+                            assertEquals(fullProbes, cut.getAllprobes(), where + ": probes");
+                        }
+                    }
+                }
+            }
+        }
+        assertThrows(IllegalArgumentException.class, () -> exactHbi(w, tree, 1, -1));
+    }
+
+    private static HBI exactHbi(int w, int tree, int n, int minPatternLength) {
+        return new HBI(HbiConfiguration.builder()
+                .searchAlgorithm(new search.BlockSearch())
+                .windowLength(w).treeLength(tree).fpRate(0.2).alphabetSize(1 << 16)
+                .estimatorSupplier(() -> new estimators.CSEstimator(64, 3, 1))
+                .membershipSupplier(membership.MockMembership::new)
+                .pruningPlanSupplier(() -> new search.MostFreqPruning(0.99, 0.2))
+                .verifier(new search.VerifierLinearLeafProbe())
+                .costFunction(new estimators.CostFunctionDefaultRoot())
+                .confidence(0.99)
+                .nGram(n)
+                .minPatternLength(minPatternLength)
+                .build());
     }
 
     @Test

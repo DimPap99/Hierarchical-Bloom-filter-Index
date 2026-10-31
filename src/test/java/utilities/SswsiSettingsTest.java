@@ -82,6 +82,10 @@ class SswsiSettingsTest {
         assertEquals("amortized-fc-fastutil", o.sswsi().label());
         assertEquals(dir, o.outDir());
         assertEquals(SswsiSettings.LEGACY, MultiBenchmarkOptions.parse(concat(base, "--sswsi-mode", "legacy")).sswsi());
+        assertEquals(0, MultiBenchmarkOptions.parse(base).minPatternLength());
+        assertEquals(10, MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "10")).minPatternLength());
+        assertThrows(IllegalArgumentException.class,
+                () -> MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "-1")));
 
         // A window the amortized index cannot take fails at parse time, unless SSWSI does not run.
         assertThrows(IllegalArgumentException.class,
