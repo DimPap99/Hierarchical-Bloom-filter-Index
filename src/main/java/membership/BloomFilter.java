@@ -2,6 +2,8 @@ package membership;
 
 import java.security.SecureRandom;
 import java.util.BitSet;
+import java.util.SplittableRandom;
+import java.util.random.RandomGenerator;
 
 public class BloomFilter implements Membership {
 
@@ -21,6 +23,15 @@ public class BloomFilter implements Membership {
     public BloomFilter(){}
 
     public void init(int n, double p){
+        init(n, p, new SecureRandom());
+    }
+
+    @Override
+    public void init(int n, double p, long seed) {
+        init(n, p, new SplittableRandom(seed));
+    }
+
+    private void init(int n, double p, RandomGenerator rng) {
         if (n <= 0)           throw new IllegalArgumentException("n must be > 0");
         if (p <= 0 || p >= 1) throw new IllegalArgumentException("p must be in (0,1)");
 
@@ -31,21 +42,11 @@ public class BloomFilter implements Membership {
         this.p = Math.pow(1 - Math.exp(-k / (double) m * n), k);
 
         this.filter = new BitSet(m);
-        initCWSeeds();
+        initCWSeeds(rng);
     }
 
     public BloomFilter(int n, double p) {
-        if (n <= 0)           throw new IllegalArgumentException("n must be > 0");
-        if (p <= 0 || p >= 1) throw new IllegalArgumentException("p must be in (0,1)");
-
-        double ln2 = Math.log(2);
-        this.n = n;
-        this.m = (int) Math.ceil(-(n * Math.log(p)) / (ln2 * ln2));
-        this.k = (int) Math.max(1, Math.round((m / (double) n) * ln2));
-        this.p = Math.pow(1 - Math.exp(-k / (double) m * n), k);
-
-        this.filter = new BitSet(m);
-        initCWSeeds();
+        init(n, p);
     }
 
     @Override
@@ -71,8 +72,7 @@ public class BloomFilter implements Membership {
 
     private long a1, b1, a2, b2;
 
-    private void initCWSeeds() {
-        SecureRandom rng = new SecureRandom();
+    private void initCWSeeds(RandomGenerator rng) {
         do { a1 = rng.nextLong() & MASK; } while (a1 == 0L);
         b1 = rng.nextLong() & MASK;
         do { a2 = rng.nextLong() & MASK; } while (a2 == 0L);

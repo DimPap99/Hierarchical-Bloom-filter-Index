@@ -138,14 +138,107 @@ class HbiRegressionTest {
         }
     }
 
+    // Filter seeds come from the index's seed, its trees and levels: the same seed probes exactly the same way.
+    @Test
+    void sameSeedGivesTheSameProbes() {
+        Random rnd = new Random(8);
+        String text = skewed(rnd, 6000);
+        long[] totals = new long[3];
+        long[] seeds = {1L, 1L, 2L};
+        List<List<Integer>> answers = new ArrayList<>();
+        for (int run = 0; run < 3; run++) {
+            HBI hbi = IndexFactory.createHbi(2048, 512, 1 << 16, 0.3, 0.99, Utils.MemPolicy.NONE, 2, "bs", 0.05, 0,
+                    new IndexFactory.HbiTuning(0, membership.FilterKind.BLOOM, seeds[run], search.BlockSearch.Options.DEFAULT, false));
+            for (int i = 2; i <= text.length(); i++) hbi.insert(text.substring(i - 2, i));
+            Random queries = new Random(9);
+            hbi.getAllprobes();
+            for (int q = 0; q < 200; q++) {
+                int r = 2 + queries.nextInt(20);
+                int s = text.length() - 2000 + queries.nextInt(2000 - r);
+                List<Integer> hits = hbi.report(new Pattern(text.substring(s, s + r), 2));
+                if (run == 0) answers.add(hits); else assertEquals(answers.get(q), hits);
+            }
+            totals[run] = hbi.getAllprobes();
+        }
+        assertEquals(totals[0], totals[1], "same seed");
+        assertNotEquals(totals[0], totals[2], "another seed");
+    }
+
+    // Block Search's optional probe strategies (query plan, sketch order, move-to-front, neighbour check) change
+    // only which filters are probed, never the answers: every combination, with and without strides, BS and CP-BS.
+    @Test
+    void probeStrategiesMatchBruteForce() {
+        Random rnd = new Random(12);
+        for (int bits = 0; bits < 16; bits++) {
+            search.BlockSearch.Options o = new search.BlockSearch.Options(
+                    (bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0, (bits & 8) != 0);
+            for (String algorithm : new String[]{"bs", "cp"}) {
+                for (int n : new int[]{1, 3}) {
+                    for (boolean strides : new boolean[]{false, true}) {
+                        HBI hbi = IndexFactory.createHbi(2048, 512, 1 << 16, 0.2, 0.99, Utils.MemPolicy.NONE, n,
+                                algorithm, 0.05, 0, new IndexFactory.HbiTuning(0, membership.FilterKind.BLOOM, 1L, o, false));
+                        hbi.strides = strides;
+                        String config = o + " " + algorithm + " n=" + n + " strides=" + strides;
+                        String text = skewed(rnd, 4000);
+                        for (int i = n; i <= text.length(); i++) hbi.insert(text.substring(i - n, i));
+                        int windowStart = Math.max(0, text.length() - n + 1 - 2048);
+                        for (int q = 0; q < 40; q++) {
+                            int r = n + rnd.nextInt(40);
+                            int s = windowStart + rnd.nextInt(text.length() - r - windowStart + 1);
+                            String pattern = text.substring(s, s + r);
+                            if (q % 3 == 0) pattern = pattern.substring(0, r - 1) + "#";
+                            assertEquals(expected(text, 2048, n, pattern), hbi.report(new Pattern(pattern, n)),
+                                    config + ", pattern " + pattern);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // The KMP verifier (Section 7) reports exactly what the linear one does, also on repetitive streams where
+    // matches overlap and ranges run back to back, across tree boundaries, with and without strides.
+    @Test
+    void kmpVerifierMatchesBruteForce() {
+        Random rnd = new Random(21);
+        String[] streams = {skewed(rnd, 5000), "a".repeat(5000), "ab".repeat(2500), "aab".repeat(1700)};
+        for (String text : streams) {
+            for (int n : new int[]{1, 2, 3}) {
+                for (boolean strides : new boolean[]{false, true}) {
+                    HBI hbi = new HBI(HbiConfiguration.builder()
+                            .searchAlgorithm(new search.BlockSearch())
+                            .windowLength(2048).treeLength(256).fpRate(0.2).alphabetSize(1 << 16)
+                            .estimatorSupplier(() -> new estimators.CSEstimator(64, 3, 1))
+                            .membershipSupplier(BloomFilter::new)
+                            .pruningPlanSupplier(() -> new search.MostFreqPruning(0.99, 0.2))
+                            .verifier(new search.VerifierKmp())
+                            .costFunction(new estimators.CostFunctionDefaultRoot())
+                            .confidence(0.99).nGram(n).build());
+                    hbi.strides = strides;
+                    for (int i = n; i <= text.length(); i++) hbi.insert(text.substring(i - n, i));
+                    int windowStart = Math.max(0, text.length() - n + 1 - 2048);
+                    for (int q = 0; q < 40; q++) {
+                        int r = n + rnd.nextInt(40);
+                        int s = windowStart + rnd.nextInt(text.length() - r - windowStart + 1);
+                        String pattern = text.substring(s, s + r);
+                        if (q % 4 == 0) pattern = pattern.substring(0, r - 1) + "#";
+                        assertEquals(expected(text, 2048, n, pattern), hbi.report(new Pattern(pattern, n)),
+                                "kmp n=" + n + " strides=" + strides + " stream " + text.substring(0, 6) + ", pattern " + pattern);
+                    }
+                }
+            }
+        }
+        assertArrayEquals(new int[]{0, 1, 2, 0, 1, 2, 3}, search.VerifierKmp.failureTable(new long[]{1, 1, 1, 2, 1, 1, 1}));
+    }
+
     // The benchmark path with blocked filters: every policy (they read getFpRate) and strategy stays exact.
     @Test
     void blockedFiltersMatchBruteForceUnderPolicies() {
         Random rnd = new Random(2);
         for (Utils.MemPolicy policy : Utils.MemPolicy.values()) {
             for (String algorithm : new String[]{"bs", "cp", "cgbs", "cf"}) {
-                HBI hbi = IndexFactory.createHbi(2048, 512, 1 << 16, 0.2, 0.99, policy, 2, algorithm, 0.05, 4096, 0,
-                        membership.FilterKind.BLOCKED);
+                HBI hbi = IndexFactory.createHbi(2048, 512, 1 << 16, 0.2, 0.99, policy, 2, algorithm, 0.05, 4096,
+                        new IndexFactory.HbiTuning(0, membership.FilterKind.BLOCKED, 1L, search.BlockSearch.Options.DEFAULT, false));
                 String config = policy + " " + algorithm + " blocked";
                 String text = skewed(rnd, 6000);
                 StringBuilder seen = new StringBuilder();

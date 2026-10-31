@@ -132,6 +132,7 @@ public final class HierarchicalBloomFilterIndex {
                 .activateEstim(policy != Utils.MemPolicy.NONE)
                 .buckets(buckets)
                 .minPatternLength(b.minPatternLength)
+                .seed(b.seed)
                 .build();
         this.hbi = new HBI(config);
         this.hbi.strides = b.strides;
@@ -382,7 +383,10 @@ public final class HierarchicalBloomFilterIndex {
             return this;
         }
 
-        /** Seed of the frequency sketch, for reproducible start-level choices. */
+        /**
+         * Seed of the frequency sketch and of the Bloom filters' hash functions: the same seed gives the same
+         * start-level choices and the same filter work in every run. Default 1.
+         */
         public Builder seed(long seed) {
             this.seed = seed;
             return this;

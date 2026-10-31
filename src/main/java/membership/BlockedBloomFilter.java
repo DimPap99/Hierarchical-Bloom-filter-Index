@@ -1,7 +1,9 @@
 package membership;
 
 import java.security.SecureRandom;
+import java.util.SplittableRandom;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.random.RandomGenerator;
 
 // Blocked Bloom filter (hbi-optimizations.md, Sections 2 and 3): all k bits of a key lie in one block, so a lookup
 // touches one block instead of k random positions of the whole array.
@@ -34,6 +36,15 @@ public class BlockedBloomFilter implements Membership {
 
     @Override
     public void init(int n, double p) {
+        init(n, p, new SecureRandom());
+    }
+
+    @Override
+    public void init(int n, double p, long seed) {
+        init(n, p, new SplittableRandom(seed));
+    }
+
+    private void init(int n, double p, RandomGenerator rng) {
         if (n <= 0) throw new IllegalArgumentException("n must be > 0");
         if (p <= 0 || p >= 1) throw new IllegalArgumentException("p must be in (0,1)");
         // The same k and design rate as BloomFilter.init (before its rounding of m to whole bits).
@@ -54,7 +65,6 @@ public class BlockedBloomFilter implements Membership {
         this.blocks = (int) nBlocks;
         this.m = nBlocks * blockBits;
         this.words = new long[(int) (nBlocks * (blockBits / 64))];
-        SecureRandom rng = new SecureRandom();
         do { a = rng.nextLong() & P61; } while (a == 0L);
         b = rng.nextLong() & P61;
     }

@@ -19,6 +19,8 @@ public class Pattern{
     public int size;
     // True once nGramToLong holds the final numeric tokens, so the index must not remap nGramArr.
     public boolean isConverted;
+    // The order in which Block Search tests the tokens (QueryPlan); built on first use.
+    private QueryPlan plan;
 
     public Pattern(String s, int nGram) {
         this.text = s.toCharArray();
@@ -99,6 +101,15 @@ public class Pattern{
         }
         System.arraycopy(tokens, 0, nGramToLong, 0, tokens.length);
         this.isConverted = true;
+    }
+
+    // The query plan over the tokens Block Search tests (with or without strides), built once per pattern, rarest
+    // first by sketch when one is given (BlockSearch.Options).
+    public QueryPlan plan(boolean strides, estimators.Estimator sketch) {
+        if (plan == null || plan.strides() != strides) {
+            plan = QueryPlan.of(this, strides, sketch);
+        }
+        return plan;
     }
 
     // Fill effectiveNgramArr with the n-grams at offsets 0, n, 2n, ... (Sec. 4.3.1). When the

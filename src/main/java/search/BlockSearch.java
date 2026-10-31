@@ -11,6 +11,23 @@ public class BlockSearch implements SearchAlgorithm{
     private boolean strides;
     private boolean useTokenLengthGuard = false;
 
+    // Optional probe strategies (hbi-optimizations.md, Section 6). All off by default: measured on the benchmark
+    // scenarios, none of them was faster everywhere.
+    // - queryPlan: test each distinct token once, in QueryPlan order (smallest offset of each token).
+    // - sketchOrder: with queryPlan, start the plan rarest first by the tree's frequency sketch, when it has one.
+    // - moveToFront: with queryPlan, a token that tests negative is tested first from then on.
+    // - neighbourCheck: when a probe leaves a tail of starts, first test the failing token in the next interval.
+    public record Options(boolean queryPlan, boolean sketchOrder, boolean moveToFront, boolean neighbourCheck) {
+        public static final Options DEFAULT = new Options(false, false, false, false);
+    }
+    private Options options = Options.DEFAULT;
+    // The token whose absence ended the last probe (for neighbourCheck).
+    private long failedToken;
+
+    public void setOptions(Options options) {
+        this.options = Objects.requireNonNull(options, "options");
+    }
+
     @Override
     public CandidateRange search(Frame f,
                                  Pattern p,
@@ -40,12 +57,10 @@ public class BlockSearch implements SearchAlgorithm{
 
         long[] tokens = strides ? p.effectiveNgramArr : p.nGramToLong;
 
-        Probe probe = probe(tree,
-                f.level(),
-                f.intervalIdx(),
-                p,
-                tokens,
-                currentIntervalSize);
+        Probe probe = options.queryPlan()
+                ? probeInPlanOrder(tree, f.level(), f.intervalIdx(),
+                        p.plan(strides, options.sketchOrder() ? tree.estimator : null), p.originalSz, currentIntervalSize)
+                : probe(tree, f.level(), f.intervalIdx(), p, tokens, currentIntervalSize);
 
         int requiredSpan = useTokenLengthGuard ? tokens.length : p.size;
         requiredSpan = Math.max(1, requiredSpan);
@@ -71,6 +86,10 @@ public class BlockSearch implements SearchAlgorithm{
         } else {
             // Only starts near the right edge can still cross into the next interval. Starts before
             // this interval belong to earlier intervals, so the range never reaches past currentOffset.
+            if (options.neighbourCheck() && absentFromNextInterval(tree, f)) {
+                this.currentOffset = globalEnd + 1;
+                return null;
+            }
             this.currentOffset = Math.max(this.currentOffset, globalEnd - probe.consumed() + 1);
             return new CandidateRange(this.currentOffset, globalEnd);
         }
@@ -117,6 +136,7 @@ public class BlockSearch implements SearchAlgorithm{
 //            }
 
             if (!contains) {
+                failedToken = token;
                 int consumed = charactersMatched(matches, pattern);
                 return new Probe(consumed, false);          // first mismatch at i
             }
@@ -128,6 +148,41 @@ public class BlockSearch implements SearchAlgorithm{
         return new Probe(pattern.originalSz, true);                 // checked len chars, all good
     }
 
+
+    // Option queryPlan: the plan's tokens that can lie in the interval (offset < its size), in plan order. The
+    // first absent token at offset o ends the probe: an occurrence starting here must start in the last o positions.
+    Probe probeInPlanOrder(ImplicitTree tree,
+                           int level,
+                           int interval,
+                           QueryPlan plan,
+                           int patternLength,
+                           int currentIntervalSize) {
+        long hi = Integer.toUnsignedLong(interval);
+        for (int i = 0; i < plan.size(); i++) {
+            int offset = plan.offset(i);
+            if (offset >= currentIntervalSize) {
+                continue;
+            }
+            if (!tree.contains(level, hi, plan.token(i))) {
+                failedToken = plan.token(i);
+                if (options.moveToFront()) {
+                    plan.failed(i);
+                }
+                return new Probe(offset, false);
+            }
+        }
+        return new Probe(patternLength, true);
+    }
+
+    // Option neighbourCheck: whether the token that ended the probe is absent from the next interval of the same
+    // level in this tree. Every start in the tail would need it there. The last interval of a level is not checked.
+    private boolean absentFromNextInterval(ImplicitTree tree, Frame f) {
+        int next = f.intervalIdx() + 1;
+        if (next >= (1 << f.level())) {
+            return false;
+        }
+        return !tree.contains(f.level(), Integer.toUnsignedLong(next), failedToken);
+    }
 
     public boolean isValidChild(int positionOffset, int intervalIdx, int level, int maxLevel, int workingTreeIdx){
         int spanAll = 1 << maxLevel;              // == tree.intervalSize

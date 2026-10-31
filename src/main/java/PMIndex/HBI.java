@@ -56,6 +56,8 @@ public final class HBI implements IPMIndexing {
     private final boolean keepSubNgramLevels;
     // Shortest expected pattern; levels the search never enters for such patterns are not built (makeLayout).
     private final int minPatternLength;
+    // Seed of the filters' hash functions (filterSeed).
+    private final long seed;
 
     private final SearchAlgorithm searchAlgo;
     private final Supplier<Estimator> estimatorFac;
@@ -121,6 +123,7 @@ public final class HBI implements IPMIndexing {
         this.fpRate = config.fpRate();
         this.keepSubNgramLevels = config.keepSubNgramLevels();
         this.minPatternLength = config.minPatternLength();
+        this.seed = config.seed();
         this.searchAlgo = config.searchAlgorithm();
         if (this.searchAlgo instanceof search.BlockSearch bs) {
             bs.setUseTokenLengthGuard(this.keepSubNgramLevels);
@@ -395,6 +398,8 @@ public final class HBI implements IPMIndexing {
             refreshCostModelIfNeeded();
         }
 
+        this.verifier.beginQuery(pat);
+
         // positionOffset is the search frontier: every start before it is already verified or ruled out.
         // Positions of the oldest tree that slid out of the window are skipped from the start.
         final int windowStart = (int) (windowStartPosition() - retainedStartPosition());
@@ -648,11 +653,17 @@ public final class HBI implements IPMIndexing {
         return minPatternLength;
     }
 
+    // Seed of one filter: fixed by the index's seed, the tree and the level, so every run builds the same filters.
+    private long filterSeed(long treeNumber, int level) {
+        return new SplittableRandom(seed + 0x9E3779B97F4A7C15L * (treeNumber * 64 + level + 1)).nextLong();
+    }
+
     private ImplicitTree<Membership> createTree(int treeId) {
 
         TreeLayout layout = makeLayout();
         int maxDepth = layout.levels();
 
+        long treeNumber = expiredTrees + treeId;   // counts every tree ever created
         IntFunction<Membership> filterFactory = level -> {
             int nodes = 1 << level;
             int interval = treeLength >> level;
@@ -660,7 +671,7 @@ public final class HBI implements IPMIndexing {
             int distinct = nodes * perNode;
 
             Membership bf = membershipFac.get();
-            bf.init(distinct, fpRate);
+            bf.init(distinct, fpRate, filterSeed(treeNumber, level));
             return bf;
         };
 

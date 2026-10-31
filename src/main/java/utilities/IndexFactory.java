@@ -73,10 +73,20 @@ public final class IndexFactory {
                                 double quantile,
                                 int policyBuckets) {
         return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, algorithm,
-                quantile, policyBuckets, 0);
+                quantile, policyBuckets, HbiTuning.DEFAULT);
     }
 
-    // minPatternLength: HbiConfiguration.Builder.minPatternLength (--min-pattern-length); 0 keeps the full layout.
+    // HBI settings beyond the thesis's parameters, with their defaults: the leaf span (--min-pattern-length; 0 builds
+    // every level), the Bloom filter of every level (--filter), the seed of the filters' hash functions (--seed),
+    // Block Search's optional probe strategies (--query-plan, --plan-sketch-order, --plan-move-to-front,
+    // --neighbour-check; all off) and the KMP verifier (--kmp-verification; off). hbi-optimizations.md has what each
+    // option measured.
+    public record HbiTuning(int minPatternLength, membership.FilterKind filter, long seed,
+                            search.BlockSearch.Options searchOptions, boolean kmpVerification) {
+        public static final HbiTuning DEFAULT =
+                new HbiTuning(0, membership.FilterKind.BLOOM, 1L, search.BlockSearch.Options.DEFAULT, false);
+    }
+
     public static HBI createHbi(int windowLength,
                                 int treeLength,
                                 int alphabetSize,
@@ -87,28 +97,11 @@ public final class IndexFactory {
                                 String algorithm,
                                 double quantile,
                                 int policyBuckets,
-                                int minPatternLength) {
-        return createHbi(windowLength, treeLength, alphabetSize, fpRate, confidence, memPolicy, ngram, algorithm,
-                quantile, policyBuckets, minPatternLength, membership.FilterKind.BLOOM);
-    }
-
-    // filter: the Bloom filter of every level (--filter).
-    public static HBI createHbi(int windowLength,
-                                int treeLength,
-                                int alphabetSize,
-                                double fpRate,
-                                double confidence,
-                                Utils.MemPolicy memPolicy,
-                                int ngram,
-                                String algorithm,
-                                double quantile,
-                                int policyBuckets,
-                                int minPatternLength,
-                                membership.FilterKind filter) {
+                                HbiTuning tuning) {
         // CountSketch: epsilon=0.05, delta=7.5e-4 -> w=2048, d=8 -> ~64K.
         Supplier<Estimator> estFactory = () -> new CSEstimator(2048, 8, 1);//new HashMapEstimator(treeLength);
-        Supplier<Membership> memFactory = filter.supplier();
-        Verifier verifier = new VerifierLinearLeafProbe();
+        Supplier<Membership> memFactory = tuning.filter().supplier();
+        Verifier verifier = tuning.kmpVerification() ? new search.VerifierKmp() : new VerifierLinearLeafProbe();
 
         // Choose components by algorithm token
         search.SearchAlgorithm search;
@@ -151,6 +144,10 @@ public final class IndexFactory {
             }
         }
 
+        if (search instanceof search.BlockSearch bs) {
+            bs.setOptions(tuning.searchOptions());
+        }
+
         boolean activateEstimators = memPolicy != Utils.MemPolicy.NONE && costFn instanceof CostFunctionDefaultRoot;
 
         HbiConfiguration configuration = HbiConfiguration.builder()
@@ -171,7 +168,8 @@ public final class IndexFactory {
                 .memPolicy(memPolicy)
                 .activateEstim(activateEstimators)
                 .buckets(Math.max(0, policyBuckets))
-                .minPatternLength(minPatternLength)
+                .minPatternLength(tuning.minPatternLength())
+                .seed(tuning.seed())
                 .build();
 
         HBI hbi = new HBI(configuration);

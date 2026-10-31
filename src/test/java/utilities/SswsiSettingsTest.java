@@ -87,6 +87,12 @@ class SswsiSettingsTest {
         assertEquals(membership.FilterKind.BLOOM, MultiBenchmarkOptions.parse(base).filter());
         assertEquals(membership.FilterKind.BLOCKED, MultiBenchmarkOptions.parse(concat(base, "--filter", "blocked")).filter());
         assertThrows(IllegalArgumentException.class, () -> MultiBenchmarkOptions.parse(concat(base, "--filter", "x")));
+        assertEquals(1L, MultiBenchmarkOptions.parse(base).seed());
+        assertEquals(new IndexFactory.HbiTuning(10, membership.FilterKind.BLOCKED, 7L,
+                        new search.BlockSearch.Options(true, false, true, false), true),
+                MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "10", "--filter", "blocked", "--seed", "7",
+                        "--query-plan", "true", "--plan-move-to-front", "true", "--kmp-verification", "true")).hbiTuning());
+        assertEquals(search.BlockSearch.Options.DEFAULT, MultiBenchmarkOptions.parse(base).searchOptions());
         assertThrows(IllegalArgumentException.class,
                 () -> MultiBenchmarkOptions.parse(concat(base, "--min-pattern-length", "-1")));
 

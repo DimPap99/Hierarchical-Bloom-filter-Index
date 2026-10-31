@@ -56,6 +56,7 @@ Builder options. Only `windowLength` is required.
 | `confidence` | 0.99 | Confidence threshold used by the confidence-based strategies and the policies. |
 | `blockedFilters` | false | Blocked Bloom filters: all bits of a key in one 64-bit word (one 512-bit block below a rate of about 0.15), one memory access per lookup. Sized for the same false positive rate, with at most about 1% more bits; inserts about 2x and queries up to 2x faster in the benchmarks. |
 | `minPatternLength` | 0 (every level) | Shortest pattern you expect. The search never enters a level whose span is below the pattern length, so those levels are not built: the finest level spans the smallest power of two ≥ this. Saves memory and insert time and leaves queries of at least that length unchanged; shorter patterns stay exact but are verified over the finest level's whole span. |
+| `seed` | 1 | Seed of the frequency sketch and of every Bloom filter's hash functions: the same seed gives the same filters, false positives and probe counts in every run. |
 
 Results are exact. N-grams of up to four characters are stored losslessly. Longer n-grams are hashed, and every reported match is confirmed against the buffered characters. Instances are not thread-safe.
 
@@ -92,6 +93,8 @@ Useful flags:
 - `--out-dir <dir>`, where the CSV goes (by default the working directory)
 - `--filter bloom|blocked` (also in `MemoryBenchmark`): HBI's Bloom filters. `blocked` (`membership.BlockedBloomFilter`) puts all bits of a key in one 64-bit word, or one 512-bit block below a rate of about 0.15, and is sized for the same false positive rate as `bloom` (at most about 1% more bits). Default `bloom`; in the CSV name (`_blocked`) and column `filter`
 - `--min-pattern-length <m>` (also in `MemoryBenchmark`): HBI builds no level whose span is below `m`, the levels that patterns of `m` or more symbols never probe (the builder's `minPatternLength`). Every benchmark query set starts at 10, so `10` gives the same probes and answers with fewer levels. Off (0) by default; in the CSV name (`_minpat<m>`) and column `min_pattern_length`
+- `--seed <s>`: seed of HBI's Bloom filter hash functions (default 1); runs with the same seed probe identically. In the CSV column `seed`
+- Probe strategies and verification, all off by default because none was faster in every benchmark scenario (`docs/hbi-optimizations.md`, Sections 6 and 7): `--query-plan true` (test each distinct token once, in plan order; about 2x faster at n = 1 on text, slower from n = 4), `--plan-sketch-order true` and `--plan-move-to-front true` (orders for that plan), `--neighbour-check true` (one probe in the next interval before verifying a tail), `--kmp-verification true` (verify candidates with a KMP automaton; about 3x faster on runs of one symbol, 2-7% slower otherwise). In the CSV column `search_options`
 
 The window length comes from `--window-length`, then `--window-power`, then the number in the window name (`w19` gives 2^19). Insert and query times are measured in nanoseconds, after the window and the query files have been read into memory. `avgQueryMs` (`avg_query_ms_*` in the CSV) is the time for a whole query file of 500 queries, not for one query: queries per second are `500 * 1000 / avgQueryMs`.
 

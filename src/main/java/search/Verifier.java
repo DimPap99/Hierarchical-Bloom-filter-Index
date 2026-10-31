@@ -15,4 +15,7 @@ public interface Verifier {
 
     int getLeafProbes();
     void reset();
+
+    // Called once at the start of every query, before its first range.
+    default void beginQuery(Pattern pattern) {}
 }

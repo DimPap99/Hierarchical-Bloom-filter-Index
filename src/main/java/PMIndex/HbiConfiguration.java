@@ -33,6 +33,7 @@ public final class HbiConfiguration {
     private final boolean activateEstim;
     private final boolean keepSubNgramLevels;
     private final int minPatternLength;
+    private final long seed;
 
     private final int nGram;
 
@@ -56,6 +57,7 @@ public final class HbiConfiguration {
         this.activateEstim = builder.activateEstim;
         this.keepSubNgramLevels = builder.keepSubNgramLevels;
         this.minPatternLength = builder.minPatternLength;
+        this.seed = builder.seed;
         validate();
     }
 
@@ -106,6 +108,7 @@ public final class HbiConfiguration {
     public boolean activateEstim() { return activateEstim; }
     public boolean keepSubNgramLevels() { return keepSubNgramLevels; }
     public int minPatternLength() { return minPatternLength; }
+    public long seed() { return seed; }
 
     public Utils.MemPolicy memPolicy() {
         return memPolicy;
@@ -130,6 +133,7 @@ public final class HbiConfiguration {
         private boolean activateEstim;
         private boolean keepSubNgramLevels;
         private int minPatternLength;
+        private long seed = 1L;
 
         private int nGram = 1;
 
@@ -232,6 +236,13 @@ public final class HbiConfiguration {
         // their candidates are verified directly at the leaf level.
         public Builder minPatternLength(int minPatternLength) {
             this.minPatternLength = minPatternLength;
+            return this;
+        }
+
+        // Seed of the Bloom filters' hash functions; each filter's own seed comes from it, its tree and its level,
+        // so the same seed gives the same filters, false positives and probe counts in every run. Default 1.
+        public Builder seed(long seed) {
+            this.seed = seed;
             return this;
         }
 

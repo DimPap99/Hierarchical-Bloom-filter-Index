@@ -25,6 +25,9 @@ public record MultiBenchmarkOptions(
         int maxQueryLength,
         int minPatternLength,        // --min-pattern-length: HBI builds no level that such patterns never probe (0: all)
         membership.FilterKind filter, // --filter bloom|blocked: HBI's Bloom filters
+        long seed,                    // --seed: seed of HBI's filter hash functions (default 1)
+        search.BlockSearch.Options searchOptions, // --query-plan, --plan-sketch-order, --plan-move-to-front, --neighbour-check
+        boolean kmpVerification,      // --kmp-verification: verify candidates with search.VerifierKmp
         double fpRate,
         List<Double> fpRates,
         double runConfidence,
@@ -70,6 +73,9 @@ public record MultiBenchmarkOptions(
         int maxQueryLength = 0;
         int minPatternLength = 0;
         membership.FilterKind filter = membership.FilterKind.BLOOM;
+        long seed = IndexFactory.HbiTuning.DEFAULT.seed();
+        boolean queryPlan = false, sketchOrder = false, moveToFront = false, neighbourCheck = false;
+        boolean kmpVerification = false;
 
         double fpRate = 0.15;
         List<Double> fpRates = null;
@@ -137,6 +143,12 @@ public record MultiBenchmarkOptions(
                 case "max-query-length", "max-query-len", "query-length-end" -> maxQueryLength = Integer.parseInt(value);
                 case "min-pattern-length" -> minPatternLength = Integer.parseInt(value);
                 case "filter" -> filter = membership.FilterKind.parse(value);
+                case "seed" -> seed = Long.parseLong(value);
+                case "query-plan" -> queryPlan = Boolean.parseBoolean(value);
+                case "plan-sketch-order" -> sketchOrder = Boolean.parseBoolean(value);
+                case "plan-move-to-front" -> moveToFront = Boolean.parseBoolean(value);
+                case "neighbour-check" -> neighbourCheck = Boolean.parseBoolean(value);
+                case "kmp-verification" -> kmpVerification = Boolean.parseBoolean(value);
                 case "fp" -> { if (value.contains(",")) fpListArg = value; else fpRate = Double.parseDouble(value);}                
                 case "fp-list" -> fpListArg = value;
                 case "fp-grid" -> fpGridArg = value; // start:end:step
@@ -307,6 +319,9 @@ public record MultiBenchmarkOptions(
                 maxQueryLength,
                 minPatternLength,
                 filter,
+                seed,
+                new search.BlockSearch.Options(queryPlan, sketchOrder, moveToFront, neighbourCheck),
+                kmpVerification,
                 fpRate,
                 fpRates,
                 runConfidence,
@@ -352,6 +367,10 @@ public record MultiBenchmarkOptions(
             return Math.max(1, primaryNgram);
         }
         return resolveSuffixNgram(primaryNgramIndex, primaryNgram);
+    }
+
+    public IndexFactory.HbiTuning hbiTuning() {
+        return new IndexFactory.HbiTuning(minPatternLength, filter, seed, searchOptions, kmpVerification);
     }
 
     public int alphabetSizeFor(int ngram) {

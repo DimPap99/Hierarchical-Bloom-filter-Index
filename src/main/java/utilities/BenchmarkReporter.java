@@ -87,6 +87,8 @@ public final class BenchmarkReporter {
         header.add("policy");
         header.add("min_pattern_length");
         header.add("filter");
+        header.add("seed");
+        header.add("search_options");
         header.add("alphabet");
         header.add("fpr");
         header.add("delta");
@@ -148,6 +150,8 @@ public final class BenchmarkReporter {
                 row.add(options.memPolicy());
                 row.add(options.minPatternLength());
                 row.add(options.filter().label());
+                row.add(options.seed());
+                row.add(searchOptionsLabel(options.searchOptions(), options.kmpVerification()));
                 row.add(options.alphabetSizeFor(ng));
                 row.add(currentFp);
                 int deltaVal = options.reinsertPerWorkload() ? pl : options.suffixDelta(); // delayed suffix default delta
@@ -187,5 +191,16 @@ public final class BenchmarkReporter {
         Path csvPath = options.outDir().resolve(fileName);
         CsvUtil.writeRows(csvPath, csvRows);
         return csvPath;
+    }
+
+    // The Block Search options that are on, e.g. "plan+mtf", or "default".
+    static String searchOptionsLabel(search.BlockSearch.Options o, boolean kmp) {
+        List<String> on = new ArrayList<>();
+        if (o.queryPlan()) on.add("plan");
+        if (o.sketchOrder()) on.add("sketch");
+        if (o.moveToFront()) on.add("mtf");
+        if (o.neighbourCheck()) on.add("neighbour");
+        if (kmp) on.add("kmp");
+        return on.isEmpty() ? "default" : String.join("+", on);
     }
 }

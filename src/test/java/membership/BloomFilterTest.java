@@ -81,6 +81,30 @@ class BloomFilterTest {
         }
     }
 
+    // The same seed gives the same hash functions, so the same false positives; another seed gives others.
+    @Test
+    void sameSeedGivesTheSameFilter() {
+        for (java.util.function.Supplier<Membership> kind :
+                java.util.List.<java.util.function.Supplier<Membership>>of(BloomFilter::new, BlockedBloomFilter::new)) {
+            Membership a = kind.get(), b = kind.get(), c = kind.get();
+            a.init(1 << 14, 0.2, 42L);
+            b.init(1 << 14, 0.2, 42L);
+            c.init(1 << 14, 0.2, 43L);
+            for (long key = 0; key < (1 << 14); key++) {
+                a.insert(3L, key);
+                b.insert(3L, key);
+                c.insert(3L, key);
+            }
+            int sameSeed = 0, otherSeed = 0;
+            for (long key = 1 << 14; key < (1 << 16); key++) {
+                if (a.contains(3L, key) != b.contains(3L, key)) sameSeed++;
+                if (a.contains(3L, key) != c.contains(3L, key)) otherSeed++;
+            }
+            assertEquals(0, sameSeed, a.getClass().getSimpleName());
+            assertTrue(otherSeed > 1000, a.getClass().getSimpleName() + ": " + otherSeed);
+        }
+    }
+
     // toIndex and stride use Math.unsignedMultiplyHigh in place of a hand-written four-multiply umulh; the bit
     // positions stay the same only if the two agree on every input.
     @Test
