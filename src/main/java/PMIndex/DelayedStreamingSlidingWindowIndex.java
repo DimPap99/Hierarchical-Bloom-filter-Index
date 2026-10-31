@@ -97,7 +97,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         long[] t = uncoveredSuffixTokens();
         long[] R = concat(leftTail, t);
         if (R.length > 0) {
-            SuffixTree rTree = SuffixTree.build(R, windowSize);
+            SuffixTree rTree = SuffixTree.build(R);
             List<Integer> local = rTree.findOccurrences(pat);
             int globalStart = currentRightBoundary() - R.length;
             for (int pos : local) {
@@ -123,7 +123,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         // 3) fully in t
         long[] t = uncoveredSuffixTokens();
         if (t.length > 0) {
-            SuffixTree tree = SuffixTree.build(t, windowSize);
+            SuffixTree tree = SuffixTree.build(t);
             for (int pos : tree.findOccurrences(pat)) {
                 hits.add(currentRightBoundary() - t.length + pos);
             }
@@ -135,7 +135,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         if (queryBuffer.isEmpty()) { opsSinceLastFlush = 0; return; }
         // Build suffix tree over t once
         long[] t = uncoveredSuffixTokens();
-        SuffixTree tTree = (t.length > 0) ? SuffixTree.build(t, windowSize) : null;
+        SuffixTree tTree = (t.length > 0) ? SuffixTree.build(t) : null;
         int rightBoundaryAtFlush = currentRightBoundary();
         while (!queryBuffer.isEmpty()) {
             PendingQuery q = queryBuffer.removeFirst();
@@ -192,7 +192,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
 
     private Segment createSingletonSegment(long token, int position) {
         long[] tokens = new long[]{token};
-        SuffixTree tree = (tokens.length >= minSegLen) ? SuffixTree.build(tokens, windowSize) : null;
+        SuffixTree tree = (tokens.length >= minSegLen) ? SuffixTree.build(tokens) : null;
         return new Segment(position, 0, tokens, tree);
     }
 
@@ -223,7 +223,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         long[] tokens = new long[newLength];
         System.arraycopy(left.tokens, 0, tokens, 0, left.length);
         System.arraycopy(right.tokens, 0, tokens, left.length, right.length);
-        SuffixTree tree = (newLength >= minSegLen) ? SuffixTree.build(tokens, windowSize) : null;
+        SuffixTree tree = (newLength >= minSegLen) ? SuffixTree.build(tokens) : null;
         return new Segment(left.startPosition, left.level + 1, tokens, tree);
     }
 
@@ -269,7 +269,7 @@ public final class DelayedStreamingSlidingWindowIndex implements IPMIndexing {
         long[] tokens = new long[leftSpan + right.length];
         System.arraycopy(left.tokens, left.length - leftSpan, tokens, 0, leftSpan);
         System.arraycopy(right.tokens, 0, tokens, leftSpan, right.length);
-        SuffixTree tree = SuffixTree.build(tokens, windowSize);
+        SuffixTree tree = SuffixTree.build(tokens);
         int boundaryStart = left.startPosition + left.length - leftSpan;
         int boundaryPosition = left.startPosition + left.length;
         Boundary boundary = new Boundary(left, right, boundaryStart, boundaryPosition, tree);

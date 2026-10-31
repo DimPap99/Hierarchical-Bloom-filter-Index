@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 public final class BenchmarkOrchestrator {
     private BenchmarkOrchestrator() {}
     public static void run(MultiBenchmarkOptions options) throws Exception {
+        ResultVerifier.reset(options.verify());
 
         // Cache for Suffix baseline results so we don't rerun identical work
         // across FPR or n-gram loops when its configuration is stable.
@@ -460,6 +461,7 @@ public final class BenchmarkOrchestrator {
                 System.out.printf(Locale.ROOT, "Wrote aggregated results to %s%n", csvPath);
             }
         }
+        System.out.println(ResultVerifier.summary());
     }
 
     private static Map<QueryType, List<QueryWorkload>> filterWorkloadsByMinLength(

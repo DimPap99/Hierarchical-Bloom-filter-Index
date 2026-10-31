@@ -45,7 +45,8 @@ public record MultiBenchmarkOptions(
         double deltaQ,
         double deltaSamp,
         double quantile,
-        boolean collectStats) {
+        boolean collectStats,
+        boolean verify) {             // cross-check that every index reports the same occurrences
 
     public static MultiBenchmarkOptions parse(String[] args) {
         Path dataRoot = Path.of("data");
@@ -90,6 +91,7 @@ public record MultiBenchmarkOptions(
         String algorithm = "bs"; // default algorithm
         boolean strides = true; // default to strides enabled
         boolean collectStats = false; // default off; enable via --collect-stats=true
+        boolean verify = false;       // default off; enable via --verify=true
 
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
@@ -161,6 +163,7 @@ public record MultiBenchmarkOptions(
                 case "delta-samp", "delta-sample" -> deltaSamp = Double.parseDouble(value);
                 case "p", "quantile" -> quantile = Double.parseDouble(value);
                 case "collect-stats", "stats" -> collectStats = Boolean.parseBoolean(value);
+                case "verify", "verify-results" -> verify = Boolean.parseBoolean(value);
                 default -> throw new IllegalArgumentException("Unknown option --" + key);
             }
         }
@@ -301,7 +304,8 @@ public record MultiBenchmarkOptions(
                 deltaQ,
                 deltaSamp,
                 quantile,
-                collectStats
+                collectStats,
+                verify
         );
     }
 

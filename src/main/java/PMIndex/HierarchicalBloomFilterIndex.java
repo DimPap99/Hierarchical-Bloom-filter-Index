@@ -3,7 +3,7 @@ package PMIndex;
 import estimators.CSEstimator;
 import estimators.CostFunction;
 import estimators.CostFunctionDefaultRoot;
-import estimators.CostFunctionMaxProb;
+import estimators.CostFunctionOccurrence;
 import estimators.Estimator;
 import membership.BloomFilter;
 import membership.Membership;
@@ -93,7 +93,7 @@ public final class HierarchicalBloomFilterIndex {
                 : new BlockSearch();
         CostFunction costFunction = switch (b.strategy) {
             case BLOCK_SEARCH -> new CostFunctionDefaultRoot();
-            case COST_FUNCTION -> new CostFunctionMaxProb();
+            case COST_FUNCTION -> new CostFunctionOccurrence();
             case CONFIDENCE_PRIMED, CONFIDENCE_GATED -> null;
         };
         Supplier<PruningPlan> pruningPlans = (b.strategy == SearchStrategy.CONFIDENCE_GATED)

@@ -88,34 +88,41 @@ public final class MultiQueryExperiment {
         return new MultiRunResult(results);
     }
 
+    // The window is read into memory first, so the timer covers building n-grams and inserting them,
+    // not reading the file.
     private static InsertStats insertDataset(String datasetPath,
                                              IPMIndexing index,
                                              int nGram) throws IOException {
+        char[] text = readText(datasetPath);
         CharRingBuffer window = new CharRingBuffer(nGram);
-        long startTime = System.currentTimeMillis();
         long insertionCount = 0L;
-        int totalSymbols = 0;
 
-        try (BufferedReader reader = Files.newBufferedReader(Path.of(datasetPath), StandardCharsets.UTF_8)) {
-            int ch;
-            while ((ch = reader.read()) != -1) {
-                char cChar = (char) ch;
-                if (cChar == '\n' || cChar == '\r') {
-                    continue;
-                }
-                window.append(cChar);
-                totalSymbols++;
-                if (window.isFilled()) {
-                    index.insert(window.snapshot());
-                    insertionCount++;
-                }
+        long startNanos = System.nanoTime();
+        for (char c : text) {
+            window.append(c);
+            if (window.isFilled()) {
+                index.insert(window.snapshot());
+                insertionCount++;
             }
         }
+        double insertDurationMs = (System.nanoTime() - startNanos) / 1e6;
+        double avgInsertMsPerSymbol = insertionCount == 0 ? 0.0 : insertDurationMs / insertionCount;
 
-        long insertDuration = System.currentTimeMillis() - startTime;
-        double avgInsertMsPerSymbol = insertionCount == 0 ? 0.0 : insertDuration / (double) insertionCount;
+        return new InsertStats(insertDurationMs, avgInsertMsPerSymbol);
+    }
 
-        return new InsertStats(insertDuration, avgInsertMsPerSymbol);
+    /** The dataset as the stream of characters the experiments insert: line breaks are dropped. */
+    private static char[] readText(String datasetPath) throws IOException {
+        String raw = Files.readString(Path.of(datasetPath), StandardCharsets.UTF_8);
+        char[] text = new char[raw.length()];
+        int n = 0;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c != '\n' && c != '\r') {
+                text[n++] = c;
+            }
+        }
+        return (n == text.length) ? text : java.util.Arrays.copyOf(text, n);
     }
 
     private static QueryStats executeQueries(Path queryFile,
@@ -124,15 +131,19 @@ public final class MultiQueryExperiment {
                                              boolean verbose,
                                              boolean collectResults) throws IOException {
         List<String> queries = readQueries(queryFile);
-        long startTime = System.currentTimeMillis();
         ArrayList<PatternResult> patternResults = new ArrayList<>();
+        List<ArrayList<Integer>> answers = ResultVerifier.enabled() ? new ArrayList<>(queries.size()) : null;
         int totalQueryLength = 0;
         int queryIndex = 0;
 
+        long startNanos = System.nanoTime();
         for (String query : queries) {
             Pattern qPat = new Pattern(query, nGram);
             ArrayList<Integer> report = index.report(qPat);
             totalQueryLength += qPat.nGramToLong.length;
+            if (answers != null) {
+                answers.add(report);
+            }
             if (collectResults) {
                 patternResults.add(index.getLatestStats());
             }
@@ -151,10 +162,12 @@ public final class MultiQueryExperiment {
             queryIndex++;
         }
 
+        double durationMs = (System.nanoTime() - startNanos) / 1e6;
         double avgQueryLength = queries.isEmpty() ? 0.0 : totalQueryLength / (double) queries.size();
-
-        long duration = System.currentTimeMillis() - startTime;
-        return new QueryStats(duration, avgQueryLength, patternResults);
+        if (answers != null) {
+            ResultVerifier.check(index, nGram, queryFile, answers);
+        }
+        return new QueryStats(durationMs, avgQueryLength, patternResults);
     }
 
     private static List<String> readQueries(Path queryFile) throws IOException {
@@ -170,11 +183,11 @@ public final class MultiQueryExperiment {
         return queries;
     }
 
-    public record InsertStats(long insertDurationMs,
+    public record InsertStats(double insertDurationMs,
                               double avgInsertMsPerSymbol) {
     }
 
-    public record QueryStats(long queryDurationMs,
+    public record QueryStats(double queryDurationMs,
                              double avgQueryLength,
                              ArrayList<PatternResult> patternResults) {
     }

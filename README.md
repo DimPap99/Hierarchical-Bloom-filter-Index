@@ -85,8 +85,23 @@ Useful flags:
 - `--tree-power 20`
 - `--mode segments`, for one token per line, as in CAIDA-style records
 - `--run-suffix false`, to skip the baselines
+- `--verify true`, to check that every index reports the same occurrences for every query (all of them are exact, so any difference is a bug)
 
-The window length comes from `--window-length`, then `--window-power`, then the number in the window name (`w19` gives 2^19).
+The window length comes from `--window-length`, then `--window-power`, then the number in the window name (`w19` gives 2^19). Insert and query times are measured in nanoseconds, after the window and the query files have been read into memory. `avgQueryMs` (`avg_query_ms_*` in the CSV) is the time for a whole query file of 500 queries, not for one query: queries per second are `500 * 1000 / avgQueryMs`.
+
+### Network trace datasets (MAWI)
+
+The packet-trace windows are built from a MAWI trace (`data/traces/202501011400.pcap.gz`, the 15-minute sample of 2025-01-01, 136.9M packets) and are not in git. Each IPv4/IPv6 packet becomes one record `src,dst,proto`, the 3-tuple symbol the thesis uses for CAIDA. Regenerate them with:
+
+```bash
+java -cp "$CP" datagenerators.PcapTokenizer data/traces/202501011400.pcap.gz data/traces/202501011400.tokens.txt
+java -cp "$CP" datagenerators.SampleWindows data/traces/202501011400.tokens.txt data mawi 1 5 19 20 21
+for p in 19 20 21; do for i in 1 2 3 4 5; do
+  java -Xmx4g -cp "$CP" datagenerators.GenerateQueries data/mawi$p/$i/${i}_W$p.txt queries/mawi$p/$i segments $((p*100+i))
+done; done
+```
+
+This gives `data/mawi19|mawi20|mawi21/{1..5}` (windows of 2^19, 2^20 and 2^21 records at random, non-overlapping positions; `SOURCE.txt` lists them) and the matching `queries/`. Run them with `--window mawi21 --mode segments`. A 2^21 window holds 670K–770K distinct records, so pass `--alphabet 800000` to size the Bloom filters. `GenerateQueries` documents the three workloads: uniform substrings, the same substrings with half of them turned into near-miss non-occurrences, and substrings that contain a rare record.
 
 Other entry points:
 

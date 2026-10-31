@@ -424,10 +424,7 @@ public final class HBI implements IPMIndexing {
                 arbitraryConfLp = pruningLevel(tree, this.conf, pMin);
 
                 // cost of committing to a chosen level
-                int m = (int) (tree.maxDepth() - 1
-                        - Math.ceil(Math.log(pat.nGramToLong.length) / Math.log(2)));
-
-                cp_cost = cf.costAtLevel(tree, pp, pat.nGramToLong, lp, 0.0, m);
+                cp_cost = cf.costAtLevel(tree, pat, lp, this.strides);
 
                 long minCostStart = System.nanoTime();
                 lpCf = cf.minCostLp(tree, 0.05, pat, 97, 26, this.strides);

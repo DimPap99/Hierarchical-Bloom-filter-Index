@@ -19,18 +19,25 @@ import java.util.stream.IntStream;
 
 public class ConfidenceExperiment {
 
-    // Default file locations for this experiment.
-    private static final String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
-    private static final String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/10.uniform.txt";
+    // Default file locations for this experiment. Override with --data and --queries.
+    private static String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
+    private static String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/10.uniform.txt";
 
-    private static final int TextSize = 21;
-    private static final int WINDOW_LEN   = 1 << TextSize;
-    private static final int TREE_LEN     = 1 << TextSize;
+    // log2 of the window and tree length. Override with --log2w.
+    private static int TextSize = 21;
+    private static int WINDOW_LEN   = 1 << TextSize;
+    private static int TREE_LEN     = 1 << TextSize;
     private static final double FP_RATE   = 0.0;
     private static final boolean LINEBREAK_DATASET = false; // not directly changed here, kept for compatibility
 
-    // How many times we rerun the whole workload to smooth variability
-    private static final int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
+    // Run r forces Block Search to start at level r, so RUNS is the deepest start level evaluated.
+    // It is recomputed in main from the shortest query in the workload.
+    private static int RUNS     = (int) (TextSize - Math.ceil(Math.log(10)/Math.log(2)));
+
+    // Cost function under test: maxprob (biased estimator of the thesis) or occurrence.
+    private static String COST_FUNCTION = "maxprob";
+    // Prefix for the CSV files, so parallel runs do not overwrite each other.
+    private static String OUT_PREFIX = "";
 
     // n-grams for this experiment
     private static int NGRAMS = 1;
@@ -242,19 +249,34 @@ public class ConfidenceExperiment {
         // Default mode is character streaming, which is your current behavior
         String mode = "segments";//modes are chars/segments
 
-        // Allow minimal override via command line: --mode chars|segments
+        // Command line overrides: --mode chars|segments, --data, --queries, --log2w, --ngram,
+        // --alphabet, --cf maxprob|occurrence, --out <csv prefix>
         for (int i = 0; i < args.length - 1; i += 2) {
-            if ("--mode".equalsIgnoreCase(args[i])) {
-                mode = args[i + 1];
+            String value = args[i + 1];
+            switch (args[i].toLowerCase(Locale.ROOT)) {
+                case "--mode" -> mode = value;
+                case "--data" -> DATA_FILE = value;
+                case "--queries" -> QUERIES_FILE = value;
+                case "--log2w" -> {
+                    TextSize = Integer.parseInt(value);
+                    WINDOW_LEN = 1 << TextSize;
+                    TREE_LEN = 1 << TextSize;
+                }
+                case "--ngram" -> NGRAMS = Integer.parseInt(value);
+                case "--alphabet" -> ALPHABET = Integer.parseInt(value);
+                case "--cf" -> COST_FUNCTION = value.toLowerCase(Locale.ROOT);
+                case "--out" -> OUT_PREFIX = value;
+                default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
+        RUNS = deepestStartLevel(QUERIES_FILE, mode);
 
         // Expand ALPHABET to n-gram space (same as your current code does with ALPHABET, NGRAMS)
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf(
-                "Window=%d, Tree=%d, sigma=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s%n",
-                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode);
+                "Window=%d, Tree=%d, sigma=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s, cf=%s%n",
+                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode, COST_FUNCTION);
 
         // Per-run summaries for runs_summary.csv
         List<List<?>> runRows = new ArrayList<>();
@@ -458,7 +480,23 @@ public class ConfidenceExperiment {
         int mispredictedPredBetter = 0;
         int mispredictedPredWorse = 0;
 
+        double sumRegret = 0.0;
+        int regretCount = 0;
+        double sumAbsErrAtPred = 0.0;
+        int overAtPred = 0;
+        int errCount = 0;
         for (PatternAccuracy accuracy : patternAccuracyMap.values()) {
+            Double regret = accuracy.regret();
+            if (regret != null) {
+                sumRegret += regret;
+                regretCount++;
+            }
+            Double err = accuracy.signedErrorAtPrediction();
+            if (err != null) {
+                sumAbsErrAtPred += Math.abs(err);
+                if (err > 0) overAtPred++;
+                errCount++;
+            }
             boolean matches = accuracy.predictedMatchesActual();
             if (matches) {
                 predictedMatches++;
@@ -537,6 +575,17 @@ public class ConfidenceExperiment {
                 predictedNearInclusiveRate * 100.0);
         System.out.printf(
                 Locale.ROOT,
+                "Avg regret (probes at predicted Lp / best): %.3f over %d patterns%n",
+                regretCount == 0 ? 0.0 : sumRegret / regretCount,
+                regretCount);
+        System.out.printf(
+                Locale.ROOT,
+                "Avg |rel. error| at predicted Lp: %.3f, overestimates: %.1f%% over %d patterns%n",
+                errCount == 0 ? 0.0 : sumAbsErrAtPred / errCount,
+                errCount == 0 ? 0.0 : 100.0 * overAtPred / errCount,
+                errCount);
+        System.out.printf(
+                Locale.ROOT,
                 "Avg probe reduction (CF vs arbitrary): %.2f over %d patterns%n",
                 avgCfVsArbitraryGain,
                 cfVsArbitraryCount);
@@ -561,8 +610,8 @@ public class ConfidenceExperiment {
         System.out.println("\nTime taken: " + end);
 
         // Write CSVs
-        CsvUtil.writeRows(Path.of("runs_summary.csv"), runRows);
-        CsvUtil.writeRows(Path.of("patterns_summary.csv"), patternRows);
+        CsvUtil.writeRows(Path.of(OUT_PREFIX + "runs_summary.csv"), runRows);
+        CsvUtil.writeRows(Path.of(OUT_PREFIX + "patterns_summary.csv"), patternRows);
     }
 
     private static RunStats summarizeRun(
@@ -591,6 +640,7 @@ public class ConfidenceExperiment {
             accuracy.recordPrediction(pr.cfLp());
             accuracy.recordArbitrary(pr.arbitraryConfLp());
             accuracy.recordObservation(pr.Lp(), actual);
+            accuracy.recordEstimate(pr.Lp(), est);
 
             s.patterns++;
             s.sumActual      += actual;
@@ -671,7 +721,33 @@ public class ConfidenceExperiment {
         private final Set<Integer> bestActualLps = new HashSet<>();
         private final Set<Integer> arbitraryLps = new HashSet<>();
         private final Map<Integer, Integer> probesByLp = new HashMap<>();
+        private final Map<Integer, Double> estimateByLp = new HashMap<>();
         private int bestActualProbes = Integer.MAX_VALUE;
+
+        void recordEstimate(int lp, double estimate) {
+            estimateByLp.putIfAbsent(lp, estimate);
+        }
+
+        // Probes at the predicted start level divided by the probes at the best start level.
+        Double regret() {
+            Integer predicted = probesForPredictedLp();
+            if (predicted == null || bestActualProbes == Integer.MAX_VALUE || bestActualProbes <= 0) {
+                return null;
+            }
+            return predicted / (double) bestActualProbes;
+        }
+
+        // Signed relative error of the estimate at the predicted start level.
+        Double signedErrorAtPrediction() {
+            for (int lp : predictedLps) {
+                Integer actual = probesByLp.get(lp);
+                Double estimate = estimateByLp.get(lp);
+                if (actual != null && estimate != null && actual > 0) {
+                    return (estimate - actual) / actual;
+                }
+            }
+            return null;
+        }
 
         void recordPrediction(int predictedLp) {
             predictedLps.add(predictedLp);
@@ -762,6 +838,27 @@ public class ConfidenceExperiment {
     }
 
 
+    private static CostFunction newCostFunction() {
+        return switch (COST_FUNCTION) {
+            case "maxprob" -> new CostFunctionMaxProb();
+            case "occurrence" -> new CostFunctionOccurrence();
+            default -> throw new IllegalArgumentException("unknown cost function " + COST_FUNCTION);
+        };
+    }
+
+    // Deepest level whose nodes can still hold the shortest query (Block Search never starts lower).
+    private static int deepestStartLevel(String queriesFile, String mode) throws IOException {
+        int shortest = Integer.MAX_VALUE;
+        for (String q : loadQueries(queriesFile)) {
+            int len = "segments".equalsIgnoreCase(mode) ? q.split(" ").length : q.length();
+            shortest = Math.min(shortest, len);
+        }
+        if (shortest == Integer.MAX_VALUE) {
+            shortest = 10;
+        }
+        return MathUtils.deepestVisitedLevel(TREE_LEN, shortest);
+    }
+
     private static HBI newHbi(double conf) {
         Supplier<Estimator> estFactory = () -> new HashMapEstimator(TREE_LEN);
         Supplier<Membership> memFactory = MockMembership::new;
@@ -778,9 +875,9 @@ public class ConfidenceExperiment {
                 .membershipSupplier(memFactory)
                 .pruningPlanSupplier(prFactory)
                 .verifier(v)
-                .costFunction(new CostFunctionMaxProb())
+                .costFunction(newCostFunction())
                 .confidence(conf)
-                .nGram(1)
+                .nGram(NGRAMS)
                 .experimentMode(true)
                 .build());
     }

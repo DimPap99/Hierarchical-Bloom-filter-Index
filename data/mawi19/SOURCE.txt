@@ -1,0 +1,8 @@
+Windows of 2^19 rows sampled by datagenerators.SampleWindows
+input: data/traces/202501011400.tokens.txt (136567022 rows)
+seed: 1, windows: 5, sizes: [19, 20, 21]
+1: rows 99430668 to 99954955
+2: rows 55788515 to 56312802
+3: rows 28258095 to 28782382
+4: rows 45263738 to 45788025
+5: rows 131656160 to 132180447

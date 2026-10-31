@@ -1,25 +1,19 @@
 package tree.ssws;
 
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import org.openjdk.jol.info.GraphLayout;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 // Compressed suffix tree built from an integer token sequence.
 public final class SuffixTree {
 
     private final Node root;
-    private static final int MAX_HASH_ATTEMPTS = 11;
-    private static final int SENTINEL =0; //reserve 0 as sentinel for dense-int build
     private static final long SENTINEL_LONG = -1L; // sentinel in final long[] text
     private final long[] text;           // includes sentinel at end (original tokens)
     private final int originalLength;   // length before sentinel
-    private boolean released = false;
 
     private SuffixTree(Node root, long[] text, int originalLength) {
         this.root = root;
@@ -27,17 +21,15 @@ public final class SuffixTree {
         this.originalLength = originalLength;
     }
 
-    // Build a suffix tree from an integer token array that obeys:
-    // all real tokens >= 1 and 0 reserved as sentinel.
-    public static SuffixTree build(long[] alphabetMappedText, int windowSize) {
+    // Build a suffix tree over non-negative tokens (TokenHasher output). Tokens are reduced to ranks
+    // 1..sigma for DC3 + LCP; the tree itself keeps the original tokens.
+    public static SuffixTree build(long[] alphabetMappedText) {
         if (alphabetMappedText == null) {
             throw new IllegalArgumentException("text cannot be null");
         }
 
         final int n0 = alphabetMappedText.length;
-        // Build-time dense remap for DC3 + LCP
-        RemapResult remapResult = remapTokens(alphabetMappedText, windowSize);
-        int[] denseTerminated = remapResult.terminated;
+        int[] denseTerminated = RankReducer.rankWithTerminator(alphabetMappedText);
 
         // Keep original tokens, append a long sentinel distinct from any non-negative token
         long[] originalTerminated = new long[n0 + 1];
@@ -139,226 +131,6 @@ public final class SuffixTree {
         }
 
         return matches;
-    }
-
-    private static RemapResult remapTokens(long[] text, int windowSize) {
-        final int n0 = text.length;
-        if (n0 == 0) {
-            return new RemapResult(DenseMapper.empty(), new int[]{SENTINEL});
-        }
-
-        long w = Math.max(windowSize, 1);
-        int smallThreshold = (int) Math.ceil(Math.pow(w, 0.2));
-        if (smallThreshold < 8) {
-            smallThreshold = 8;
-        }
-
-        if (n0 >= smallThreshold) {
-            RemapResult arrayResult = tryArrayRemap(text, n0);
-            if (arrayResult != null) {
-                return arrayResult;
-            }
-        }
-
-        return buildMapRemap(text, n0);
-    }
-
-    private static RemapResult tryArrayRemap(long[] text, int n0) {
-        int capacity = 1;
-        while (capacity < n0 * 4L) {
-            capacity <<= 1;
-            if (capacity <= 0) {
-                return null;
-            }
-        }
-        int mask = capacity - 1;
-
-        for (int attempt = 0; attempt < MAX_HASH_ATTEMPTS; attempt++) {
-            UniversalHash hash = UniversalHash.random();
-            long[] slotSymbols = new long[capacity];
-            int[] slotIds = new int[capacity];
-            int[] terminated = new int[n0 + 1];
-            int nextId = 1;
-            boolean collision = false;
-
-            for (int i = 0; i < n0; i++) {
-                long symbol = text[i];
-                int idx = (int) (hash.apply(symbol) & mask);
-                int id = slotIds[idx];
-                if (id == 0) {
-                    slotIds[idx] = nextId;
-                    slotSymbols[idx] = symbol;
-                    terminated[i] = nextId++;
-                } else if (slotSymbols[idx] == symbol) {
-                    terminated[i] = id;
-                } else {
-                    collision = true;
-                    break;
-                }
-            }
-
-            if (!collision) {
-                terminated[n0] = SENTINEL;
-                DenseMapper mapper = new ArrayDenseMapper(slotSymbols, slotIds, hash, mask);
-                return new RemapResult(mapper, terminated);
-            }
-        }
-
-        return null;
-    }
-
-    private static RemapResult buildMapRemap(long[] text, int n0) {
-        Long2IntOpenHashMap map = new Long2IntOpenHashMap(Math.max(4, n0 * 2));
-        map.defaultReturnValue(-1);
-        int[] terminated = new int[n0 + 1];
-        int nextId = 1;
-        for (int i = 0; i < n0; i++) {
-            long symbol = text[i];
-            int mapped = map.get(symbol);
-            if (mapped == -1) {
-                mapped = nextId++;
-                map.put(symbol, mapped);
-            }
-            terminated[i] = mapped;
-        }
-        terminated[n0] = SENTINEL;
-        DenseMapper mapper = new MapDenseMapper(map);
-        return new RemapResult(mapper, terminated);
-    }
-
-    private static final class RemapResult {
-        final DenseMapper mapper;
-        final int[] terminated;
-
-        RemapResult(DenseMapper mapper, int[] terminated) {
-            this.mapper = mapper;
-            this.terminated = terminated;
-        }
-    }
-
-    private interface DenseMapper {
-        int map(long symbol);
-        long estimateBytes();
-        void clear();
-
-        static DenseMapper empty() {
-            return EmptyDenseMapper.INSTANCE;
-        }
-    }
-
-    private static final class EmptyDenseMapper implements DenseMapper {
-        private static final EmptyDenseMapper INSTANCE = new EmptyDenseMapper();
-
-        @Override
-        public int map(long symbol) {
-            return -1;
-        }
-
-        @Override
-        public long estimateBytes() {
-            return 0L;
-        }
-
-        @Override
-        public void clear() {
-            // nothing to do
-        }
-    }
-
-    private static final class ArrayDenseMapper implements DenseMapper {
-        private final long[] symbols;
-        private final int[] ids;
-        private final UniversalHash hash;
-        private final int mask;
-
-        private ArrayDenseMapper(long[] symbols, int[] ids, UniversalHash hash, int mask) {
-            this.symbols = symbols;
-            this.ids = ids;
-            this.hash = hash;
-            this.mask = mask;
-        }
-
-        @Override
-        public int map(long symbol) {
-            int idx = (int) (hash.apply(symbol) & mask);
-            int id = ids[idx];
-            if (id == 0 || symbols[idx] != symbol) {
-                return -1;
-            }
-            return id;
-        }
-
-        @Override
-        public long estimateBytes() {
-            return ((long) symbols.length << 3) + ((long) ids.length << 2);
-        }
-
-        @Override
-        public void clear() {
-            Arrays.fill(ids, 0);
-            Arrays.fill(symbols, 0L);
-        }
-    }
-
-    private static final class MapDenseMapper implements DenseMapper {
-        private final Long2IntOpenHashMap map;
-
-        private MapDenseMapper(Long2IntOpenHashMap map) {
-            this.map = map;
-        }
-
-        @Override
-        public int map(long symbol) {
-            return map.getOrDefault(symbol, -1);
-        }
-
-        @Override
-        public long estimateBytes() {
-            try {
-                return GraphLayout.parseInstance(map).totalSize();
-            } catch (IllegalArgumentException ignored) {
-                return (long) map.size() * 24L;
-            }
-        }
-
-        @Override
-        public void clear() {
-            map.clear();
-        }
-    }
-
-    private static final class UniversalHash {
-        private final long mul;
-        private final long add;
-
-        private UniversalHash(long mul, long add) {
-            this.mul = mul;
-            this.add = add;
-        }
-
-        static UniversalHash random() {
-            ThreadLocalRandom rng = ThreadLocalRandom.current();
-            long mul;
-            do {
-                mul = rng.nextLong();
-            } while ((mul & 1L) == 0L);
-            long add = rng.nextLong();
-            return new UniversalHash(mul, add);
-        }
-
-        long apply(long value) {
-            long z = mul * value + add;
-            return mix64(z);
-        }
-    }
-
-    private static long mix64(long z) {
-        z ^= (z >>> 33);
-        z *= 0xff51afd7ed558ccdL;
-        z ^= (z >>> 33);
-        z *= 0xc4ceb9fe1a85ec53L;
-        z ^= (z >>> 33);
-        return z;
     }
 
     /**
@@ -471,38 +243,8 @@ public final class SuffixTree {
         }
     }
 
-    public void release() {
-        if (released) {
-            return;
-        }
-        released = true;
-        Arrays.fill(text, 0L);
-        clearNode(root);
-    }
-
-    private void clearNode(Node node) {
-        if (node == null) {
-            return;
-        }
-        if (node.edgeA != null) {
-            clearNode(node.edgeA.child);
-            node.edgeA = null;
-            node.keyA = Long.MIN_VALUE;
-        }
-        if (node.edgeB != null) {
-            clearNode(node.edgeB.child);
-            node.edgeB = null;
-            node.keyB = Long.MIN_VALUE;
-        }
-        if (node.edgeMap != null) {
-            for (Edge edge : node.edgeMap.values()) {
-                clearNode(edge.child);
-            }
-            node.edgeMap.clear();
-            node.edgeMap = null;
-        }
-        node.suffixIndex = -1;
-    }
+    // Discarded trees are not wiped: the GC reclaims them, wiping would cost O(size) per merge, and a
+    // recursive walk over a deep tree (a long run of one symbol) would overflow the stack.
 
     /**
      * A compressed edge in the suffix tree. The label is text[start .. end),
