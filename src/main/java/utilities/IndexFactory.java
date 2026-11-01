@@ -41,6 +41,30 @@ public final class IndexFactory {
         return SUFFIX_TREE_NGRAM;
     }
 
+    // The HBI the quick driver (Main) builds: exact per-tree counts (HashMapEstimator),
+    // Block Search with most-frequent pruning, and the Markov cost function.
+    public static HBI createMarkovHbi(int windowLength,
+                                      int treeLength,
+                                      int alphabetSize,
+                                      double fpRate,
+                                      double confidence,
+                                      int ngram) {
+        return new HBI(HbiConfiguration.builder()
+                .searchAlgorithm(new BlockSearch())
+                .windowLength(windowLength)
+                .fpRate(fpRate)
+                .alphabetSize(alphabetSize)
+                .treeLength(treeLength)
+                .estimatorSupplier(() -> new HashMapEstimator(treeLength))
+                .membershipSupplier(membership.FilterKind.DEFAULT.supplier())
+                .pruningPlanSupplier(() -> new search.MostFreqPruning(confidence, fpRate))
+                .verifier(new VerifierLinearLeafProbe())
+                .costFunction(new CostFunctionMarkov())
+                .confidence(confidence)
+                .nGram(ngram)
+                .build());
+    }
+
     public static HBI createHbi(int windowLength,
                                 int treeLength,
                                 int alphabetSize,

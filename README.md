@@ -127,12 +127,28 @@ done; done
 
 This gives `data/mawi19|mawi20|mawi21/{1..5}` (windows of 2^19, 2^20 and 2^21 records at random, non-overlapping positions; `SOURCE.txt` lists them) and the matching `queries/`. Run them with `--window mawi21 --mode segments`. A 2^21 window holds 670K–770K distinct records, so pass `--alphabet 800000` to size the Bloom filters. On this data `rare` behaves almost like `uniform`, because a third of all records occur only once.
 
+### Running one workload
+
+`Main` runs HBI, with `RegexIndex` as a baseline, on one dataset and query file. Datasets are picked by name from `data/` and `queries/` (found from the working directory upwards, or set with `--data-root` or the `HBI_DATA_ROOT` environment variable), so no paths are needed:
+
+```bash
+java -cp "$CP" Main                                                  # pg2701, patterns of length 10, n-grams 1-3
+java -cp "$CP" Main --dataset w19 --part 2 --pattern-length 40 --query-type rare --ngrams 4
+java -cp "$CP" Main --dataset mawi19 --alphabet-base 800000          # mawi* datasets are read as segments
+java -cp "$CP" Main --dataset adversarial/blocks/blocks_w19 --pattern-length 10   # names can be nested folders
+java -cp "$CP" Main --data w19/1/1_W19.txt --queries w19/1/10.rare.txt    # explicit files, relative to the roots
+java -cp "$CP" Main --dataset w21 --schedule window                  # re-run the queries after every window
+java -cp "$CP" Main --dataset w19 --baseline suffixtree --warmup 1   # online suffix tree baseline instead of RegexIndex
+java -cp "$CP" Main --dataset w21 --skip-queries true                # insert speed only
+```
+
+The window defaults to the number in the dataset name (`w19` gives 2^19). With the default schedule, every index's answers are checked against each other and a mismatch is reported. The same data flags (`--dataset`, `--part`, `--pattern-length`, `--query-type`, `--reader`, `--data`, `--queries`, `--data-root`) work in `ConfidenceExperiment`. In code, `utilities.DataCatalog` resolves names to a `utilities.Workload` (a dataset file, a query file and how to read them), and `utilities.WorkloadRunner` is the one place that inserts a workload into an index and runs its queries.
+
 Other entry points:
 
 | Class | Purpose |
 | --- | --- |
 | `MemoryBenchmark` | Memory footprint, measured with JOL. |
-| `TrackIndexingSpeed` | Insertion speed. |
 | `ConfidenceExperiment` | Accuracy of the start-level estimators. |
 | `SamplingSketchExperiment` | The percentile sampler. |
 | `GenerateDatasets`, `GenerateAdversarialDatasets` | Synthetic and adversarial streams. |
@@ -146,7 +162,7 @@ Other entry points:
 | `src/main/java/search` | Block Search and its variants, candidate verification, and start-level planning. |
 | `src/main/java/membership` | Bloom filter with double hashing. |
 | `src/main/java/estimators` | Count Sketch, the percentile sampler (HOPS), and the start-level cost functions. |
-| `src/main/java/utilities` | Benchmark orchestration, dataset readers, reporting, and hashing helpers. |
+| `src/main/java/utilities` | Workloads (`DataCatalog`, `Workload`, `WorkloadRunner`), benchmark orchestration, reporting, and hashing helpers. |
 | `data/`, `queries/` | Dataset windows (Gutenberg text, Zipf, uniform, adversarial) and query workloads per pattern length. |
 | `perf_data/`, `scripts/`, `*.sh` | Hardware counter measurements and the scripts that summarize them. |
 
