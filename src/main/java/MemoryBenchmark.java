@@ -21,10 +21,10 @@ import search.VerifierLinearLeafProbe;
 
 import utilities.CsvUtil;
 import utilities.MemUtil;
-import utilities.MultiQueryExperiment;
 import utilities.SswsiSettings;
 import utilities.Utils;
-import utilities.SegmentModeRunner;
+import utilities.Workload;
+import utilities.WorkloadRunner;
 import utilities.IndexFactory;
 
 import java.io.IOException;
@@ -238,6 +238,12 @@ public final class MemoryBenchmark {
         return IndexFactory.createSuffixIndex(options.windowLength(), options.sswsi());
     }
 
+    // The dataset alone (no queries), read the way --mode says.
+    private static Workload datasetWorkload(Path datasetFile, MemoryOptions options) {
+        return new Workload(null, datasetFile, null,
+                options.isSegmentsMode() ? Workload.ReaderMode.SEGMENTS : Workload.ReaderMode.CHARS);
+    }
+
     private static HbiMeasurement buildAndMeasureHbi(Path datasetFile,
                                                      MemoryOptions options,
                                                      TreeSetting treeSetting,
@@ -245,15 +251,7 @@ public final class MemoryBenchmark {
                                                     double fpRate) throws IOException {
         HBI hbi = newHbi(options, treeSetting, ngram, fpRate);
         hbi.strides = USE_STRIDES;
-        if (options.isSegmentsMode()) {
-            try {
-                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), hbi, ngram);
-            } catch (Exception e) {
-                throw new IOException("Failed to populate HBI in segments mode", e);
-            }
-        } else {
-            MultiQueryExperiment.populateIndex(datasetFile.toString(), hbi, ngram);
-        }
+        WorkloadRunner.insert(datasetWorkload(datasetFile, options), hbi, ngram);
         if (options.memPolicy() != Utils.MemPolicy.NONE) {
             hbi.forceApplyMemoryPolicy();
         }
@@ -282,15 +280,7 @@ public final class MemoryBenchmark {
         IPMIndexing suffix = newSuffixIndex(options);
         System.out.printf(Locale.ROOT, "SuffixIndex %s using ngram=%d (match=%b)%n",
                 options.sswsi().label(), suffixNgram, options.suffixMatchNgram());
-        if (options.isSegmentsMode()) {
-            try {
-                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffix, suffixNgram);
-            } catch (Exception e) {
-                throw new IOException("Failed to populate suffix index in segments mode", e);
-            }
-        } else {
-            MultiQueryExperiment.populateIndex(datasetFile.toString(), suffix, suffixNgram);
-        }
+        WorkloadRunner.insert(datasetWorkload(datasetFile, options), suffix, suffixNgram);
 
         // Everything reachable from the index. Neither index has a token dictionary any more (LEGACY's
         // estimateTokenDictionaryBytes() was always 0), so the core and total columns are the same number.
@@ -330,15 +320,7 @@ public final class MemoryBenchmark {
     private static RegexMeasurement buildAndMeasureRegex(Path datasetFile,
                                                          MemoryOptions options) throws IOException {
         RegexIndex regex = new RegexIndex();
-        if (options.isSegmentsMode()) {
-            try {
-                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), regex, 1);
-            } catch (Exception e) {
-                throw new IOException("Failed to populate regex baseline in segments mode", e);
-            }
-        } else {
-            MultiQueryExperiment.populateIndex(datasetFile.toString(), regex, 1);
-        }
+        WorkloadRunner.insert(datasetWorkload(datasetFile, options), regex, 1);
 
         GraphLayout layout = GraphLayout.parseInstance(regex);
         long bytes = layout.totalSize();
@@ -365,15 +347,7 @@ public final class MemoryBenchmark {
                                                                    MemoryOptions options,
                                                                    int ngram) throws IOException {
         IPMIndexing suffixTree = IndexFactory.createSuffixTreeIndex(options.alphabetSizeFor(ngram));
-        if (options.isSegmentsMode()) {
-            try {
-                SegmentModeRunner.insertDatasetSegments(datasetFile.toString(), suffixTree, ngram);
-            } catch (Exception e) {
-                throw new IOException("Failed to populate suffix-tree index in segments mode", e);
-            }
-        } else {
-            MultiQueryExperiment.populateIndex(datasetFile.toString(), suffixTree, ngram);
-        }
+        WorkloadRunner.insert(datasetWorkload(datasetFile, options), suffixTree, ngram);
 
         GraphLayout layout = GraphLayout.parseInstance(suffixTree);
         long bytes = layout.totalSize();

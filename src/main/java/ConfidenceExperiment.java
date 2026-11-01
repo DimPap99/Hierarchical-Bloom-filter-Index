@@ -10,7 +10,6 @@ import search.*;
 import utilities.*;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -19,9 +18,9 @@ import java.util.stream.IntStream;
 
 public class ConfidenceExperiment {
 
-    // Default file locations for this experiment. Override with --data and --queries.
-    private static String DATA_FILE    = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/data/caida21/1/1_W21.txt";
-    private static String QUERIES_FILE = "/home/dimpap/Desktop/GraduationProject/Hierarchical-Bloom-filter-Index/Hierarchical-Bloom-filter-Index/queries/caida21/1/10.uniform.txt";
+    // The workload: mawi21 part 1, uniform queries of length 10, read as segments, unless the
+    // DataCatalog.Selection flags (--dataset, --part, --pattern-length, --data, --queries, ...) say otherwise.
+    private static Workload WORKLOAD;
 
     // log2 of the window and tree length. Override with --log2w.
     private static int TextSize = 21;
@@ -86,177 +85,22 @@ public class ConfidenceExperiment {
         }
     }
 
-    // Helper: read queries as trimmed non-empty lines.
-    private static List<String> loadQueries(String queriesFile) throws IOException {
-        List<String> lines = Files.readAllLines(Path.of(queriesFile), StandardCharsets.UTF_8);
-        ArrayList<String> out = new ArrayList<>(lines.size());
-        for (String l : lines) {
-            if (l == null) continue;
-            String s = l.strip();
-            if (!s.isEmpty()) out.add(s);
-        }
-        return out;
-    }
-
-    // Run the streaming experiment in "segments" mode where each symbol is a line/token.
-    private static ExperimentRunResult runStreamingSegments(
-            String datasetPath,
-            String queriesPath,
-            IPMIndexing index,
-            int ngram,
-            int windowLen,
-            boolean verbose,
-            boolean collectResults
-    ) throws IOException {
-
-        // Load queries once
-        List<String> queries = loadQueries(queriesPath);
-
-        // average query length in n-grams
-        int sumQueryLen = 0;
-        for (String q : queries) {
-            if (q == null || q.isEmpty()) continue;
-            String[] splitArray = q.split(" ");
-            Pattern p = new Pattern(splitArray, ngram);
-            sumQueryLen += p.nGramToLong.length;
-        }
-        double avgQueryLen = queries.isEmpty() ? 0.0 : (sumQueryLen * 1.0 / queries.size());
-
-        // SegmentReader gives you tokens (Strings), not characters.
-        SegmentReader seg = new SegmentReader(
-                datasetPath,
-                queriesPath,
-                '\n',    // delimiter for segments
-                false,   // do not include delimiter in returned token
-                true     // skip empty segments
-        );
-        SegmentReaderAdapter adapter = new SegmentReaderAdapter(seg);
-
-        RingBuffer<String> window = new RingBuffer<>(ngram);
-
-        long totalInsertNanos = 0L;
-        long insertionEvents  = 0L;  // how many n-grams we actually inserted
-        long tokensSeen       = 0L;  // how many segment tokens consumed
-
-        long nextQueryAt      = Math.max(1, windowLen); // schedule query workload every windowLen tokens
-        long sumQueryLoadMs   = 0L;
-        long queryLoads       = 0L;
-
-        ArrayList<PatternResult> patternResultsList = new ArrayList<>();
-
-        while (adapter.hasNext()) {
-            String tok = adapter.next();
-            window.append(tok);
-
-            if (!window.isFilled()) {
-                continue;
-            }
-
-            // Same n-gram form as Pattern(String[], int) builds on the query side.
-            String s = window.join(Pattern.SEGMENT_JOINER);
-
-            long t0 = System.nanoTime();
-            index.insert(s);
-            long t1 = System.nanoTime();
-
-            totalInsertNanos += (t1 - t0);
-            insertionEvents++;
-            tokensSeen++;
-
-            if (tokensSeen >= nextQueryAt) {
-                long qMs = runQueryLoadSegments(index, queries, ngram, verbose, collectResults, patternResultsList);
-                queryLoads++;
-                sumQueryLoadMs += qMs;
-                nextQueryAt += windowLen;
-            }
-        }
-
-        double totalInsertMs = totalInsertNanos / 1_000_000.0;
-        double avgInsertMsPerSymbol =
-                insertionEvents == 0 ? 0.0 : (totalInsertMs / insertionEvents);
-
-        double totalQueryMs = sumQueryLoadMs;
-        double avgQueryLoadMs =
-                queryLoads == 0 ? 0.0 : (totalQueryMs / queryLoads);
-
-        double avgLpMs = (index instanceof PMIndex.HBI hbi)
-                ? hbi.stats().averageLpTimeMillis() : 0.0;
-        double avgCfLpMs = (index instanceof PMIndex.HBI hbi)
-                ? hbi.stats().averageMinCostLpTimeMillis() : 0.0;
-        double avgLpChosen = (index instanceof PMIndex.HBI hbi)
-                ? hbi.stats().averageChosenLp() : 0.0;
-        double avgCfLpChosen = (index instanceof PMIndex.HBI hbi)
-                ? hbi.stats().averageCfChosenLp() : 0.0;
-
-        return new ExperimentRunResult(
-                totalQueryMs,
-                totalInsertMs,
-                patternResultsList,
-                avgQueryLen,
-                avgInsertMsPerSymbol,
-                avgQueryLoadMs,
-                avgLpMs,
-                avgCfLpMs,
-                avgLpChosen,
-                avgCfLpChosen,
-                null // match results omitted here, but could be added later if you wish
-        );
-    }
-
-    // Issue the full query workload for "segments" mode and optionally collect PatternResult.
-    private static long runQueryLoadSegments(
-            IPMIndexing index,
-            List<String> queries,
-            int ngram,
-            boolean verbose,
-            boolean collectResults,
-            ArrayList<PatternResult> outList
-    ) {
-
-        long start = System.currentTimeMillis();
-
-        for (String q : queries) {
-            if (q == null || q.isEmpty()) continue;
-
-            // segments mode: query is space separated tokens
-            String[] splitArray = q.split(" ");
-            Pattern pat = new Pattern(splitArray, ngram);
-
-            ArrayList<Integer> report = index.report(pat);
-
-            if (verbose) {
-                if (report.size() < 20 && q.length() < 200) {
-                    System.out.println(q + ":" + report);
-                }
-            }
-
-            if (collectResults) {
-                PatternResult rr = index.getLatestStats();
-                if (rr != null) {
-                    outList.add(rr);
-                }
-            }
-        }
-
-        return System.currentTimeMillis() - start;
-    }
-
     // Helper to manage cost model accuracy accounting.
 
     public static void main(String[] args) throws IOException {
         System.out.println("Starting experiment...");
 
-        // Default mode is character streaming, which is your current behavior
-        String mode = "segments";//modes are chars/segments
-
-        // Command line overrides: --mode chars|segments, --data, --queries, --log2w, --ngram,
+        // Command line overrides: the DataCatalog.Selection flags (--dataset, --part, --pattern-length,
+        // --query-type, --reader/--mode, --data, --queries, --data-root), and --log2w, --ngram,
         // --alphabet, --cf maxprob|occurrence, --out <csv prefix>
+        DataCatalog.Selection selection = new DataCatalog.Selection("mawi21");
         for (int i = 0; i < args.length - 1; i += 2) {
             String value = args[i + 1];
-            switch (args[i].toLowerCase(Locale.ROOT)) {
-                case "--mode" -> mode = value;
-                case "--data" -> DATA_FILE = value;
-                case "--queries" -> QUERIES_FILE = value;
+            String key = args[i].toLowerCase(Locale.ROOT);
+            if (key.startsWith("--") && selection.accept(key.substring(2), value)) {
+                continue;
+            }
+            switch (key) {
                 case "--log2w" -> {
                     TextSize = Integer.parseInt(value);
                     WINDOW_LEN = 1 << TextSize;
@@ -269,14 +113,15 @@ public class ConfidenceExperiment {
                 default -> throw new IllegalArgumentException("unknown option " + args[i]);
             }
         }
-        RUNS = deepestStartLevel(QUERIES_FILE, mode);
+        WORKLOAD = selection.resolve();
+        RUNS = deepestStartLevel(WORKLOAD);
 
         // Expand ALPHABET to n-gram space (same as your current code does with ALPHABET, NGRAMS)
         ALPHABET = (int) Math.pow(ALPHABET, NGRAMS);
 
         System.out.printf(
-                "Window=%d, Tree=%d, sigma=%d, FP=%.3g, n-gram=%d, runs=%d, mode=%s, cf=%s%n",
-                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), mode, COST_FUNCTION);
+                "Window=%d, Tree=%d, sigma=%d, FP=%.3g, n-gram=%d, runs=%d, workload=%s, cf=%s%n",
+                WINDOW_LEN, TREE_LEN, ALPHABET, FP_RATE, NGRAMS, (RUNS + 1), WORKLOAD, COST_FUNCTION);
 
         // Per-run summaries for runs_summary.csv
         List<List<?>> runRows = new ArrayList<>();
@@ -336,29 +181,11 @@ public class ConfidenceExperiment {
             // ---------------------------------
             // Run either chars-mode pipeline or segments-mode pipeline
             // ---------------------------------
-            ExperimentRunResult result;
-            if ("segments".equalsIgnoreCase(mode)) {
-                result = runStreamingSegments(
-                        DATA_FILE,
-                        QUERIES_FILE,
-                        hbi,
-                        NGRAMS,
-                        WINDOW_LEN,
-                        false,   // verbose
-                        true     // collect PatternResult objects
-                );
-                int b = 2;
-            } else {
-                // chars mode (original behavior)
-                result = Experiment.run(
-                        DATA_FILE,
-                        QUERIES_FILE,
-                        hbi,
-                        NGRAMS,
-                        false,   // verbose
-                        true     // collect PatternResult objects
-                );
-            }
+            // Segments stream and re-run the queries after every window; characters query once at the end.
+            WorkloadRunner.Options collect = WorkloadRunner.Options.QUIET.collectStats(true);
+            ExperimentRunResult result = (WORKLOAD.mode() == Workload.ReaderMode.SEGMENTS)
+                    ? WorkloadRunner.stream(WORKLOAD, hbi, NGRAMS, WINDOW_LEN, collect)
+                    : WorkloadRunner.run(WORKLOAD, hbi, NGRAMS, collect);
 
             // ---------------------------------
             // Summarize model accuracy for this run
@@ -847,10 +674,10 @@ public class ConfidenceExperiment {
     }
 
     // Deepest level whose nodes can still hold the shortest query (Block Search never starts lower).
-    private static int deepestStartLevel(String queriesFile, String mode) throws IOException {
+    private static int deepestStartLevel(Workload workload) {
         int shortest = Integer.MAX_VALUE;
-        for (String q : loadQueries(queriesFile)) {
-            int len = "segments".equalsIgnoreCase(mode) ? q.split(" ").length : q.length();
+        for (Workload.Query q : workload.parsedQueries()) {
+            int len = (q.tokens() != null) ? q.tokens().length : q.text().length();
             shortest = Math.min(shortest, len);
         }
         if (shortest == Integer.MAX_VALUE) {

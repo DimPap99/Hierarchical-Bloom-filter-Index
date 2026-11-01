@@ -28,9 +28,9 @@ import java.util.Random;
 //       prints its hit total and a checksum over the sorted absolute positions of every query, so two builds or
 //       two modes can be checked for identical answers. The options after <reps> can come in any order.
 //       Defaults: window 2^20, legacy (StreamingSlidingWindowIndex), dc3, fks, chars.
-//       chars: newlines dropped, one n-gram of characters per symbol (MultiQueryExperiment).
+//       chars: newlines dropped, one n-gram of characters per symbol (WorkloadRunner).
 //       segments: one token per non-empty line, n consecutive tokens per symbol, queries split on spaces
-//       (SegmentModeRunner).
+//       (WorkloadRunner).
 //       amortized: the paper's structure (SlidingSuffixIndex), with the given builder (Farach-Colton or DC3)
 //       and child dictionary.
 //   build [legacy|static] [fc|dc3] [fastutil|fks]
